@@ -19,8 +19,15 @@ class Form
         $this->schema_version = $data['schema_version'] ?? '1.0.0';
         $this->owner_id = $data['owner_id'] ?? 0;
         $this->status = $data['status'] ?? 'draft';
-        $this->meta = isset($data['meta']) ? json_decode($data['meta'], true) : [];
-        $this->fields = $data['fields'] ?? [];
+        if (!isset($data['meta'])) {
+            $this->meta = [];
+        } elseif (is_array($data['meta'])) {
+            $this->meta = $data['meta'];
+        } else {
+            $decoded = json_decode((string)$data['meta'] ?: '{}', true);
+            $this->meta = is_array($decoded) ? $decoded : [];
+        }
+        $this->fields = is_array($data['fields'] ?? null) ? $data['fields'] : [];
     }
 
     public static function fromJson(string $json): self
