@@ -9,6 +9,7 @@ use Arshline\Modules\Forms\FormRepository;
 use Arshline\Modules\Forms\Submission;
 use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
+use Arshline\Modules\Forms\FormValidator;
 use Arshline\Modules\Forms\FieldRepository;
 
 class Api
@@ -136,6 +137,12 @@ class Api
         if ($form_id <= 0) return new WP_REST_Response(['error' => 'invalid_form_id'], 400);
         $values = $request->get_param('values');
         if (!is_array($values)) $values = [];
+        // Load schema for validation
+        $fields = FieldRepository::listByForm($form_id);
+        $valErrors = FormValidator::validateSubmission($fields, $values);
+        if (!empty($valErrors)) {
+            return new WP_REST_Response(['error' => 'validation_failed', 'messages' => $valErrors], 422);
+        }
         $submissionData = [
             'form_id' => $form_id,
             'user_id' => get_current_user_id(),
