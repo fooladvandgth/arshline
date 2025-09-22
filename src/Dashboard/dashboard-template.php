@@ -465,7 +465,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     <span class="ar-dnd-handle" title="جابجایی" draggable="true">⋮⋮</span>\
                                                     <span class="hint">(متن کوتاه)</span>\
                                                     <input type="text" data-prop="label" value="'+ (props.label || 'متن کوتاه') +'" placeholder="برچسب" class="ar-input" style="min-width:160px;"/>\
-                                                    <input type="text" data-prop="placeholder" value="'+ (props.placeholder || '') +'" placeholder="راهنما (Placeholder)" class="ar-input" style="min-width:160px;"/>\
+                                                    <input type="text" data-prop="placeholder" value="'+ (props.placeholder || '') +'" placeholder="در صورت تمایل متن نمایش در باکس" class="ar-input" style="min-width:220px;"/>\
                                                     <select class="ar-select" data-prop="format">\
                                                         <option value="free_text"'+(fmt==='free_text'?' selected':'')+'>متن آزاد</option>\
                                                         <option value="email"'+(fmt==='email'?' selected':'')+'>ایمیل</option>\
@@ -485,6 +485,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
                                                         <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
                                                     </label>\
+                                                    <input class="ar-input ar-live-sample" type="text" style="min-width:240px;opacity:.9;" placeholder="" title="نمونه ورودی"/>\
                                                 </div>\
                                                 <div>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
@@ -552,6 +553,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     if (fmtSel) p.format = fmtSel.value || 'free_text';
                                     if (rx) p.regex = rx.value || '';
                                     item.dataset.props = JSON.stringify(p);
+                                    renderSample();
                                 }
                                 item.querySelectorAll('input[data-prop]').forEach(function(el){
                                     el.addEventListener('input', syncProps);
@@ -562,15 +564,36 @@ document.addEventListener('DOMContentLoaded', function() {
                                     fmtSelEl.addEventListener('change', function(){
                                         var rx = item.querySelector('input[data-prop="regex"]');
                                         if (rx) rx.style.display = (fmtSelEl.value==='regex') ? 'inline-block' : 'none';
-                        // auto-suggest placeholder if empty
-                        var ph = item.querySelector('input[data-prop="placeholder"]');
-                        if (ph && ph.value.trim()==='') { ph.value = suggestPlaceholder(fmtSelEl.value); }
+                                        // put suggested placeholder as placeholder attribute (not value)
+                                        var ph = item.querySelector('input[data-prop="placeholder"]');
+                                        if (ph && ph.value.trim()==='') { ph.setAttribute('placeholder', 'در صورت تمایل متن نمایش در باکس (مثال: '+suggestPlaceholder(fmtSelEl.value)+')'); }
                                         syncProps();
                                     });
                                 }
-                // auto-suggest placeholder on create if empty
-                var phInit = item.querySelector('input[data-prop="placeholder"]');
-                if (phInit && (phInit.value||'').trim()==='') { phInit.value = suggestPlaceholder(fmt); var evt = new Event('input'); phInit.dispatchEvent(evt); }
+                                // sample renderer based on format and placeholder
+                                function renderSample(){
+                                    var p = JSON.parse(item.dataset.props || '{}');
+                                    var fmt = p.format || 'free_text';
+                                    var a = inputAttrsByFormat(fmt);
+                                    var sample = item.querySelector('.ar-live-sample');
+                                    if (!sample) return;
+                                    sample.setAttribute('type', a.type || 'text');
+                                    if (a.inputmode) sample.setAttribute('inputmode', a.inputmode); else sample.removeAttribute('inputmode');
+                                    if (a.pattern) sample.setAttribute('pattern', a.pattern); else sample.removeAttribute('pattern');
+                                    var phText = (p.placeholder && p.placeholder.trim()) ? p.placeholder : suggestPlaceholder(fmt);
+                                    sample.setAttribute('placeholder', phText || '');
+                                    // jalali datepicker if available
+                                    if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
+                                        try { jQuery(sample).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
+                                    }
+                                    // also update config placeholder input's placeholder to show suggestion
+                                    var cfgPh = item.querySelector('input[data-prop="placeholder"]');
+                                    if (cfgPh && (cfgPh.value||'').trim()==='') {
+                                        cfgPh.setAttribute('placeholder', 'در صورت تمایل متن نمایش در باکس (مثال: '+(phText||'')+')');
+                                    }
+                                }
+                                // initial
+                                renderSample();
                                 item.querySelector('[data-act="remove"]').onclick = function(){
                                     var canvasRef = document.getElementById('arCanvas');
                                     var idx = Array.from(canvasRef.children).indexOf(item);
