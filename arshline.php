@@ -65,6 +65,9 @@ add_action('init', function () {
 
 // ریدایرکت صفحه اصلی سایت به صفحه داشبورد (موقت)
 add_action('template_redirect', function () {
+	if (defined('REST_REQUEST') && REST_REQUEST) {
+		return;
+	}
 	if (is_front_page()) {
 		$dashboard_id = get_option('arshline_dashboard_page_id');
 		if ($dashboard_id) {
