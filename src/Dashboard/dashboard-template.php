@@ -455,6 +455,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                                         <option value="regex"'+(fmt==='regex'?' selected':'')+'>الگوی دلخواه</option>\
                                                     </select>\
                                                     <input type="text" data-prop="regex" value="'+ (props.regex || '') +'" placeholder="/الگو/" class="ar-input" style="min-width:140px;display:'+(fmt==='regex'?'inline-block':'none')+';" />\
+                                                    <input type="number" data-prop="min" value="'+ (props.min != null ? props.min : '') +'" placeholder="حداقل" class="ar-input" style="width:90px;"/>\
+                                                    <input type="number" data-prop="max" value="'+ (props.max != null ? props.max : '') +'" placeholder="حداکثر" class="ar-input" style="width:90px;"/>\
+                                                    <input type="text" data-prop="error_message" value="'+ (props.error_message || '') +'" placeholder="پیام خطای سفارشی" class="ar-input" style="min-width:180px;"/>\
                                                     <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
                                                         <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
                                                     </label>\
@@ -518,12 +521,20 @@ document.addEventListener('DOMContentLoaded', function() {
                                     var req = item.querySelector('input[data-prop="required"]');
                                     var fmtSel = item.querySelector('select[data-prop="format"]');
                                     var rx = item.querySelector('input[data-prop="regex"]');
+                                    var minEl = item.querySelector('input[data-prop="min"]');
+                                    var maxEl = item.querySelector('input[data-prop="max"]');
+                                    var errEl = item.querySelector('input[data-prop="error_message"]');
                                     p.label = label ? label.value : p.label;
                                     p.placeholder = ph ? ph.value : p.placeholder;
                                     p.required = req ? !!req.checked : !!p.required;
                                     p.type = 'short_text';
                                     if (fmtSel) p.format = fmtSel.value || 'free_text';
                                     if (rx) p.regex = rx.value || '';
+                                    var minVal = minEl && minEl.value !== '' ? parseInt(minEl.value, 10) : null;
+                                    var maxVal = maxEl && maxEl.value !== '' ? parseInt(maxEl.value, 10) : null;
+                                    if (minVal != null && !isNaN(minVal)) p.min = minVal; else delete p.min;
+                                    if (maxVal != null && !isNaN(maxVal)) p.max = maxVal; else delete p.max;
+                                    if (errEl && errEl.value) p.error_message = errEl.value; else delete p.error_message;
                                     item.dataset.props = JSON.stringify(p);
                                 }
                                 item.querySelectorAll('input[data-prop]').forEach(function(el){
