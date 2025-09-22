@@ -36,6 +36,10 @@ use Arshline\Dashboard\Dashboard;
 // ثبت فلگ برای نصب صفحه داشبورد در init پس از فعال‌سازی
 register_activation_hook(__FILE__, function () {
 	update_option('arshline_do_page_install', 1);
+	// تضمین ایجاد جداول دیتابیس (مهاجرت‌ها)
+	if (class_exists('Arshline\\Modules\\FormsModule')) {
+		\Arshline\Modules\FormsModule::migrate();
+	}
 });
 
 // ثبت شورت‌کد داشبورد مدرن
@@ -133,12 +137,14 @@ spl_autoload_register(function ($class) {
 // بوت اولیه ServiceContainer و FormsModule
 use Arshline\Core\ServiceContainer;
 use Arshline\Modules\FormsModule;
+use Arshline\Core\Api;
 
 add_action('plugins_loaded', function () {
 	$container = new ServiceContainer();
 	// ثبت ماژول‌ها
 	FormsModule::boot();
 	// سایر ماژول‌ها بعداً اضافه می‌شوند
+	Api::boot();
 });
 
 // نمونه ثبت فرم ساده (MVP Core) برای تست اولیه

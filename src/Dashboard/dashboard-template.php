@@ -254,10 +254,36 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>\
                         </div>';
         } else if (tab === 'forms') {
-            content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
-                <div class="card glass"><span class="title">فرم‌ها</span><div class="hint">اینجا لیست فرم‌ها نمایش داده می‌شود (Placeholder)</div></div>\
-                <div class="card glass"><span class="title">ساخت فرم جدید</span><div class="hint">به‌زودی: سازنده Drag & Drop</div></div>\
+            content.innerHTML = '<div class="card glass" style="padding:1rem;">\
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">\
+                  <span class="title">فرم‌ها</span>\
+                  <button id="arCreateFormBtn" class="mode-switch" style="font-size:.95rem;padding:.45rem .8rem;">+ فرم جدید</button>\
+                </div>\
+                <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
             </div>';
+            fetch('/wp-json/arshline/v1/forms').then(r=>r.json()).then(function(rows){
+                var box = document.getElementById('arFormsList');
+                if (!rows || rows.length===0) { box.textContent = 'فرمی یافت نشد.'; return; }
+                var html = rows.map(function(it){
+                    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
+                        <div>\
+                          <b style="color:var(--text)">'+(it.title||'بدون عنوان')+'</b>\
+                          <span class="hint" style="margin-inline-start:.6rem">#'+it.id+' · '+it.status+'</span>\
+                        </div>\
+                        <a href="#" data-id="'+it.id+'" class="hint">ویرایش</a>\
+                    </div>';
+                }).join('');
+                box.innerHTML = html;
+            }).catch(()=>{
+                var box = document.getElementById('arFormsList');
+                if (box) box.textContent = 'خطا در بارگذاری فرم‌ها';
+            });
+            var btn = document.getElementById('arCreateFormBtn');
+            if (btn) btn.addEventListener('click', function(){
+                var title = prompt('عنوان فرم را وارد کنید:', 'فرم جدید');
+                fetch('/wp-json/arshline/v1/forms', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title: title||'فرم جدید' }) })
+                    .then(r=>r.json()).then(function(){ renderTab('forms'); });
+            });
         } else if (tab === 'submissions') {
             content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
                 <div class="card glass"><span class="title">پاسخ‌ها</span><div class="hint">مرتب‌سازی، فیلتر و جستجو (Placeholder)</div></div>\
