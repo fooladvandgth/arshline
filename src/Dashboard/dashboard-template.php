@@ -13,6 +13,7 @@ if (!defined('ABSPATH')) exit;
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>داشبورد عرشلاین</title>
+    <link rel="icon" href="<?php echo esc_url( plugins_url('favicon.ico', dirname(__DIR__, 2).'/arshline.php') ); ?>" type="image/x-icon" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -106,11 +107,11 @@ if (!defined('ABSPATH')) exit;
         }
         .arshline-header .mode-switch { cursor: pointer; font-size: 1.2rem; color: #fff; background: var(--primary); padding:.55rem .8rem; border-radius:12px; border:0; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease; }
         .arshline-header .mode-switch:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
-    .ar-btn { cursor:pointer; font-weight:600; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.5rem .9rem; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease; }
+    .ar-btn { cursor:pointer; font-weight:600; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.5rem .9rem; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease; font-family: inherit; }
     .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
     .ar-btn--muted { background:#64748b; }
-    .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font: inherit; }
-    .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font: inherit; }
+    .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
         /* دارک مود */
         body.dark { background: var(--bg-surface); color: var(--text); }
     body.dark .arshline-main { color: var(--text); }

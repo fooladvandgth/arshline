@@ -93,9 +93,9 @@ Author URI: https://example.com/
 License: GPL2
 Text Domain: arshline
 */
-use Arshline\Modules\Submission;
-use Arshline\Modules\SubmissionRepository;
-use Arshline\Modules\SubmissionValueRepository;
+use Arshline\Modules\Forms\Submission;
+use Arshline\Modules\Forms\SubmissionRepository;
+use Arshline\Modules\Forms\SubmissionValueRepository;
 // نمونه ثبت پاسخ فرم (Submission) برای تست اولیه
 add_action('init', function () {
 	if (isset($_GET['arshline_test_submission'])) {
