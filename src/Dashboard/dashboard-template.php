@@ -145,19 +145,20 @@ if (!defined('ABSPATH')) exit;
     /* Modern solid cards (original design) */
     .tagline { text-align:center; font-size:1.05rem; font-weight:700; color: var(--text); margin-bottom: 1rem; }
     body.dark .tagline { color: #e5e7eb; }
-    .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:30px; padding: 10px 0 30px; }
-    .ar-card { position:relative; width:320px; height:450px; background:#1e40af; border-radius:20px; border-bottom-left-radius:160px; border-bottom-right-radius:160px; display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 12px 0 #fff, inset 0 -10px 0 rgba(255,255,255,.18), 0 36px 0 rgba(0,0,0,.12); }
+    .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:24px; padding: 10px 0 24px; }
+    .ar-card { position:relative; width:224px; height:315px; background:#1e40af; border-radius:20px; border-bottom-left-radius:112px; border-bottom-right-radius:112px; display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 12px 0 #fff, inset 0 -10px 0 rgba(255,255,255,.18), 0 36px 0 rgba(0,0,0,.12); }
     .ar-card::before { content:""; position:absolute; top:-140px; left:-40%; width:100%; height:120%; background: rgba(255,255,255,.06); transform: rotate(35deg); pointer-events:none; filter: blur(5px); }
-    .ar-card .icon { position:relative; width:140px; height:120px; background:#0d1321; border-bottom-left-radius:100px; border-bottom-right-radius:100px; box-shadow: 0 12px 0 rgba(0,0,0,.1), inset 0 -8px 0 #fff; z-index:2; display:flex; justify-content:center; align-items:flex-start; }
+    .ar-card .icon { position:relative; width:98px; height:84px; background:#0d1321; border-bottom-left-radius:70px; border-bottom-right-radius:70px; box-shadow: 0 12px 0 rgba(0,0,0,.1), inset 0 -8px 0 #fff; z-index:2; display:flex; justify-content:center; align-items:flex-start; }
     .ar-card .icon::before { content:""; position:absolute; top:0; left:-50px; width:50px; height:50px; background:transparent; border-top-right-radius:50px; box-shadow: 15px -15px 0 15px #0d1321; }
     .ar-card .icon::after { content:""; position:absolute; top:0; right:-50px; width:50px; height:50px; background:transparent; border-top-left-radius:50px; box-shadow: -15px -15px 0 15px #0d1321; }
-    .ar-card .icon ion-icon { color:#fff; position:relative; font-size:6em; --ionicon-stroke-width:24px; }
-    .ar-card .content { position:absolute; width:100%; padding:30px; padding-top:150px; text-align:center; z-index:1; }
+    .ar-card .icon ion-icon { color:#fff; position:relative; font-size:4.2em; --ionicon-stroke-width:24px; }
+    .ar-card .content { position:absolute; width:100%; padding:21px; padding-top:105px; text-align:center; z-index:1; }
     .ar-card .content h2 { font-size:1.4rem; color:#fff; margin-bottom:12px; }
     .ar-card .content p { color:#f1f5f9; line-height:1.6; font-size:.95rem; }
     .ar-card--blue { background:#1e40af; }
     .ar-card--amber { background:#b45309; }
     .ar-card--violet { background:#6d28d9; }
+    .ar-card--teal { background:#0e7490; }
     body.dark .ar-card { box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35); }
     /* Toasts */
     .ar-toast-wrap { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .6rem; z-index: 9999; }
@@ -542,7 +543,7 @@ if (!defined('ABSPATH')) exit;
                     </div>\
                     <div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">\
                         <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
-                        <button id="arAddShortText" class="ar-btn" style="width:100%" draggable="true">افزودن پاسخ کوتاه</button>\
+                        <button id="arAddShortText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ کوتاه</button>\
                     </div>\
                 </div>\
             </div>';
@@ -581,6 +582,73 @@ if (!defined('ABSPATH')) exit;
                             });
                         });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
+                        // External tool drag-in insertion
+                        var toolPh = placeholder; // reuse same placeholder style
+                        function ensureToolPlaceholder(heightRef){
+                            if (!toolPh) { toolPh = document.createElement('div'); toolPh.className = 'ar-dnd-placeholder'; }
+                            if (!toolPh.parentNode) list.appendChild(toolPh);
+                            var h = (heightRef && heightRef.offsetHeight) || 48;
+                            toolPh.style.height = h + 'px';
+                            return toolPh;
+                        }
+                        function positionToolPlaceholder(e){
+                            var y = e.clientY;
+                            var beforeNode = null;
+                            var children = Array.from(list.querySelectorAll('.ar-draggable'));
+                            var heightRef = null;
+                            for (var i=0;i<children.length;i++){
+                                var ch = children[i];
+                                var r = ch.getBoundingClientRect();
+                                heightRef = heightRef || ch;
+                                if (y < r.top + r.height/2){ beforeNode = ch; break; }
+                            }
+                            var ph = ensureToolPlaceholder(heightRef);
+                            if (beforeNode) list.insertBefore(ph, beforeNode); else list.appendChild(ph);
+                            return ph;
+                        }
+                        function placeholderIndex(){
+                            var idx = 0;
+                            var found = -1;
+                            Array.from(list.children).forEach(function(el){
+                                if (el === toolPh) { found = idx; }
+                                else if (el.classList && el.classList.contains('ar-draggable')) { idx++; }
+                            });
+                            return (found === -1) ? idx : found;
+                        }
+                        list.addEventListener('dragover', function(e){
+                            var dt = e.dataTransfer; if (!dt) return; var types = Array.from(dt.types||[]);
+                            if (types.includes('text/plain')){
+                                try { var t = dt.getData('text/plain')||''; } catch(_){ var t=''; }
+                                if (t === 'short_text'){ e.preventDefault(); positionToolPlaceholder(e); }
+                            }
+                        });
+                        list.addEventListener('drop', function(e){
+                            var dt = e.dataTransfer; if (!dt) return; var t=''; try{ t = dt.getData('text/plain')||''; } catch(_){ t=''; }
+                            if (t === 'short_text'){
+                                e.preventDefault();
+                                var insertAt = placeholderIndex();
+                                fetch(ARSHLINE_REST + 'forms/'+id)
+                                    .then(r=>r.json())
+                                    .then(function(data){
+                                        var arr = (data && data.fields) ? data.fields.slice() : [];
+                                        var newField = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
+                                        if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
+                                        arr.splice(insertAt, 0, newField);
+                                        return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) });
+                                    })
+                                    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                                    .then(function(){ notify('فیلد جدید درج شد', 'success'); renderFormBuilder(id); })
+                                    .catch(function(){ notify('درج فیلد ناموفق بود', 'error'); })
+                                    .finally(function(){ if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+                            }
+                        });
+                        list.addEventListener('dragleave', function(e){
+                            // Remove placeholder when leaving list entirely
+                            var rect = list.getBoundingClientRect();
+                            if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom){
+                                if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh);
+                            }
+                        });
                     }
                 }).catch(function(){ list.textContent='خطا در بارگذاری فیلدها'; });
             var addBtn = document.getElementById('arAddShortText');
@@ -614,6 +682,10 @@ if (!defined('ABSPATH')) exit;
                         <div class="ar-card ar-card--violet">\
                             <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
                             <div class="content"><h2>تحلیل و گزارش</h2><p>(در حال توسعه)</p></div>\
+                        </div>\
+                        <div class="ar-card ar-card--teal">\
+                            <div class="icon"><ion-icon name="settings-outline"></ion-icon></div>\
+                            <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
                         </div>\
                     </div>';
             } else if (tab === 'forms') {
