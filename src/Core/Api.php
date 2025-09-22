@@ -44,6 +44,11 @@ class Api
                 'title' => [ 'type' => 'string', 'required' => false ],
             ],
         ]);
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
+            'methods' => 'DELETE',
+            'callback' => [self::class, 'delete_form'],
+            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
+        ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/submissions', [
             [
                 'methods' => 'GET',
@@ -161,5 +166,13 @@ class Api
             }
         }
         return new WP_REST_Response([ 'id' => $id, 'form_id' => $form_id, 'status' => 'pending' ], 201);
+    }
+
+    public static function delete_form(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
+        $ok = FormRepository::delete($id);
+        return new WP_REST_Response(['ok' => (bool)$ok], $ok ? 200 : 404);
     }
 }
