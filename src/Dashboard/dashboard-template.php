@@ -104,9 +104,7 @@ if (!defined('ABSPATH')) exit;
         .arshline-header {
             display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;
         }
-        .arshline-header .mode-switch {
-            cursor: pointer; font-size: 1.2rem; color: #fff; background: var(--primary); padding:.55rem .8rem; border-radius:12px; border:0; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease;
-        }
+        .arshline-header .mode-switch { cursor: pointer; font-size: 1.2rem; color: #fff; background: var(--primary); padding:.55rem .8rem; border-radius:12px; border:0; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease; }
         .arshline-header .mode-switch:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
     .ar-btn { cursor:pointer; font-weight:600; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.5rem .9rem; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease; }
     .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
@@ -388,9 +386,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     </label>\
                                                 </div>\
                                                 <div>\
-                                                    <button class="ar-btn" data-act="up" style="padding:.2rem .5rem;font-size:.8rem;">▲</button>\
-                                                    <button class="ar-btn" data-act="down" style="padding:.2rem .5rem;font-size:.8rem;">▼</button>\
-                                                    <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;background:#b91c1c;">حذف</button>\
+                                                    <button class="ar-btn" data-act="up" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;">▲</button>\
+                                                    <button class="ar-btn" data-act="down" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;">▼</button>\
+                                                    <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
                                                 </div>';
                                 item.dataset.props = JSON.stringify(props);
                                 function syncProps(){
