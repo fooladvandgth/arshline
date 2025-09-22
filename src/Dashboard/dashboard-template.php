@@ -463,31 +463,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
                 item.setAttribute('draggable','true');
                 var fmt = props.format || 'free_text';
-                item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;flex:1 1 auto;">\
-                                                    <span class="ar-dnd-handle" title="جابجایی" draggable="true">⋮⋮</span>\
-                                                    <input class="ar-input ar-field-main" type="text" style="min-width:260px;opacity:.95;" placeholder="" title="پاسخ کوتاه" aria-invalid="false"/>\
-                                                    <select class="ar-select" data-prop="format">\
-                                                        <option value="free_text"'+(fmt==='free_text'?' selected':'')+'>متن آزاد</option>\
-                                                        <option value="email"'+(fmt==='email'?' selected':'')+'>ایمیل</option>\
-                                                        <option value="mobile_ir"'+(fmt==='mobile_ir'?' selected':'')+'>موبایل ایران</option>\
-                                                        <option value="mobile_intl"'+(fmt==='mobile_intl'?' selected':'')+'>موبایل بین‌المللی</option>\
-                                                        <option value="tel"'+(fmt==='tel'?' selected':'')+'>تلفن</option>\
-                                                        <option value="numeric"'+(fmt==='numeric'?' selected':'')+'>فقط عددی</option>\
-                                                        <option value="national_id_ir"'+(fmt==='national_id_ir'?' selected':'')+'>کد ملی ایران</option>\
-                                                        <option value="postal_code_ir"'+(fmt==='postal_code_ir'?' selected':'')+'>کد پستی ایران</option>\
-                                                        <option value="fa_letters"'+(fmt==='fa_letters'?' selected':'')+'>حروف فارسی</option>\
-                                                        <option value="en_letters"'+(fmt==='en_letters'?' selected':'')+'>حروف انگلیسی</option>\
-                                                        <option value="ip"'+(fmt==='ip'?' selected':'')+'>IP</option>\
-                                                        <option value="time"'+(fmt==='time'?' selected':'')+'>زمان</option>\
-                                                        <option value="date_jalali"'+(fmt==='date_jalali'?' selected':'')+'>تاریخ شمسی</option>\
-                                                        <option value="date_greg"'+(fmt==='date_greg'?' selected':'')+'>تاریخ میلادی</option>\
-                                                        
-                                                    </select>\
-                                                    
-                                                </div>\
-                                                <div>\
-                                                    <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
-                                                </div>';
+                var html = ''
+                    + '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;flex:1 1 auto;">'
+                    +   '<span class="ar-dnd-handle" title="جابجایی" draggable="true">&#8942;&#8942;</span>'
+                    +   '<input class="ar-input ar-field-main" type="text" style="min-width:260px;opacity:.95;" placeholder="" title="پاسخ کوتاه" aria-invalid="false"/>'
+                    +   '<select class="ar-select" data-prop="format">'
+                    +       '<option value="free_text"' + (fmt==='free_text'?' selected':'') + '>متن آزاد</option>'
+                    +       '<option value="email"' + (fmt==='email'?' selected':'') + '>ایمیل</option>'
+                    +       '<option value="mobile_ir"' + (fmt==='mobile_ir'?' selected':'') + '>موبایل ایران</option>'
+                    +       '<option value="mobile_intl"' + (fmt==='mobile_intl'?' selected':'') + '>موبایل بین‌المللی</option>'
+                    +       '<option value="tel"' + (fmt==='tel'?' selected':'') + '>تلفن</option>'
+                    +       '<option value="numeric"' + (fmt==='numeric'?' selected':'') + '>فقط عددی</option>'
+                    +       '<option value="national_id_ir"' + (fmt==='national_id_ir'?' selected':'') + '>کد ملی ایران</option>'
+                    +       '<option value="postal_code_ir"' + (fmt==='postal_code_ir'?' selected':'') + '>کد پستی ایران</option>'
+                    +       '<option value="fa_letters"' + (fmt==='fa_letters'?' selected':'') + '>حروف فارسی</option>'
+                    +       '<option value="en_letters"' + (fmt==='en_letters'?' selected':'') + '>حروف انگلیسی</option>'
+                    +       '<option value="ip"' + (fmt==='ip'?' selected':'') + '>IP</option>'
+                    +       '<option value="time"' + (fmt==='time'?' selected':'') + '>زمان</option>'
+                    +       '<option value="date_jalali"' + (fmt==='date_jalali'?' selected':'') + '>تاریخ شمسی</option>'
+                    +       '<option value="date_greg"' + (fmt==='date_greg'?' selected':'') + '>تاریخ میلادی</option>'
+                    +   '</select>'
+                    + '</div>'
+                    + '<div>'
+                    +   '<button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>'
+                    + '</div>';
+                item.innerHTML = html;
                                 item.dataset.props = JSON.stringify(props);
                 // DnD events
                 item.addEventListener('dragstart', function(e){
