@@ -125,6 +125,7 @@ if (!defined('ABSPATH')) exit;
     .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
     .ar-btn--muted { background:#64748b; }
     .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    .ar-input::placeholder { color: var(--muted); opacity: .85; }
     .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
     .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
     .ar-dnd-ghost { opacity:.6; }
@@ -200,10 +201,14 @@ if (!defined('ABSPATH')) exit;
                 if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active');
             });
         }
-        function card(title, subtitle){
-            return '<div class="card glass">\
-                <div class="title">'+title+'</div>\
-                <div class="hint">'+(subtitle||'')+'</div>\
+        function card(title, subtitle, icon){
+            var ic = icon ? ('<span style="font-size:22px;margin-inline-start:.4rem;opacity:.85">'+icon+'</span>') : '';
+            return '<div class="card glass" style="display:flex;align-items:center;gap:.6rem;">\
+                '+ic+'\
+                <div>\
+                  <div class="title">'+title+'</div>\
+                  <div class="hint">'+(subtitle||'')+'</div>\
+                </div>\
             </div>';
         }
 
@@ -274,8 +279,7 @@ if (!defined('ABSPATH')) exit;
                 .then(r=>r.json())
                 .then(function(data){
                     var fwrap = document.getElementById('arFormPreviewFields');
-                    var qCount = 0;
-                    (data.fields||[]).forEach(function(f){
+                    (data.fields||[]).forEach(function(f, i){
                         var p = f.props || f;
                         var fmt = p.format || 'free_text';
                         var attrs = inputAttrsByFormat(fmt);
@@ -285,8 +289,7 @@ if (!defined('ABSPATH')) exit;
                         var descId = inputId+'_desc';
                         var showQ = p.question && String(p.question).trim();
                         var numbered = (p.numbered !== false);
-                        var numberStr = '';
-                        if (showQ && numbered) { qCount++; numberStr = qCount + '. '; }
+                        var numberStr = numbered ? ((i+1) + '. ') : '';
                         row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+String(p.question).trim()+'</div>') : '')+
                             '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+numberStr+String(p.question).trim()+'"'):'') + ' />' +
                             (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
@@ -538,13 +541,28 @@ if (!defined('ABSPATH')) exit;
                     else {
                         list.innerHTML = fields.map(function(f, idx){
                             var p = f.props || f; var q = (p.question&&p.question.trim()) || 'پرسش بدون عنوان'; var n = (p.numbered!==false) ? (idx+1)+'. ' : '';
-                            return '<div class="card" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
-                                <div style="display:flex;justify-content:space-between;align-items:center;">\
+                            return '<div class="card ar-draggable" draggable="true" data-index="'+idx+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+                                <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
+                                    <span class="ar-dnd-handle" title="جابجایی">≡</span>\
                                     <div class="hint">'+n+q+'</div>\
                                     <a href="#" class="arEditField" data-id="'+id+'" data-index="'+idx+'">ویرایش</a>\
                                 </div>\
                             </div>';
                         }).join('');
+                        // DnD sorting
+                        var dragging = null;
+                        var placeholder = document.createElement('div');
+                        placeholder.className = 'ar-dnd-placeholder';
+                        list.querySelectorAll('.ar-draggable').forEach(function(item){
+                            item.addEventListener('dragstart', function(e){ dragging = item; e.dataTransfer.effectAllowed = 'move'; item.classList.add('ar-dnd-ghost'); });
+                            item.addEventListener('dragend', function(){ dragging = null; item.classList.remove('ar-dnd-ghost'); if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); });
+                            item.addEventListener('dragover', function(e){ e.preventDefault(); var rect = item.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height/2); if (dragging && dragging !== item){ if (before) item.parentNode.insertBefore(placeholder, item); else item.parentNode.insertBefore(placeholder, item.nextSibling); }});
+                            item.addEventListener('drop', function(e){ e.preventDefault(); if (!dragging) return; if (placeholder.parentNode) placeholder.parentNode.insertBefore(dragging, placeholder); var newOrder = Array.from(list.children).map(function(el){ return parseInt(el.getAttribute('data-index')||'0'); }).filter(function(v){ return !isNaN(v); });
+                                // apply new order to fields
+                                var reordered = newOrder.map(function(i){ return fields[i]; });
+                                fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: reordered }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('چیدمان به‌روزرسانی شد', 'success'); renderFormBuilder(id); }).catch(function(){ notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
+                            });
+                        });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
                     }
                 }).catch(function(){ list.textContent='خطا در بارگذاری فیلدها'; });
@@ -567,9 +585,9 @@ if (!defined('ABSPATH')) exit;
             var content = document.getElementById('arshlineDashboardContent');
             if (tab === 'dashboard') {
                 content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
-                    card('فرم‌ساز سریع', 'فرم بسازید و منتشر کنید') +
-                    card('پاسخ‌ها', 'مرور و جستجو') +
-                    card('گزارشات', 'به‌زودی') +
+                    card('فرم‌ساز سریع', 'فرم بسازید و منتشر کنید', '🧩') +
+                    card('پاسخ‌ها', 'مرور و جستجو', '🗃️') +
+                    card('گزارشات', 'به‌زودی', '📈') +
                 '</div>';
             } else if (tab === 'forms') {
                 content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
