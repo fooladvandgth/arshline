@@ -1,0 +1,300 @@
+<?php
+/**
+ * Template Name: Arshline Dashboard Fullscreen
+ * Description: قالب اختصاصی و تمام‌صفحه برای داشبورد عرشلاین (بدون هدر و فوتر پوسته)
+ */
+
+// جلوگیری از بارگذاری مستقیم
+if (!defined('ABSPATH')) exit;
+
+?><!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>داشبورد عرشلاین</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Cyberpunk/Futuristic (light) */
+            --primary: #1e40af;     /* Indigo 800 (deeper) */
+            --primary-600: #1d4ed8;
+            --secondary: #0e7490;   /* Cyan 700 (deeper) */
+            --hot: #a21caf;         /* Fuchsia 700 (deeper) */
+            --accent: #047857;      /* Emerald 800 (deeper) */
+            --text: #0b1220;
+            --muted: #64748b;
+            --bg-surface: #f5f7fb;
+            --surface: #ffffff;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --sidebar: #ffffff;
+            --shadow-primary: 0 16px 36px rgba(30,64,175,.28);
+            --shadow-card: 0 8px 20px rgba(0,0,0,.10);
+            --grad-primary: #1e40af; /* solid */
+            --grad-accent: #047857;  /* solid */
+            /* Sporty solids for feature cards */
+            --grad-blue: #1e40af;
+            --grad-green: #047857;
+            --grad-pink: #a21caf;
+            --grad-cyan-magenta: #0e7490;
+            /* Glassmorphism (light) */
+            --glass-a: rgba(255,255,255,.6);
+            --glass-b: rgba(255,255,255,.22);
+            --glass-border: rgba(255,255,255,.55);
+            /* Glow */
+            --glow-primary: 0 0 0 3px rgba(37,99,255,.22), 0 10px 28px rgba(37,99,255,.28);
+            --glow-accent: 0 0 0 3px rgba(0,255,149,.18), 0 10px 28px rgba(0,229,255,.26);
+        }
+        body.dark {
+            /* Cyberpunk (dark) */
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --bg-surface: #0c111f;
+            --surface: #0d1321;
+            --card: #121a2a;
+            --border: #1f2a44;
+            --sidebar: #0d1321; /* solid */
+            --shadow-primary: 0 18px 42px rgba(30,64,175,.35);
+            --shadow-card: 0 12px 28px rgba(0,0,0,.55);
+            --grad-primary: #1e40af; /* solid */
+            --grad-accent: #047857;  /* solid */
+            /* Glassmorphism (dark) */
+            --glass-a: rgba(255,255,255,.1);
+            --glass-b: rgba(255,255,255,.05);
+            --glass-border: rgba(255,255,255,.2);
+            /* Glow */
+            --glow-primary: 0 0 0 3px rgba(37,99,255,.28), 0 14px 34px rgba(37,99,255,.38);
+            --glow-accent: 0 0 0 3px rgba(0,255,149,.22), 0 14px 34px rgba(0,229,255,.34);
+        }
+        body {
+            margin: 0; padding: 0; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif; 
+            background: var(--bg-surface);
+            color: var(--text); transition: background .3s, color .3s;
+        }
+        .arshline-dashboard-root {
+            display: flex; min-height: 100vh; width: 100vw;
+        }
+        .arshline-sidebar {
+            width: 280px; background: var(--sidebar); border-inline-start: 1px solid var(--border);
+            backdrop-filter: blur(8px); display: flex; flex-direction: column; transition: width .3s;
+        }
+        .arshline-sidebar.closed { width: 64px; }
+        .arshline-sidebar .logo {
+            font-size: 1.4rem; font-weight: 700; color: var(--primary); padding: 1.75rem 1.25rem 1rem 1.25rem; text-align: right; display:flex; align-items:center; gap:.6rem;
+        }
+        .arshline-sidebar nav {
+            flex: 1; display: flex; flex-direction: column; gap: 1rem; padding: 1rem 0;
+        }
+        .arshline-sidebar nav a {
+            display: flex; align-items: center; gap: .75rem; color: var(--muted); text-decoration: none; padding: .7rem 1.1rem; border-radius: 12px; transition: background .2s, color .2s, transform .2s, box-shadow .2s;
+        }
+    .arshline-sidebar nav a svg { transition: transform .2s ease, filter .2s ease; }
+    .arshline-sidebar nav a:hover svg { transform: translateX(-4px) scale(1.02); filter: drop-shadow(0 6px 10px rgba(37,99,255,.3)); }
+	.arshline-sidebar nav a.active { background: var(--primary); color: #fff; border: 0; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+	.arshline-sidebar nav a:hover { background: rgba(37,99,255,.18); color: #0b1220; box-shadow: 0 8px 20px rgba(37,99,255,.18); }
+        .arshline-sidebar .toggle {
+            margin: 1rem 1.25rem; cursor: pointer; color: var(--muted); font-size: 1.2rem; text-align: right;
+        }
+        .arshline-main {
+            flex: 1; padding: 2.2rem 2rem; min-height: 100vh; transition: background .3s;
+        }
+        .arshline-header {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;
+        }
+        .arshline-header .mode-switch {
+            cursor: pointer; font-size: 1.2rem; color: #fff; background: var(--primary); padding:.55rem .8rem; border-radius:12px; border:0; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease;
+        }
+        .arshline-header .mode-switch:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
+        /* دارک مود */
+        body.dark { background: var(--bg-surface); color: var(--text); }
+    body.dark .arshline-main { color: var(--text); }
+    body.dark .arshline-sidebar nav a { color: var(--muted); }
+    body.dark .arshline-sidebar nav a.active { background: var(--primary); color: #fff; box-shadow: 0 10px 22px rgba(0,0,0,.35); }
+    body.dark .arshline-sidebar nav a:hover { background: rgba(30,64,175,.22); color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,.25); }
+
+        /* Glass utility */
+    .glass { background: var(--glass-a); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid var(--glass-border); box-shadow: 0 1px 0 rgba(255,255,255,.12) inset; }
+
+        /* کارت‌ها */
+        .card {
+            background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 6px 16px rgba(0,0,0,.08);
+            padding: 1.4rem 1.2rem; min-width: 220px; flex: 1 1 220px; text-align: center; position: relative; overflow: hidden;
+            transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+        }
+        .card:after { content:''; position:absolute; inset:-1px; border-radius:inherit; pointer-events:none; opacity:0; transition: opacity .25s ease; }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(0,0,0,.12); border-color: rgba(37,99,255,.35); }
+        .card:hover:after { opacity:.6; }
+        .card .title { font-size: 1.12rem; font-weight: 800; color: #0f172a; text-shadow: none; }
+    .card .hint { margin-top: .8rem; color: var(--muted); }
+        body.dark .card .title { color: #f3f6fb; text-shadow: none; }
+
+    /* Feature variants: sporty gradient accents */
+    .card[class*="card--"] { position: relative; color:#fff; border: 0; }
+    .card[class*="card--"]::before { content:""; position:absolute; inset:0; background: var(--accent-grad, var(--grad-primary)); }
+    .card[class*="card--"] > * { position: relative; z-index:1; }
+    .card[class*="card--"]::after { content:""; position:absolute; inset:0; background: rgba(255,255,255,.08); opacity:.15; }
+    .card[class*="card--"] .title { color: #fff; }
+    .card[class*="card--"] .hint { color: #ffffffd0; }
+    .card--builder { --accent-grad: var(--grad-blue); }
+    .card--submissions { --accent-grad: var(--grad-green); }
+    .card--analytics { --accent-grad: var(--grad-pink); }
+    .card--ai { --accent-grad: var(--grad-cyan-magenta); }
+    .card[class*="card--"]:hover { box-shadow: 0 10px 26px rgba(0,0,0,.18); }
+        /* views + micro-animations */
+        .view { opacity: 0; transform: translateY(10px) scale(.98); animation: enter .35s ease forwards; }
+        @keyframes enter { to { opacity: 1; transform: translateY(0) scale(1); } }
+        .tagline { text-align:center; font-size:1.05rem; font-weight:700; color: var(--text); margin-bottom: 1rem; }
+        body.dark .tagline { color: #e5e7eb; }
+        /* Modern solid cards (no gradients) */
+        .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:30px; padding: 10px 0 30px; }
+        .ar-card { position:relative; width:320px; height:450px; background:#1e40af; border-radius:20px; border-bottom-left-radius:160px; border-bottom-right-radius:160px; display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 12px 0 #fff, inset 0 -10px 0 rgba(255,255,255,.18), 0 36px 0 rgba(0,0,0,.12); }
+        .ar-card::before { content:""; position:absolute; top:-140px; left:-40%; width:100%; height:120%; background: rgba(255,255,255,.06); transform: rotate(35deg); pointer-events:none; filter: blur(5px); }
+        .ar-card .icon { position:relative; width:140px; height:120px; background:#0d1321; border-bottom-left-radius:100px; border-bottom-right-radius:100px; box-shadow: 0 12px 0 rgba(0,0,0,.1), inset 0 -8px 0 #fff; z-index:2; display:flex; justify-content:center; align-items:flex-start; }
+        .ar-card .icon::before { content:""; position:absolute; top:0; left:-50px; width:50px; height:50px; background:transparent; border-top-right-radius:50px; box-shadow: 15px -15px 0 15px #0d1321; }
+        .ar-card .icon::after { content:""; position:absolute; top:0; right:-50px; width:50px; height:50px; background:transparent; border-top-left-radius:50px; box-shadow: -15px -15px 0 15px #0d1321; }
+        .ar-card .icon ion-icon { color:#fff; position:relative; font-size:6em; --ionicon-stroke-width:24px; }
+        .ar-card .content { position:absolute; width:100%; padding:30px; padding-top:150px; text-align:center; z-index:1; }
+        .ar-card .content h2 { font-size:1.4rem; color:#fff; margin-bottom:12px; }
+        .ar-card .content p { color:#f1f5f9; line-height:1.6; font-size:.95rem; }
+        .ar-card--blue { background:#1e40af; }
+        .ar-card--amber { background:#b45309; }
+        .ar-card--violet { background:#6d28d9; }
+        body.dark .ar-card { box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35); }
+        /* دسترسی: کاهش حرکت */
+        @media (prefers-reduced-motion: reduce) {
+            * { animation: none !important; transition: none !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="arshline-dashboard-root">
+    <aside class="arshline-sidebar glass" id="arshlineSidebar">
+        <div class="logo">عرشلاین</div>
+        <nav>
+            <a href="#" class="active" data-tab="dashboard"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" fill="currentColor"/></svg>داشبورد</a>
+            <a href="#" data-tab="forms"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z" fill="currentColor"/></svg>فرم‌ها</a>
+            <a href="#" data-tab="submissions"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 8h14v-2H7v2zm0-4h14v-2H7v2zm0-6v2h14V7H7z" fill="currentColor"/></svg>پاسخ‌ها</a>
+            <a href="#" data-tab="reports"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" fill="currentColor"/></svg>گزارشات</a>
+            <a href="#" data-tab="users"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/></svg>کاربران</a>
+        </nav>
+        <div class="toggle" onclick="toggleSidebar()"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg></div>
+    </aside>
+    <main class="arshline-main">
+        <div class="arshline-header">
+            <div style="font-size:1.5rem;font-weight:600;">داشبورد عرشلاین <span style="font-size:.95rem;color:#00e5ff;opacity:.9">v<?php echo \Arshline\Dashboard\Dashboard::VERSION; ?></span></div>
+            <div class="mode-switch" onclick="toggleMode()"><svg id="modeIcon" width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M6.343 17.657l-1.414 1.414m12.728 0l-1.414-1.414M6.343 6.343L4.929 4.929" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>
+        <div id="arshlineDashboardContent" class="view"></div>
+    </main>
+</div>
+<script>
+// apply saved theme preference on load (default: light)
+(function() {
+    var saved = localStorage.getItem('arshlineTheme');
+    if (saved === 'dark') document.body.classList.add('dark');
+    updateModeIcon();
+})();
+
+function toggleSidebar() {
+    var sidebar = document.getElementById('arshlineSidebar');
+    sidebar.classList.toggle('closed');
+}
+function toggleMode() {
+    var dark = document.body.classList.toggle('dark');
+    localStorage.setItem('arshlineTheme', dark ? 'dark' : 'light');
+    updateModeIcon();
+}
+function updateModeIcon() {
+    var icon = document.getElementById('modeIcon');
+    if (!icon) return;
+    if (document.body.classList.contains('dark')) {
+        icon.innerHTML = '<path d="M21.64 13.64A9 9 0 1110.36 2.36 7 7 0 0021.64 13.64z" fill="currentColor"/>';
+    } else {
+        icon.innerHTML = '<path d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M6.343 17.657l-1.414 1.414m12.728 0l-1.414-1.414M6.343 6.343L4.929 4.929" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+    }
+}
+
+// Tabs: render placeholder content per menu item
+document.addEventListener('DOMContentLoaded', function() {
+    var nav = document.querySelector('.arshline-sidebar nav');
+    var links = nav ? nav.querySelectorAll('a[data-tab]') : [];
+    var content = document.getElementById('arshlineDashboardContent');
+
+    function setActive(tab) {
+        links.forEach(function(a){
+            if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active');
+        });
+    }
+
+    function card(title, hint, variant) {
+        var cls = 'card glass' + (variant ? (' card--' + variant) : '');
+        return '<div class="' + cls + '"><span class="title">' + title + '</span><div class="hint">' + hint + '</div></div>';
+    }
+
+    function renderTab(tab) {
+        if (!content) return;
+        setActive(tab);
+    if (tab === 'dashboard') {
+            content.innerHTML = '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>' +
+            '<div class="ar-modern-cards">\
+                            <div class="ar-card ar-card--blue">\
+                                <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
+                                <div class="content"><h2>فرم‌ساز پیشرفته</h2><p>(در حال توسعه)</p></div>\
+                            </div>\
+                            <div class="ar-card ar-card--amber">\
+                                <div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>\
+                                <div class="content"><h2>مدیریت پاسخ‌ها</h2><p>(در حال توسعه)</p></div>\
+                            </div>\
+                            <div class="ar-card ar-card--violet">\
+                                <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
+                                <div class="content"><h2>تحلیل و گزارش</h2><p>(در حال توسعه)</p></div>\
+                            </div>\
+                        </div>';
+        } else if (tab === 'forms') {
+            content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
+                <div class="card glass"><span class="title">فرم‌ها</span><div class="hint">اینجا لیست فرم‌ها نمایش داده می‌شود (Placeholder)</div></div>\
+                <div class="card glass"><span class="title">ساخت فرم جدید</span><div class="hint">به‌زودی: سازنده Drag & Drop</div></div>\
+            </div>';
+        } else if (tab === 'submissions') {
+            content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
+                <div class="card glass"><span class="title">پاسخ‌ها</span><div class="hint">مرتب‌سازی، فیلتر و جستجو (Placeholder)</div></div>\
+                <div class="card glass"><span class="title">جزئیات پاسخ</span><div class="hint">پیش‌نمایش پاسخ انتخابی (Placeholder)</div></div>\
+            </div>';
+        } else if (tab === 'reports') {
+            content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
+                card('نمودار نرخ تبدیل', 'به‌زودی') +
+                card('منابع ترافیک', 'به‌زودی') +
+                card('زمان‌های اوج', 'به‌زودی') +
+            '</div>';
+        } else if (tab === 'users') {
+            content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
+                <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
+                <div class="card glass"><span class="title">همکاری تیمی</span><div class="hint">دعوت هم‌تیمی‌ها (Placeholder)</div></div>\
+            </div>';
+        }
+        // re-trigger entrance animation
+        content.classList.remove('view');
+        void content.offsetWidth;
+        content.classList.add('view');
+    }
+
+    // bind clicks + keyboard
+    links.forEach(function(a){
+        a.addEventListener('click', function(e){ e.preventDefault(); renderTab(a.getAttribute('data-tab')); });
+        a.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); renderTab(a.getAttribute('data-tab')); }});
+    });
+
+    // default tab
+    var initial = (location.hash || '').replace('#','') || 'dashboard';
+    if (![ 'dashboard','forms','submissions','reports','users' ].includes(initial)) initial = 'dashboard';
+    renderTab(initial);
+});
+</script>
+<!-- Ionicons for modern solid cards -->
+<script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+<script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+</body>
+</html>
