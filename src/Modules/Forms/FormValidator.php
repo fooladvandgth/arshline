@@ -25,10 +25,26 @@ class FormValidator
             $props = isset($f['props']) ? $f['props'] : $f;
             $map[$idx] = $props;
         }
+        $normalizeDigits = function(string $s): string {
+            $fa = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+            $ar = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+            $out = '';
+            $len = mb_strlen($s, 'UTF-8');
+            for ($i=0; $i<$len; $i++) {
+                $ch = mb_substr($s, $i, 1, 'UTF-8');
+                $pos = array_search($ch, $fa, true);
+                if ($pos !== false) { $out .= (string)$pos; continue; }
+                $pos = array_search($ch, $ar, true);
+                if ($pos !== false) { $out .= (string)$pos; continue; }
+                $out .= $ch;
+            }
+            return $out;
+        };
         foreach ($values as $idx => $entry) {
             $props = $map[$idx] ?? null;
             if (!$props) continue;
             $val = (string)($entry['value'] ?? '');
+            $val = $normalizeDigits(trim($val));
             $required = !empty($props['required']);
             if ($required && $val === '') { $errors[] = ($props['label'] ?? 'فیلد').' الزامی است.'; continue; }
             if ($val === '') continue;
@@ -50,6 +66,17 @@ class FormValidator
                         break;
                     case 'numeric':
                         if (!preg_match('/^\d+$/', $val)) $errors[] = 'فقط اعداد مجاز است.';
+                        break;
+                    case 'national_id_ir':
+                        if (!preg_match('/^\d{10}$/', $val)) { $errors[] = 'کد ملی نامعتبر است.'; break; }
+                        if (preg_match('/^(\d)\1{9}$/', $val)) { $errors[] = 'کد ملی نامعتبر است.'; break; }
+                        $sum = 0; for ($i=0; $i<9; $i++) { $sum += intval($val[$i]) * (10 - $i); }
+                        $r = $sum % 11; $c = intval($val[9]);
+                        if (!(($r < 2 && $c === $r) || ($r >= 2 && $c === (11 - $r)))) $errors[] = 'کد ملی نامعتبر است.';
+                        break;
+                    case 'postal_code_ir':
+                        if (!preg_match('/^\d{10}$/', $val)) { $errors[] = 'کد پستی نامعتبر است.'; break; }
+                        if (preg_match('/^(\d)\1{9}$/', $val)) { $errors[] = 'کد پستی نامعتبر است.'; break; }
                         break;
                     case 'fa_letters':
                         if (!preg_match('/^[\x{0600}-\x{06FF}\s]+$/u', $val)) $errors[] = 'فقط حروف فارسی مجاز است.';
