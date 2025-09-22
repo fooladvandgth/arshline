@@ -34,4 +34,19 @@ class FormRepository
         }
         return null;
     }
+
+    public static function delete(int $id): bool
+    {
+        global $wpdb;
+        $forms = Helpers::tableName('forms');
+        $fields = Helpers::tableName('fields');
+        $subs = Helpers::tableName('submissions');
+        $subVals = Helpers::tableName('submission_values');
+        // delete submission values -> submissions -> fields -> form
+        $wpdb->query($wpdb->prepare("DELETE sv FROM {$subVals} sv INNER JOIN {$subs} s ON sv.submission_id = s.id WHERE s.form_id=%d", $id));
+        $wpdb->query($wpdb->prepare("DELETE FROM {$subs} WHERE form_id=%d", $id));
+        $wpdb->query($wpdb->prepare("DELETE FROM {$fields} WHERE form_id=%d", $id));
+        $res = $wpdb->delete($forms, ['id' => $id]);
+        return (bool)$res;
+    }
 }

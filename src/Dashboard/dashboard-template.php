@@ -124,645 +124,418 @@ if (!defined('ABSPATH')) exit;
         /* دارک مود */
         body.dark { background: var(--bg-surface); color: var(--text); }
     body.dark .arshline-main { color: var(--text); }
-    body.dark .arshline-sidebar nav a { color: var(--muted); }
-    body.dark .arshline-sidebar nav a.active { background: var(--primary); color: #fff; box-shadow: 0 10px 22px rgba(0,0,0,.35); }
-    body.dark .arshline-sidebar nav a:hover { background: rgba(30,64,175,.22); color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,.25); }
-
-        /* Glass utility */
-    .glass { background: var(--glass-a); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid var(--glass-border); box-shadow: 0 1px 0 rgba(255,255,255,.12) inset; }
-
-        /* کارت‌ها */
-        .card {
-            background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 6px 16px rgba(0,0,0,.08);
-            padding: 1.4rem 1.2rem; min-width: 220px; flex: 1 1 220px; text-align: center; position: relative; overflow: hidden;
-            transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
-        }
-        .card:after { content:''; position:absolute; inset:-1px; border-radius:inherit; pointer-events:none; opacity:0; transition: opacity .25s ease; }
-        .card:hover { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(0,0,0,.12); border-color: rgba(37,99,255,.35); }
-        .card:hover:after { opacity:.6; }
-        .card .title { font-size: 1.12rem; font-weight: 800; color: #0f172a; text-shadow: none; }
-    .card .hint { margin-top: .8rem; color: var(--muted); }
-        body.dark .card .title { color: #f3f6fb; text-shadow: none; }
-
-    /* Feature variants: sporty gradient accents */
-    .card[class*="card--"] { position: relative; color:#fff; border: 0; }
-    .card[class*="card--"]::before { content:""; position:absolute; inset:0; background: var(--accent-grad, var(--grad-primary)); }
-    .card[class*="card--"] > * { position: relative; z-index:1; }
-    .card[class*="card--"]::after { content:""; position:absolute; inset:0; background: rgba(255,255,255,.08); opacity:.15; }
-    .card[class*="card--"] .title { color: #fff; }
-    .card[class*="card--"] .hint { color: #ffffffd0; }
-    .card--builder { --accent-grad: var(--grad-blue); }
-    .card--submissions { --accent-grad: var(--grad-green); }
-    .card--analytics { --accent-grad: var(--grad-pink); }
-    .card--ai { --accent-grad: var(--grad-cyan-magenta); }
-    .card[class*="card--"]:hover { box-shadow: 0 10px 26px rgba(0,0,0,.18); }
-        /* views + micro-animations */
-        .view { opacity: 0; transform: translateY(10px) scale(.98); animation: enter .35s ease forwards; }
-        @keyframes enter { to { opacity: 1; transform: translateY(0) scale(1); } }
-        .tagline { text-align:center; font-size:1.05rem; font-weight:700; color: var(--text); margin-bottom: 1rem; }
-        body.dark .tagline { color: #e5e7eb; }
-        /* Modern solid cards (no gradients) */
-        .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:30px; padding: 10px 0 30px; }
-        .ar-card { position:relative; width:320px; height:450px; background:#1e40af; border-radius:20px; border-bottom-left-radius:160px; border-bottom-right-radius:160px; display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 12px 0 #fff, inset 0 -10px 0 rgba(255,255,255,.18), 0 36px 0 rgba(0,0,0,.12); }
-        .ar-card::before { content:""; position:absolute; top:-140px; left:-40%; width:100%; height:120%; background: rgba(255,255,255,.06); transform: rotate(35deg); pointer-events:none; filter: blur(5px); }
-        .ar-card .icon { position:relative; width:140px; height:120px; background:#0d1321; border-bottom-left-radius:100px; border-bottom-right-radius:100px; box-shadow: 0 12px 0 rgba(0,0,0,.1), inset 0 -8px 0 #fff; z-index:2; display:flex; justify-content:center; align-items:flex-start; }
-        .ar-card .icon::before { content:""; position:absolute; top:0; left:-50px; width:50px; height:50px; background:transparent; border-top-right-radius:50px; box-shadow: 15px -15px 0 15px #0d1321; }
-        .ar-card .icon::after { content:""; position:absolute; top:0; right:-50px; width:50px; height:50px; background:transparent; border-top-left-radius:50px; box-shadow: -15px -15px 0 15px #0d1321; }
-        .ar-card .icon ion-icon { color:#fff; position:relative; font-size:6em; --ionicon-stroke-width:24px; }
-        .ar-card .content { position:absolute; width:100%; padding:30px; padding-top:150px; text-align:center; z-index:1; }
-        .ar-card .content h2 { font-size:1.4rem; color:#fff; margin-bottom:12px; }
-        .ar-card .content p { color:#f1f5f9; line-height:1.6; font-size:.95rem; }
-        .ar-card--blue { background:#1e40af; }
-        .ar-card--amber { background:#b45309; }
-        .ar-card--violet { background:#6d28d9; }
-        body.dark .ar-card { box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35); }
-        /* دسترسی: کاهش حرکت */
-        @media (prefers-reduced-motion: reduce) {
-            * { animation: none !important; transition: none !important; }
-        }
-
-        /* Toasts */
-        .ar-toast-wrap { position: fixed; left: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
-        .ar-toast { background: var(--surface); color: var(--text); border:1px solid var(--border); border-radius: 10px; padding: .55rem .8rem; box-shadow: var(--shadow-card); min-width: 200px; max-width: 360px; }
-        .ar-toast--success { border-color: #16a34a; }
-        .ar-toast--error { border-color: #b91c1c; }
     </style>
-</head>
-<body>
-<div class="arshline-dashboard-root">
-    <aside class="arshline-sidebar glass" id="arshlineSidebar">
-        <div class="logo">عرشلاین</div>
-        <nav>
-            <a href="#" class="active" data-tab="dashboard"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" fill="currentColor"/></svg>داشبورد</a>
-            <a href="#" data-tab="forms"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z" fill="currentColor"/></svg>فرم‌ها</a>
-            <a href="#" data-tab="submissions"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 8h14v-2H7v2zm0-4h14v-2H7v2zm0-6v2h14V7H7z" fill="currentColor"/></svg>پاسخ‌ها</a>
-            <a href="#" data-tab="reports"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" fill="currentColor"/></svg>گزارشات</a>
-            <a href="#" data-tab="users"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/></svg>کاربران</a>
-        </nav>
-        <div class="toggle" onclick="toggleSidebar()"><svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg></div>
-    </aside>
-    <main class="arshline-main">
-        <div class="arshline-header">
-            <div style="font-size:1.5rem;font-weight:600;">داشبورد عرشلاین <span style="font-size:.95rem;color:#00e5ff;opacity:.9">v<?php echo \Arshline\Dashboard\Dashboard::VERSION; ?></span></div>
-            <div class="mode-switch" onclick="toggleMode()"><svg id="modeIcon" width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M6.343 17.657l-1.414 1.414m12.728 0l-1.414-1.414M6.343 6.343L4.929 4.929" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
-        </div>
-        <div id="arshlineDashboardContent" class="view"></div>
-    </main>
-</div>
-<script>
-// WP REST nonce for authenticated requests
-var ARSHLINE_NONCE = '<?php echo wp_create_nonce('wp_rest'); ?>';
-var ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
-var ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
-// apply saved theme preference on load (default: light)
-(function() {
-    var saved = localStorage.getItem('arshlineTheme');
-    if (saved === 'dark') document.body.classList.add('dark');
-    updateModeIcon();
-})();
+    <script>
+    const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
+    const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
+    const ARSHLINE_CAN_MANAGE = <?php echo current_user_can('manage_options') ? 'true' : 'false'; ?>;
+    </script>
+    <script>
+    // Tabs: render content per menu item
+    document.addEventListener('DOMContentLoaded', function() {
+        var content = document.getElementById('arshlineDashboardContent');
+        var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
 
-function toggleSidebar() {
-    var sidebar = document.getElementById('arshlineSidebar');
-    sidebar.classList.toggle('closed');
-}
-function toggleMode() {
-    var dark = document.body.classList.toggle('dark');
-    localStorage.setItem('arshlineTheme', dark ? 'dark' : 'light');
-    updateModeIcon();
-}
-function updateModeIcon() {
-    var icon = document.getElementById('modeIcon');
-    if (!icon) return;
-    if (document.body.classList.contains('dark')) {
-        icon.innerHTML = '<path d="M21.64 13.64A9 9 0 1110.36 2.36 7 7 0 0021.64 13.64z" fill="currentColor"/>';
-    } else {
-        icon.innerHTML = '<path d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M6.343 17.657l-1.414 1.414m12.728 0l-1.414-1.414M6.343 6.343L4.929 4.929" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
-    }
-}
+        // theme switch
+        var modeBtn = document.getElementById('arModeSwitch');
+        try { if (localStorage.getItem('arshDark') === '1') document.body.classList.add('dark'); } catch(_){ }
+        if (modeBtn){
+            modeBtn.addEventListener('click', function(){
+                document.body.classList.toggle('dark');
+                try { localStorage.setItem('arshDark', document.body.classList.contains('dark') ? '1' : '0'); } catch(_){ }
+            });
+        }
 
-// Tabs: render placeholder content per menu item
-document.addEventListener('DOMContentLoaded', function() {
-    var nav = document.querySelector('.arshline-sidebar nav');
-    var links = nav ? nav.querySelectorAll('a[data-tab]') : [];
-    var content = document.getElementById('arshlineDashboardContent');
+        function setActive(tab){
+            links.forEach(function(a){
+                if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active');
+            });
+        }
+        function card(title, subtitle){
+            return '<div class="card glass">\
+                <div class="title">'+title+'</div>\
+                <div class="hint">'+(subtitle||'')+'</div>\
+            </div>';
+        }
 
-    function setActive(tab) {
-        links.forEach(function(a){
-            if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active');
-        });
-    }
+        function suggestPlaceholder(fmt){
+            switch(fmt){
+                case 'email': return 'example@mail.com';
+                case 'mobile_ir': return '09123456789';
+                case 'mobile_intl': return '+14155552671';
+                case 'tel': return '021-12345678';
+                case 'numeric': return '123456';
+                case 'national_id_ir': return '0012345678';
+                case 'postal_code_ir': return '1234567890';
+                case 'fa_letters': return 'مثال فارسی';
+                case 'en_letters': return 'Sample text';
+                case 'ip': return '192.168.1.1';
+                case 'time': return '14:30';
+                case 'date_jalali': return '1403/01/15';
+                case 'date_greg': return '2025-09-22';
+                case 'regex': return 'مطابق الگو';
+                case 'free_text': return 'پاسخ خود را بنویسید';
+                default: return '';
+            }
+        }
+        function inputAttrsByFormat(fmt){
+            var a = { type:'text', inputmode:'', pattern:'' };
+            if (fmt==='email') a.type='email';
+            else if (fmt==='numeric') { a.inputmode='numeric'; a.pattern='[0-9]*'; }
+            else if (fmt==='mobile_ir' || fmt==='mobile_intl' || fmt==='tel' || fmt==='national_id_ir' || fmt==='postal_code_ir') { a.inputmode='tel'; }
+            else if (fmt==='time') a.type='time';
+            else if (fmt==='date_greg') a.type='date';
+            return a;
+        }
 
-    function card(title, hint, variant) {
-        var cls = 'card glass' + (variant ? (' card--' + variant) : '');
-        return '<div class="' + cls + '"><span class="title">' + title + '</span><div class="hint">' + hint + '</div></div>';
-    }
+        function saveFields(){
+            var id = parseInt(document.getElementById('arBuilder').dataset.formId||'0');
+            var canvas = document.getElementById('arCanvas');
+            var fields = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); });
+            fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: fields }) })
+                .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                .then(function(){ notify('ذخیره شد', 'success'); })
+                .catch(function(){ notify('ذخیره تغییرات ناموفق بود', 'error'); });
+        }
 
-    function renderTab(tab) {
-        if (!content) return;
-        setActive(tab);
-    if (tab === 'dashboard') {
-            content.innerHTML = '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>' +
-            '<div class="ar-modern-cards">\
-                            <div class="ar-card ar-card--blue">\
-                                <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
-                                <div class="content"><h2>فرم‌ساز پیشرفته</h2><p>(در حال توسعه)</p></div>\
-                            </div>\
-                            <div class="ar-card ar-card--amber">\
-                                <div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>\
-                                <div class="content"><h2>مدیریت پاسخ‌ها</h2><p>(در حال توسعه)</p></div>\
-                            </div>\
-                            <div class="ar-card ar-card--violet">\
-                                <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
-                                <div class="content"><h2>تحلیل و گزارش</h2><p>(در حال توسعه)</p></div>\
+        function renderFormPreview(id){
+            document.body.classList.add('preview-only');
+            var content = document.getElementById('arshlineDashboardContent');
+            content.innerHTML = '<div class="card glass" style="padding:1.2rem;max-width:720px;margin:0 auto;">\
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">\
+                    <div class="title">پیش‌نمایش فرم #'+ id +'</div>\
+                    <button id="arPreviewBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                </div>\
+                <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
+                <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
+            </div>';
+            fetch(ARSHLINE_REST + 'forms/' + id)
+                .then(r=>r.json())
+                .then(function(data){
+                    var fwrap = document.getElementById('arFormPreviewFields');
+                    (data.fields||[]).forEach(function(f){
+                        var p = f.props || f;
+                        var fmt = p.format || 'free_text';
+                        var attrs = inputAttrsByFormat(fmt);
+                        var phS = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
+                        var row = document.createElement('div');
+                        var inputId = 'f_'+(f.id||Math.random().toString(36).slice(2));
+                        var descId = inputId+'_desc';
+                        row.innerHTML = '<label for="'+inputId+'" class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
+                            '<input id="'+inputId+'" class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" />' +
+                            (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
+                        fwrap.appendChild(row);
+                    });
+                    // apply masks
+                    fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
+                        var field = (data.fields||[])[idx] || {};
+                        var props = field.props || field || {};
+                        applyInputMask(inp, props);
+                        if (props.format === 'date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
+                            try { jQuery(inp).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
+                        }
+                    });
+                    document.getElementById('arPreviewSubmit').onclick = function(){
+                        var vals = [];
+                        fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
+                            var fid = parseInt(inp.getAttribute('data-field-id')||'0');
+                            vals.push({ field_id: fid, value: inp.value||'' });
+                        });
+                        fetch(ARSHLINE_REST + 'forms/'+id+'/submissions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) })
+                            .then(async r=>{ if (!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                            .then(function(){ notify('ارسال شد', 'success'); })
+                            .catch(function(){ notify('اعتبارسنجی/ارسال ناموفق بود', 'error'); });
+                    };
+                    document.getElementById('arPreviewBack').onclick = function(){ document.body.classList.remove('preview-only'); renderTab('forms'); };
+                });
+        }
+
+        function renderFormEditor(id){
+            document.body.classList.remove('preview-only');
+            var content = document.getElementById('arshlineDashboardContent');
+            var hiddenCanvas = '<div id="arCanvas" style="display:none"><div class="ar-item" data-props="{}"></div></div>';
+            content.innerHTML = '<div id="arBuilder" class="card glass" data-form-id="'+id+'" style="padding:1rem;max-width:980px;margin:0 auto;">\
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">\
+                    <div class="title">ویرایش فرم #'+id+'</div>\
+                    <button id="arEditorBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                </div>\
+                <div style="display:flex;gap:1rem;align-items:flex-start;">\
+                    <div class="ar-settings" style="width:360px;flex:0 0 360px;">\
+                        <div class="title" style="margin-bottom:.6rem;">تنظیمات فیلد</div>\
+                        <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
+                            <label class="hint">نوع ورودی</label>\
+                            <select id="fType" class="ar-select">\
+                                <option value="free_text">متن آزاد</option>\
+                                <option value="email">ایمیل</option>\
+                                <option value="numeric">عدد</option>\
+                                <option value="date_jalali">تاریخ شمسی</option>\
+                                <option value="date_greg">تاریخ میلادی</option>\
+                                <option value="time">زمان</option>\
+                                <option value="mobile_ir">موبایل ایران</option>\
+                                <option value="mobile_intl">موبایل بین‌المللی</option>\
+                                <option value="national_id_ir">کد ملی ایران</option>\
+                                <option value="postal_code_ir">کد پستی ایران</option>\
+                                <option value="tel">تلفن</option>\
+                                <option value="fa_letters">حروف فارسی</option>\
+                                <option value="en_letters">حروف انگلیسی</option>\
+                                <option value="ip">IP</option>\
+                            </select>\
+                        </div>\
+                        <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">\
+                            <span class="hint">اجباری</span>\
+                            <label class="toggle-switch" title="اجباری" style="transform:scale(.9)">\
+                                <input type="checkbox" id="fRequired">\
+                                <span class="toggle-switch-background"></span>\
+                                <span class="toggle-switch-handle"></span>\
+                            </label>\
+                        </div>\
+                        <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">\
+                            <span class="hint">توضیحات</span>\
+                            <label class="toggle-switch" title="نمایش توضیح" style="transform:scale(.9)">\
+                                <input type="checkbox" id="fDescToggle">\
+                                <span class="toggle-switch-background"></span>\
+                                <span class="toggle-switch-handle"></span>\
+                            </label>\
+                        </div>\
+                        <div class="field" id="fDescWrap" style="display:none">\
+                            <textarea id="fDescText" class="ar-input" rows="2" placeholder="توضیح زیر سؤال"></textarea>\
+                        </div>\
+                        <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">\
+                            <label class="hint">متن راهنما (placeholder)</label>\
+                            <input id="fHelp" class="ar-input" placeholder="مثال: پاسخ را وارد کنید"/>\
+                        </div>\
+                        <div style="margin-top:12px">\
+                            <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>\
+                        </div>\
+                    </div>\
+                    <div class="ar-preview" style="flex:1;">\
+                        <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>\
+                        <div id="pvWrap">\
+                            <label class="hint" id="pvLabel" style="display:block;margin-bottom:.3rem">پاسخ کوتاه</label>\
+                            <div id="pvDesc" class="hint" style="display:none;margin-bottom:.35rem"></div>\
+                            <input id="pvInput" class="ar-input" />\
+                            <div id="pvHelp" class="hint" style="display:none"></div>\
+                            <div id="pvErr" class="hint" style="color:#b91c1c;margin-top:.3rem"></div>\
+                        </div>\
+                    </div>\
+                </div>\
+            </div>' + hiddenCanvas;
+
+            document.getElementById('arEditorBack').onclick = function(){ renderTab('forms'); };
+
+            var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'' };
+            fetch(ARSHLINE_REST + 'forms/' + id)
+                .then(r=>r.json())
+                .then(function(data){
+                    var field = (data.fields && data.fields[0] && (data.fields[0].props || data.fields[0])) || defaultProps;
+                    // ensure base
+                    field.type = 'short_text';
+                    field.label = 'پاسخ کوتاه';
+                    // inject hidden props
+                    var canvasEl = document.querySelector('#arCanvas .ar-item');
+                    if (canvasEl) canvasEl.setAttribute('data-props', JSON.stringify(field));
+                    // setup controls
+                    var sel = document.getElementById('fType');
+                    var req = document.getElementById('fRequired');
+                    var dTg = document.getElementById('fDescToggle');
+                    var dTx = document.getElementById('fDescText');
+                    var dWrap = document.getElementById('fDescWrap');
+                    var help = document.getElementById('fHelp');
+
+                    function updateHiddenProps(p){
+                        var el = document.querySelector('#arCanvas .ar-item');
+                        if (el) el.setAttribute('data-props', JSON.stringify(p));
+                    }
+                    function applyPreviewFrom(p){
+                        var fmt = p.format || 'free_text';
+                        var attrs = inputAttrsByFormat(fmt);
+                        var inp = document.getElementById('pvInput');
+                        if (!inp) return;
+                        // Fully teardown any previous Jalali datepicker bindings
+                        if (typeof jQuery !== 'undefined'){
+                            try { if (jQuery.fn && jQuery.fn.pDatepicker) { jQuery(inp).pDatepicker('destroy'); } } catch(e){}
+                            try { jQuery(inp).off('.pDatepicker'); } catch(e){}
+                            try { jQuery(inp).removeData('datepicker').removeData('pDatepicker'); } catch(e){}
+                        }
+                        try { inp.classList.remove('pwt-datepicker-input-element'); } catch(e){}
+                        // Replace the input node to ensure no lingering handlers
+                        try {
+                            var parent = inp.parentNode;
+                            var clone = inp.cloneNode(false);
+                            clone.id = 'pvInput';
+                            clone.className = 'ar-input';
+                            parent.replaceChild(clone, inp);
+                            inp = clone;
+                        } catch(e){}
+                        // Reset attributes
+                        inp.value = '';
+                        inp.removeAttribute('placeholder');
+                        inp.setAttribute('type', (attrs && attrs.type) ? attrs.type : 'text');
+                        if (attrs && attrs.inputmode) inp.setAttribute('inputmode', attrs.inputmode); else inp.removeAttribute('inputmode');
+                        if (attrs && attrs.pattern) inp.setAttribute('pattern', attrs.pattern); else inp.removeAttribute('pattern');
+                        var ph = (p.placeholder && p.placeholder.trim()) ? p.placeholder : (fmt==='free_text' ? 'پاسخ را وارد کنید' : suggestPlaceholder(fmt));
+                        inp.setAttribute('placeholder', ph || '');
+                        var lbl = document.getElementById('pvLabel'); if (lbl) lbl.innerHTML = (p.label||'پاسخ کوتاه') + (p.required?' *':'');
+                        var desc = document.getElementById('pvDesc'); if (desc){ desc.textContent = p.description || ''; desc.style.display = p.show_description && p.description ? 'block' : 'none'; }
+                        var helpEl = document.getElementById('pvHelp'); if (helpEl) { helpEl.textContent=''; helpEl.style.display='none'; }
+                        // Attach Jalali datepicker only for date_jalali
+                        if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn && jQuery.fn.pDatepicker){
+                            try { jQuery(inp).pDatepicker({ format:'YYYY/MM/DD', initialValue:false }); } catch(e){}
+                        }
+                    }
+                    function sync(){ field.label = 'پاسخ کوتاه'; field.type = 'short_text'; updateHiddenProps(field); applyPreviewFrom(field); }
+
+                    if (sel){ sel.value = field.format || 'free_text'; sel.addEventListener('change', function(){ field.format = sel.value || 'free_text'; var i=document.getElementById('pvInput'); if(i) i.value=''; sync(); }); }
+                    if (req){ req.checked = !!field.required; req.addEventListener('change', function(){ field.required = !!req.checked; sync(); }); }
+                    if (dTg){ dTg.checked = !!field.show_description; if (dWrap) dWrap.style.display = field.show_description ? 'block':'none'; dTg.addEventListener('change', function(){ field.show_description = !!dTg.checked; if(dWrap){ dWrap.style.display = field.show_description ? 'block':'none'; } sync(); }); }
+                    if (dTx){ dTx.value = field.description || ''; dTx.addEventListener('input', function(){ field.description = dTx.value; sync(); }); }
+                    if (help){ help.value = field.placeholder || ''; help.addEventListener('input', function(){ field.placeholder = help.value; sync(); }); }
+
+                    applyPreviewFrom(field);
+                    var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = function(){ saveFields(); };
+                });
+        }
+
+        function renderTab(tab){
+            try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
+            setActive(tab);
+            var content = document.getElementById('arshlineDashboardContent');
+            if (tab === 'dashboard') {
+                content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
+                    card('فرم‌ساز سریع', 'فرم بسازید و منتشر کنید') +
+                    card('پاسخ‌ها', 'مرور و جستجو') +
+                    card('گزارشات', 'به‌زودی') +
+                '</div>';
+            } else if (tab === 'forms') {
+                content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
+                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
+                      <span class="title">فرم‌ها</span>\
+                      <button id="arCreateFormBtn" class="ar-btn" style="margin-inline-start:auto;">+ فرم جدید</button>\
+                    </div>\
+                    <div id="arCreateInline" style="display:none;align-items:center;gap:.5rem;margin-bottom:.8rem;">\
+                      <input id="arNewFormTitle" class="ar-input" placeholder="عنوان فرم" style="min-width:220px"/>\
+                      <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
+                      <button id="arCreateFormCancel" class="ar-btn ar-btn--muted">انصراف</button>\
+                    </div>\
+                    <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
+                </div>';
+                var createBtn = document.getElementById('arCreateFormBtn');
+                var inlineWrap = document.getElementById('arCreateInline');
+                var submitBtn = document.getElementById('arCreateFormSubmit');
+                var cancelBtn = document.getElementById('arCreateFormCancel');
+                if (!ARSHLINE_CAN_MANAGE && createBtn){ createBtn.style.display = 'none'; }
+                if (createBtn) createBtn.addEventListener('click', function(){
+                    if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex';
+                    if (!showing){ var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } }
+                });
+                if (cancelBtn) cancelBtn.addEventListener('click', function(){ if (inlineWrap) inlineWrap.style.display = 'none'; });
+                if (submitBtn) submitBtn.addEventListener('click', function(){
+                    var titleEl = document.getElementById('arNewFormTitle');
+                    var title = (titleEl && titleEl.value.trim()) || 'فرم جدید';
+                    fetch(ARSHLINE_REST + 'forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) })
+                        .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                        .then(function(obj){ notify('فرم ایجاد شد', 'success'); if (obj && obj.id){ renderFormEditor(parseInt(obj.id)); } else { renderTab('forms'); } })
+                        .catch(function(){ notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); });
+                });
+                // load forms list
+                fetch(ARSHLINE_REST + 'forms').then(r=>r.json()).then(function(forms){
+                    var box = document.getElementById('arFormsList'); if (!box) return;
+                    if (!forms || forms.length===0){ box.textContent = 'هنوز فرمی ندارید.'; return; }
+                    var html = (forms||[]).map(function(f){
+                        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
+                            <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'</div>\
+                            <div style="display:flex;gap:.6rem;">\
+                                <a href="#" class="arEditForm" data-id="'+f.id+'">ویرایش</a>\
+                                <a href="#" class="arPreviewForm" data-id="'+f.id+'">پیش‌نمایش</a>\
+                                '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm" data-id="'+f.id+'" style="color:#b91c1c">حذف</a>' : '')+'\
                             </div>\
                         </div>';
-        } else if (tab === 'forms') {
-                        content.innerHTML = '<div class="card glass" style="padding:1rem;">\
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">\
-                  <span class="title">فرم‌ها</span>\
-                  <div style="display:flex;align-items:center;gap:.5rem;">\
-                                        <button id="arCreateFormBtn" class="ar-btn" style="font-size:.95rem;">+ فرم جدید</button>\
-                    <div id="arCreateInline" style="display:none;align-items:center;gap:.4rem;">\
-                                            <input id="arNewFormTitle" type="text" placeholder="عنوان فرم..." class="ar-input" style="min-width:220px;" />\
-                                            <button id="arCreateFormSubmit" class="ar-btn" style="font-size:.9rem;">ایجاد</button>\
-                                            <button id="arCreateFormCancel" class="ar-btn ar-btn--muted" style="font-size:.9rem;">انصراف</button>\
-                    </div>\
-                  </div>\
-                </div>\
-                                <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
-                                <div id="arBuilder" style="margin-top:1rem;display:none;">\
-                                    <div class="card glass" style="padding:1rem;">\
-                                        <div style="display:flex;gap:1rem;align-items:flex-start;">\
-                                            <div style="min-width:200px;">\
-                                                <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
-                                                <div id="arPalette" class="hint">\
-                                                    <button data-type="short_text" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">متن کوتاه</button>\
-                                                </div>\
-                                            </div>\
-                                            <div style="flex:1;">\
-                                                <div class="title" style="margin-bottom:.6rem;">بوم فرم</div>\
-                                                <div id="arCanvas" style="min-height:160px;border:1px dashed var(--border);border-radius:12px;padding:10px;"></div>\
-                                                <div style="margin-top:.8rem;text-align:left;">\
-                                                    <button id="arSaveFields" class="ar-btn" style="font-size:.9rem;">ذخیره</button>\
-                                                </div>\
-                                            </div>\
-                                        </div>\
-                                    </div>\
-                                </div>\
-            </div>';
-            fetch(ARSHLINE_REST + 'forms')
-            .then(async r=>{ if(!r.ok){ throw new Error('HTTP '+r.status); } return r.json(); })
-            .then(function(rows){
-                var box = document.getElementById('arFormsList');
-                if (!rows || rows.length===0) { box.textContent = 'فرمی یافت نشد.'; return; }
-                                                                var html = rows.map(function(it){
-                                        return '<div style="display:flex;justify-content:space-between;align-items:center;padding=.6rem 0;border-bottom:1px dashed var(--border);">\
-                                                <div>\
-                                                    <b style="color:var(--text)">'+(it.title||'بدون عنوان')+'</b>\
-                                                    <span class="hint" style="margin-inline-start:.6rem">#'+it.id+' · '+it.status+'</span>\
-                                                </div>\
-                                                <div style="display:flex;gap:.8rem;align-items:center;">\
-                                                        <a href="#" data-id="'+it.id+'" class="hint arPreviewForm">نمایش</a>\
-                                                        '+ (ARSHLINE_CAN_MANAGE ? ('<a href="#" data-id="'+it.id+'" class="hint arEditForm">ویرایش</a>') : '') +'\
-                                                </div>\
-                                        </div>';
-                }).join('');
-                box.innerHTML = html;
-                box.querySelectorAll('.arEditForm').forEach(function(a){
-                                        a.addEventListener('click', function(e){
-                                                e.preventDefault();
-                                                var id = parseInt(a.getAttribute('data-id'));
-                                                openBuilder(id);
-                                        });
-                                });
-                box.querySelectorAll('.arPreviewForm').forEach(function(a){
-                    a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); });
-                });
-            }).catch((err)=>{
-                var box = document.getElementById('arFormsList');
-                if (box) box.textContent = 'خطا در بارگذاری فرم‌ها. لطفاً وارد شوید یا مجوز دسترسی را بررسی کنید.';
-                notify('خطا در بارگذاری فرم‌ها', 'error');
-            });
-            var btn = document.getElementById('arCreateFormBtn');
-            var inlineWrap = null;
-            if (btn) btn.addEventListener('click', function(){
-                inlineWrap = inlineWrap || document.getElementById('arCreateInline');
-                if (!inlineWrap) return;
-                var showing = inlineWrap.style.display !== 'none';
-                inlineWrap.style.display = showing ? 'none' : 'flex';
-                if (!showing) {
-                    var input = document.getElementById('arNewFormTitle');
-                    if (input) { input.value = ''; input.focus(); }
-                }
-            });
-            if (!ARSHLINE_CAN_MANAGE && btn){ btn.style.display = 'none'; }
-            var submitBtn = document.getElementById('arCreateFormSubmit');
-            var cancelBtn = document.getElementById('arCreateFormCancel');
-            if (cancelBtn) cancelBtn.addEventListener('click', function(){
-                var w = document.getElementById('arCreateInline');
-                if (w) w.style.display = 'none';
-            });
-            if (submitBtn) submitBtn.addEventListener('click', function(){
-                var titleEl = document.getElementById('arNewFormTitle');
-                var title = (titleEl && titleEl.value.trim()) || 'فرم جدید';
-                fetch(ARSHLINE_REST + 'forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) })
-                    .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                    .then(function(){ notify('فرم ایجاد شد', 'success'); renderTab('forms'); })
-                    .catch(function(){ notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); });
-            });
-                        function openBuilder(id){
-                                var holder = document.getElementById('arBuilder');
-                                holder.style.display = 'block';
-                                holder.dataset.formId = String(id);
-                if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); return; }
-                                fetch(ARSHLINE_REST + 'forms/'+id)
-                                        .then(r=>r.json()).then(function(data){
-                                                var canvas = document.getElementById('arCanvas');
-                                                canvas.innerHTML = '';
-                                                (data.fields||[]).forEach(function(f){ addFieldToCanvas(f.props||f); });
-                                        });
-                                var palette = document.getElementById('arPalette');
-                                palette.querySelectorAll('button[data-type]').forEach(function(b){
-                                        b.onclick = function(){ addFieldToCanvas({ type: 'short_text', label: 'متن کوتاه', format: 'free_text' }); };
-                                        b.addEventListener('dragstart', function(e){
-                                            e.dataTransfer.effectAllowed = 'copy';
-                                            e.dataTransfer.setData('text/arshline-tool', JSON.stringify({ type: 'short_text', label: 'متن کوتاه', format: 'free_text' }));
-                                        });
-                                });
-                                var canvasEl = document.getElementById('arCanvas');
-                                if (!canvasEl._dndBound) {
-                                    canvasEl.addEventListener('dragover', function(e){
-                                        e.preventDefault();
-                                        var dragging = canvasEl._dragging;
-                                        var y = e.clientY;
-                                        // Ensure placeholder exists and sized
-                                        var ph = canvasEl._placeholder || document.createElement('div');
-                                        ph.className = 'ar-dnd-placeholder';
-                                        if (!ph.parentNode) canvasEl.appendChild(ph);
-                                        if (dragging) ph.style.height = dragging.offsetHeight + 'px';
-                                        // find beforeNode by cursor
-                                        var beforeNode = null;
-                                        Array.from(canvasEl.children).some(function(ch){ if(ch===ph) return false; var r=ch.getBoundingClientRect(); if (y < r.top + r.height/2){ beforeNode = ch; return true;} return false; });
-                                        if (dragging) { ph.innerHTML = dragging.innerHTML; }
-                                        if (beforeNode) canvasEl.insertBefore(ph, beforeNode); else canvasEl.appendChild(ph);
-                                        canvasEl._placeholder = ph;
-                                    });
-                                    canvasEl.addEventListener('drop', function(e){
-                                        e.preventDefault();
-                                        // Drop from palette (new tool)
-                                        var data = '';
-                                        try { data = e.dataTransfer.getData('text/arshline-tool'); } catch(_){ data=''; }
-                                        if (data) {
-                                            try {
-                                                var props = JSON.parse(data);
-                                                var el = addFieldToCanvas(props);
-                                                var phx = canvasEl._placeholder;
-                                                if (phx && phx.parentNode) {
-                                                    canvasEl.insertBefore(el, phx);
-                                                    phx.parentNode.removeChild(phx);
-                                                    canvasEl._placeholder = null;
-                                                }
-                                                return;
-                                            } catch(_){}
-                                        }
-                                        // Reorder using placeholder position
-                                        var dragging = canvasEl._dragging;
-                                        var ph = canvasEl._placeholder;
-                                        if (dragging && ph && ph.parentNode === canvasEl) {
-                                            canvasEl.insertBefore(dragging, ph);
-                                        }
-                                        if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
-                                    });
-                                    canvasEl._dndBound = true;
-                                }
-                                document.getElementById('arSaveFields').onclick = function(){ saveFields(); };
-                        }
-            function suggestPlaceholder(fmt){
-                switch(fmt){
-                    case 'email': return 'example@mail.com';
-                    case 'mobile_ir': return '09123456789';
-                    case 'mobile_intl': return '+14155552671';
-                    case 'tel': return '021-12345678';
-                    case 'numeric': return '123456';
-                    case 'national_id_ir': return '0012345678';
-                    case 'postal_code_ir': return '1234567890';
-                    case 'fa_letters': return 'مثال فارسی';
-                    case 'en_letters': return 'Sample text';
-                    case 'ip': return '192.168.1.1';
-                    case 'time': return '14:30';
-                    case 'date_jalali': return '1403/01/15';
-                    case 'date_greg': return '2025-09-22';
-                    case 'regex': return 'مطابق الگو';
-                    case 'free_text': return 'پاسخ خود را بنویسید';
-                    default: return '';
-                }
-            }
-            function addFieldToCanvas(props){
-                                var canvas = document.getElementById('arCanvas');
-                                var item = document.createElement('div');
-                item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
-                item.setAttribute('draggable','true');
-                var fmt = props.format || 'free_text';
-                props.format = fmt;
-                var html = ''
-                    + '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;flex:1 1 auto;">'
-                    +   '<span class="ar-dnd-handle" title="جابجایی" draggable="true">&#8942;&#8942;</span>'
-                    +   '<input class="ar-input ar-field-main" type="text" style="min-width:260px;opacity:.95;" placeholder="" title="پاسخ کوتاه" aria-invalid="false"/>'
-                    +   '<select class="ar-select" data-prop="format">'
-                    +       '<option value="free_text"' + (fmt==='free_text'?' selected':'') + '>متن آزاد</option>'
-                    +       '<option value="email"' + (fmt==='email'?' selected':'') + '>ایمیل</option>'
-                    +       '<option value="mobile_ir"' + (fmt==='mobile_ir'?' selected':'') + '>موبایل ایران</option>'
-                    +       '<option value="mobile_intl"' + (fmt==='mobile_intl'?' selected':'') + '>موبایل بین‌المللی</option>'
-                    +       '<option value="tel"' + (fmt==='tel'?' selected':'') + '>تلفن</option>'
-                    +       '<option value="numeric"' + (fmt==='numeric'?' selected':'') + '>فقط عددی</option>'
-                    +       '<option value="national_id_ir"' + (fmt==='national_id_ir'?' selected':'') + '>کد ملی ایران</option>'
-                    +       '<option value="postal_code_ir"' + (fmt==='postal_code_ir'?' selected':'') + '>کد پستی ایران</option>'
-                    +       '<option value="fa_letters"' + (fmt==='fa_letters'?' selected':'') + '>حروف فارسی</option>'
-                    +       '<option value="en_letters"' + (fmt==='en_letters'?' selected':'') + '>حروف انگلیسی</option>'
-                    +       '<option value="ip"' + (fmt==='ip'?' selected':'') + '>IP</option>'
-                    +       '<option value="time"' + (fmt==='time'?' selected':'') + '>زمان</option>'
-                    +       '<option value="date_jalali"' + (fmt==='date_jalali'?' selected':'') + '>تاریخ شمسی</option>'
-                    +       '<option value="date_greg"' + (fmt==='date_greg'?' selected':'') + '>تاریخ میلادی</option>'
-                    +   '</select>'
-                    +   '<label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">'
-                    +       '<input type="checkbox" data-prop="required"' + (props.required ? ' checked' : '') + '> اجباری'
-                    +   '</label>'
-                    +   '<button type="button" class="ar-btn ar-btn--muted ar-toggle-desc" data-prop="toggle_description" style="padding:.35rem .6rem;">' + (props.show_description ? 'توضیح: روشن' : 'توضیح: خاموش') + '</button>'
-                    +   '<input type="text" data-prop="description" value="' + (props.description || '') + '" placeholder="توضیح زیر سؤال" class="ar-input" style="min-width:260px;display:' + (props.show_description ? 'inline-block' : 'none') + ';" />'
-                    + '</div>'
-                    + '<div style="display:flex;align-items:center;gap:.5rem;">'
-                    +   '<button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>'
-                    + '</div>';
-                item.innerHTML = html;
-                                item.dataset.props = JSON.stringify(props);
-                // DnD events
-                item.addEventListener('dragstart', function(e){
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', 'drag');
-                    item.classList.add('ar-dnd-ghost');
-                    canvas._dragging = item;
-                    // custom drag image
-                    var txt = (JSON.parse(item.dataset.props||'{}').label) || 'Field';
-                    var ghost = document.createElement('div');
-                    ghost.className = 'ar-dnd-ghost-proxy';
-                    ghost.textContent = txt;
-                    document.body.appendChild(ghost);
-                    e.dataTransfer.setDragImage(ghost, 10, 10);
-                    canvas._dragGhost = ghost;
-                });
-                item.addEventListener('dragend', function(){
-                    item.classList.remove('ar-dnd-ghost');
-                    Array.from(canvas.children).forEach(function(c){ c.classList.remove('ar-dnd-over'); });
-                    var ph = canvas._placeholder; if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
-                    var gh = canvas._dragGhost; if (gh && gh.parentNode) gh.parentNode.removeChild(gh);
-                    canvas._dragging = null; canvas._placeholder = null; canvas._dragGhost = null;
-                });
-                item.addEventListener('dragover', function(e){
-                    e.preventDefault();
-                    var dragging = canvas._dragging;
-                    if (!dragging || dragging===item) return;
-                    // manage placeholder relative to this item
-                    var ph = canvas._placeholder || document.createElement('div');
-                    ph.className = 'ar-dnd-placeholder';
-                    ph.style.height = (dragging.offsetHeight || item.offsetHeight) + 'px';
-                    ph.innerHTML = dragging.innerHTML;
-                    var rect = item.getBoundingClientRect();
-                    var before = (e.clientY - rect.top) < (rect.height/2);
-                    if (before) canvas.insertBefore(ph, item); else canvas.insertBefore(ph, item.nextSibling);
-                    canvas._placeholder = ph;
-                });
-                item.addEventListener('dragleave', function(){ /* no-op */ });
-                item.addEventListener('drop', function(e){
-                    e.preventDefault();
-                    var dragging = canvas._dragging;
-                    if (!dragging || dragging===item) return;
-                    var ph = canvas._placeholder;
-                    if (ph && ph.parentNode) {
-                        canvas.insertBefore(dragging, ph);
-                        ph.parentNode.removeChild(ph);
-                        canvas._placeholder = null;
+                    }).join('');
+                    box.innerHTML = html;
+                    box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormEditor(id); }); });
+                    box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
+                    if (ARSHLINE_CAN_MANAGE) {
+                        box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
                     }
-                });
-                                function syncProps(){
-                                    var p = JSON.parse(item.dataset.props || '{}');
-                                    var fmtSel = item.querySelector('select[data-prop="format"]');
-                                    var req = item.querySelector('input[data-prop="required"]');
-                                    var showDesc = item.querySelector('input[data-prop="show_description"]');
-                                    var desc = item.querySelector('input[data-prop="description"]');
-                                    p.type = 'short_text';
-                                    p.label = p.label || 'پاسخ کوتاه';
-                                    p.format = fmtSel ? (fmtSel.value || 'free_text') : (p.format || 'free_text');
-                                    p.required = req ? !!req.checked : !!p.required;
-                                    p.show_description = showDesc ? !!showDesc.checked : !!p.show_description;
-                                    p.description = desc ? desc.value : p.description;
-                                    // keep placeholder if already present in props, but we don't edit it here
-                                    item.dataset.props = JSON.stringify(p);
-                                    renderSample();
-                                }
-                                // only format select now has data-prop
-                                item.querySelectorAll('select[data-prop]').forEach(function(el){
-                                    el.addEventListener('change', syncProps);
-                                });
-                                // toggles and description
-                                var toggleBtn = item.querySelector('.ar-toggle-desc');
-                                if (toggleBtn) toggleBtn.addEventListener('click', function(){
-                                    var p = JSON.parse(item.dataset.props || '{}');
-                                    p.show_description = !p.show_description;
-                                    item.dataset.props = JSON.stringify(p);
-                                    var d = item.querySelector('input[data-prop="description"]');
-                                    if (d) d.style.display = p.show_description ? 'inline-block' : 'none';
-                                    toggleBtn.textContent = p.show_description ? 'توضیح: روشن' : 'توضیح: خاموش';
-                                    syncProps();
-                                });
-                                var reqEl = item.querySelector('input[data-prop="required"]');
-                                if (reqEl) reqEl.addEventListener('change', syncProps);
-                                var descEl = item.querySelector('input[data-prop="description"]');
-                                if (descEl) descEl.addEventListener('input', syncProps);
-                                var fmtSelEl = item.querySelector('select[data-prop="format"]');
-                                if (fmtSelEl) {
-                                    fmtSelEl.addEventListener('change', function(){
-                                        // force re-render of input attributes and placeholder
-                                        var mainInput = item.querySelector('.ar-field-main');
-                                        if (mainInput){
-                                            if (typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker) {
-                                                try { jQuery(mainInput).pDatepicker('destroy'); } catch(e){}
-                                                try { mainInput.classList.remove('pwt-datepicker-input-element'); } catch(e){}
-                                            }
-                                            mainInput.value = '';
-                                        }
-                                        syncProps();
-                                    });
-                                }
-                                // apply format behavior to the field main input (on-canvas preview)
-                                function renderSample(){
-                                    var p = JSON.parse(item.dataset.props || '{}');
-                                    var fmt = p.format || 'free_text';
-                                    var a = inputAttrsByFormat(fmt);
-                                    var mainInput = item.querySelector('.ar-field-main');
-                                    if (!mainInput) return;
-                                    // teardown any previous jalali datepicker on this input
-                                    if (typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker) {
-                                        try { jQuery(mainInput).pDatepicker('destroy'); } catch(e){}
-                                        try { mainInput.classList.remove('pwt-datepicker-input-element'); } catch(e){}
-                                    }
-                                    // set attributes on the main input
-                                    mainInput.setAttribute('type', a.type || 'text');
-                                    if (a.inputmode) mainInput.setAttribute('inputmode', a.inputmode); else mainInput.removeAttribute('inputmode');
-                                    if (a.pattern) mainInput.setAttribute('pattern', a.pattern); else mainInput.removeAttribute('pattern');
-                                    // placeholder suggestion in the field input
-                                    var phText = suggestPlaceholder(fmt);
-                                    mainInput.setAttribute('placeholder', phText || '');
-                                    // attach jalali datepicker only for date_jalali
-                                    if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
-                                        try { jQuery(mainInput).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
-                                    }
-                                }
-                                // initial props sync to render correct attrs and placeholder
-                                syncProps();
-                                item.querySelector('[data-act="remove"]').onclick = function(){
-                                    var canvasRef = document.getElementById('arCanvas');
-                                    var idx = Array.from(canvasRef.children).indexOf(item);
-                                    var backup = JSON.parse(item.dataset.props || '{}');
-                                    item.remove();
-                                    notify('فیلد حذف شد', { type: 'error', actionLabel: 'بازگردانی', onAction: function(){
-                                        var newEl = addFieldToCanvas(backup);
-                                        var ref = canvasRef.children[idx] || null;
-                                        if (ref) canvasRef.insertBefore(newEl, ref); else canvasRef.appendChild(newEl);
-                                    }});
-                                };
-                                canvas.appendChild(item);
-                                return item;
-                        }
-
-            // Fullscreen form preview + submit
-            function inputAttrsByFormat(fmt){
-                var a = { type:'text', inputmode:'', pattern:'' };
-                if (fmt==='email') a.type='email';
-                else if (fmt==='numeric') { a.inputmode='numeric'; a.pattern='[0-9]*'; }
-                else if (fmt==='mobile_ir' || fmt==='mobile_intl' || fmt==='tel' || fmt==='national_id_ir' || fmt==='postal_code_ir') { a.inputmode='tel'; }
-                else if (fmt==='time') a.type='time';
-                else if (fmt==='date_greg') a.type='date';
-                return a;
-            }
-            function renderFormPreview(id){
-                document.body.classList.add('preview-only');
-                var content = document.getElementById('arshlineDashboardContent');
-                content.innerHTML = '<div class="card glass" style="padding:1.2rem;max-width:720px;margin:0 auto;">\
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">\
-                        <div class="title">پیش‌نمایش فرم #'+ id +'</div>\
-                        <button id="arPreviewBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
+            } else if (tab === 'submissions') {
+                content.innerHTML = '<div class="card glass" style="padding:1rem;">\
+                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
+                      <span class="title">پاسخ‌ها</span>\
+                      <select id="arFormSelect" style="margin-inline-start:auto;padding:.35rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></select>\
                     </div>\
-                    <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
-                    <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
+                    <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
                 </div>';
-                fetch(ARSHLINE_REST + 'forms/' + id)
-                    .then(r=>r.json())
-                    .then(function(data){
-                        var fwrap = document.getElementById('arFormPreviewFields');
-                        (data.fields||[]).forEach(function(f){
-                            var p = f.props || f;
-                            var fmt = p.format || 'free_text';
-                            var attrs = inputAttrsByFormat(fmt);
-                            var phS = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
-                            var row = document.createElement('div');
-                            var inputId = 'f_'+(f.id||Math.random().toString(36).slice(2));
-                            var descId = inputId+'_desc';
-                            row.innerHTML = '<label for="'+inputId+'" class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
-                                '<input id="'+inputId+'" class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" />' +
-                                (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
-                            fwrap.appendChild(row);
-                        });
-                        // apply masks
-                        fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
-                            var field = (data.fields||[])[idx] || {};
-                            var props = field.props || field || {};
-                            applyInputMask(inp, props);
-                            if (props.format === 'date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
-                                try { jQuery(inp).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
-                            }
-                        });
-                        document.getElementById('arPreviewSubmit').onclick = function(){
-                            var vals = [];
-                            fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
-                                var fid = parseInt(inp.getAttribute('data-field-id')||'0');
-                                vals.push({ field_id: fid, value: inp.value||'' });
-                            });
-                            fetch(ARSHLINE_REST + 'forms/'+id+'/submissions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) })
-                                .then(async r=>{ if (!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                                .then(function(){ notify('ارسال شد', 'success'); })
-                                .catch(function(){ notify('اعتبارسنجی/ارسال ناموفق بود', 'error'); });
-                        };
-                        document.getElementById('arPreviewBack').onclick = function(){ document.body.classList.remove('preview-only'); renderTab('forms'); };
+                fetch(ARSHLINE_REST + 'forms').then(r=>r.json()).then(function(forms){
+                    var sel = document.getElementById('arFormSelect');
+                    if (!sel) return;
+                    sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
+                    sel.addEventListener('change', function(){
+                        var id = parseInt(sel.value||'0');
+                        var list = document.getElementById('arSubsList');
+                        if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
+                        list.textContent = 'در حال بارگذاری...';
+                        fetch(ARSHLINE_REST + 'forms/'+id+'/submissions').then(r=>r.json()).then(function(rows){
+                            if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
+                            var html = rows.map(function(it){
+                                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
+                                    <div>#'+it.id+' · '+(it.status)+'<span class="hint" style="margin-inline-start:.6rem">'+(it.created_at||'')+'</span></div>\
+                                    <a href="#" class="hint">جزئیات</a>\
+                                </div>';
+                            }).join('');
+                            list.innerHTML = html;
+                        }).catch(()=>{ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
                     });
-            }
-                        function saveFields(){
-                                var id = parseInt(document.getElementById('arBuilder').dataset.formId||'0');
-                                var canvas = document.getElementById('arCanvas');
-                                var fields = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); });
-                                fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: fields }) })
-                                        .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                                        .then(function(){ notify('ذخیره شد', 'success'); })
-                                        .catch(function(){ notify('ذخیره تغییرات ناموفق بود', 'error'); });
-                        }
-        } else if (tab === 'submissions') {
-            content.innerHTML = '<div class="card glass" style="padding:1rem;">\
-                <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
-                  <span class="title">پاسخ‌ها</span>\
-                  <select id="arFormSelect" style="margin-inline-start:auto;padding:.35rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></select>\
-                </div>\
-                <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
-            </div>';
-            fetch(ARSHLINE_REST + 'forms').then(r=>r.json()).then(function(forms){
-                var sel = document.getElementById('arFormSelect');
-                if (!sel) return;
-                sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
-                sel.addEventListener('change', function(){
-                    var id = parseInt(sel.value||'0');
-                    var list = document.getElementById('arSubsList');
-                    if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
-                    list.textContent = 'در حال بارگذاری...';
-                    fetch(ARSHLINE_REST + 'forms/'+id+'/submissions').then(r=>r.json()).then(function(rows){
-                        if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
-                        var html = rows.map(function(it){
-                            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
-                                <div>#'+it.id+' · '+(it.status)+'<span class="hint" style="margin-inline-start:.6rem">'+(it.created_at||'')+'</span></div>\
-                                <a href="#" class="hint">جزئیات</a>\
-                            </div>';
-                        }).join('');
-                        list.innerHTML = html;
-                    }).catch(()=>{ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
                 });
-            });
-        } else if (tab === 'reports') {
-            content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
-                card('نمودار نرخ تبدیل', 'به‌زودی') +
-                card('منابع ترافیک', 'به‌زودی') +
-                card('زمان‌های اوج', 'به‌زودی') +
-            '</div>';
-        } else if (tab === 'users') {
-            content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
-                <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
-                <div class="card glass"><span class="title">همکاری تیمی</span><div class="hint">دعوت هم‌تیمی‌ها (Placeholder)</div></div>\
-            </div>';
+            } else if (tab === 'reports') {
+                content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
+                    card('نمودار نرخ تبدیل', 'به‌زودی') +
+                    card('منابع ترافیک', 'به‌زودی') +
+                    card('زمان‌های اوج', 'به‌زودی') +
+                '</div>';
+            } else if (tab === 'users') {
+                content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
+                    <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
+                    <div class="card glass"><span class="title">همکاری تیمی</span><div class="hint">دعوت هم‌تیمی‌ها (Placeholder)</div></div>\
+                </div>';
+            }
+            // re-trigger entrance animation
+            content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
         }
-        // re-trigger entrance animation
-        content.classList.remove('view');
-        void content.offsetWidth;
-        content.classList.add('view');
-    }
 
-    // bind clicks + keyboard
-    links.forEach(function(a){
-        a.addEventListener('click', function(e){ e.preventDefault(); renderTab(a.getAttribute('data-tab')); });
-        a.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); renderTab(a.getAttribute('data-tab')); }});
+        // bind clicks + keyboard
+        links.forEach(function(a){
+            a.addEventListener('click', function(e){ e.preventDefault(); renderTab(a.getAttribute('data-tab')); });
+            a.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); renderTab(a.getAttribute('data-tab')); }});
+        });
+
+        // default tab
+        var initial = (location.hash || '').replace('#','') || (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
+        if (![ 'dashboard','forms','submissions','reports','users' ].includes(initial)) initial = 'dashboard';
+        renderTab(initial);
     });
-
-    // default tab
-    var initial = (location.hash || '').replace('#','') || 'dashboard';
-    if (![ 'dashboard','forms','submissions','reports','users' ].includes(initial)) initial = 'dashboard';
-    renderTab(initial);
-});
-</script>
+    </script>
+    </head>
+    <body>
+    <div class="arshline-dashboard-root">
+        <aside class="arshline-sidebar">
+            <div class="logo"><span>عرشلاین</span></div>
+            <nav>
+                <a href="#" data-tab="dashboard">داشبورد</a>
+                <a href="#" data-tab="forms">فرم‌ها</a>
+                <a href="#" data-tab="submissions">پاسخ‌ها</a>
+                <a href="#" data-tab="reports">گزارشات</a>
+                <a href="#" data-tab="users">کاربران</a>
+            </nav>
+        </aside>
+        <main class="arshline-main">
+            <div class="arshline-header">
+                <div></div>
+                <button id="arModeSwitch" class="mode-switch" type="button">تغییر حالت</button>
+            </div>
+            <div id="arshlineDashboardContent" class="view"></div>
+        </main>
+    </div>
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
 <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
