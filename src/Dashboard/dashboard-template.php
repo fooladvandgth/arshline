@@ -118,6 +118,9 @@ if (!defined('ABSPATH')) exit;
     .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
     .ar-dnd-placeholder { border:1px solid var(--border); border-radius:10px; margin:.4rem 0; background: var(--surface); opacity:.35; padding:.5rem .8rem; pointer-events:none; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
+    /* Preview-only mode */
+    body.preview-only .arshline-sidebar, body.preview-only .arshline-header { display:none !important; }
+    body.preview-only .arshline-main { padding: 1.2rem; }
         /* دارک مود */
         body.dark { background: var(--bg-surface); color: var(--text); }
     body.dark .arshline-main { color: var(--text); }
@@ -313,22 +316,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 var box = document.getElementById('arFormsList');
                 if (!rows || rows.length===0) { box.textContent = 'فرمی یافت نشد.'; return; }
                                                                 var html = rows.map(function(it){
-                    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
-                        <div>\
-                          <b style="color:var(--text)">'+(it.title||'بدون عنوان')+'</b>\
-                          <span class="hint" style="margin-inline-start:.6rem">#'+it.id+' · '+it.status+'</span>\
-                        </div>\
-                                                                                                '+ (ARSHLINE_CAN_MANAGE ? ('<a href="#" data-id="'+it.id+'" class="hint arEditForm">ویرایش</a>') : '') +'\
-                    </div>';
+                                        return '<div style="display:flex;justify-content:space-between;align-items:center;padding=.6rem 0;border-bottom:1px dashed var(--border);">\
+                                                <div>\
+                                                    <b style="color:var(--text)">'+(it.title||'بدون عنوان')+'</b>\
+                                                    <span class="hint" style="margin-inline-start:.6rem">#'+it.id+' · '+it.status+'</span>\
+                                                </div>\
+                                                <div style="display:flex;gap:.8rem;align-items:center;">\
+                                                        <a href="#" data-id="'+it.id+'" class="hint arPreviewForm">نمایش</a>\
+                                                        '+ (ARSHLINE_CAN_MANAGE ? ('<a href="#" data-id="'+it.id+'" class="hint arEditForm">ویرایش</a>') : '') +'\
+                                                </div>\
+                                        </div>';
                 }).join('');
                 box.innerHTML = html;
-                                box.querySelectorAll('.arEditForm').forEach(function(a){
+                box.querySelectorAll('.arEditForm').forEach(function(a){
                                         a.addEventListener('click', function(e){
                                                 e.preventDefault();
                                                 var id = parseInt(a.getAttribute('data-id'));
                                                 openBuilder(id);
                                         });
                                 });
+                box.querySelectorAll('.arPreviewForm').forEach(function(a){
+                    a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); });
+                });
             }).catch((err)=>{
                 var box = document.getElementById('arFormsList');
                 if (box) box.textContent = 'خطا در بارگذاری فرم‌ها. لطفاً وارد شوید یا مجوز دسترسی را بررسی کنید.';
@@ -428,13 +437,55 @@ document.addEventListener('DOMContentLoaded', function() {
                                 }
                                 document.getElementById('arSaveFields').onclick = function(){ saveFields(); };
                         }
+            function suggestPlaceholder(fmt){
+                switch(fmt){
+                    case 'email': return 'example@mail.com';
+                    case 'mobile_ir': return '09123456789';
+                    case 'mobile_intl': return '+14155552671';
+                    case 'tel': return '021-12345678';
+                    case 'numeric': return '123456';
+                    case 'fa_letters': return 'مثال فارسی';
+                    case 'en_letters': return 'Sample text';
+                    case 'ip': return '192.168.1.1';
+                    case 'time': return '14:30';
+                    case 'date_jalali': return '1403/01/15';
+                    case 'date_greg': return '2025-09-22';
+                    case 'regex': return 'مطابق الگو';
+                    case 'free_text':
+                    default: return '';
+                }
+            }
+            function computePreviewAttrs(p){
+                var fmt = p.format || 'free_text';
+                var placeholder = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
+                var type = 'text', inputmode = '', pattern = '';
+                if (fmt==='email') type = 'email';
+                else if (fmt==='numeric') { inputmode='numeric'; pattern='[0-9]*'; }
+                else if (fmt==='mobile_ir' || fmt==='mobile_intl' || fmt==='tel') { inputmode='tel'; }
+                else if (fmt==='time') type='time';
+                else if (fmt==='date_greg') type='date';
+                return { type:type, inputmode:inputmode, pattern:pattern, placeholder:placeholder };
+            }
+            function renderItemPreview(item){
+                var p = JSON.parse(item.dataset.props || '{}');
+                var attrs = computePreviewAttrs(p);
+                var lbl = item.querySelector('.ar-preview-label');
+                var inp = item.querySelector('.ar-preview-input');
+                if (lbl) lbl.textContent = p.label || 'متن کوتاه';
+                if (inp) {
+                    inp.setAttribute('type', attrs.type || 'text');
+                    inp.setAttribute('placeholder', attrs.placeholder || '');
+                    if (attrs.inputmode) inp.setAttribute('inputmode', attrs.inputmode); else inp.removeAttribute('inputmode');
+                    if (attrs.pattern) inp.setAttribute('pattern', attrs.pattern); else inp.removeAttribute('pattern');
+                }
+            }
             function addFieldToCanvas(props){
                                 var canvas = document.getElementById('arCanvas');
                                 var item = document.createElement('div');
                 item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
                 item.setAttribute('draggable','true');
                 var fmt = props.format || 'free_text';
-                item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">\
+                item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;flex:1 1 auto;">\
                                                     <span class="ar-dnd-handle" title="جابجایی" draggable="true">⋮⋮</span>\
                                                     <span class="hint">(متن کوتاه)</span>\
                                                     <input type="text" data-prop="label" value="'+ (props.label || 'متن کوتاه') +'" placeholder="برچسب" class="ar-input" style="min-width:160px;"/>\
@@ -461,6 +512,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
                                                         <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
                                                     </label>\
+                                                    <div class="ar-preview-field" style="display:flex;flex-direction:column;gap:.3rem;background:var(--bg-surface);padding:.5rem;border-radius:8px;border:1px dashed var(--border);">\
+                                                        <span class="ar-preview-label" style="font-size:.9rem;color:var(--muted);">'+(props.label || 'متن کوتاه')+'</span>\
+                                                        <input class="ar-input ar-preview-input" type="text" disabled placeholder="" style="opacity:.85;"/>\
+                                                    </div>\
                                                 </div>\
                                                 <div>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
@@ -536,6 +591,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     if (maxVal != null && !isNaN(maxVal)) p.max = maxVal; else delete p.max;
                                     if (errEl && errEl.value) p.error_message = errEl.value; else delete p.error_message;
                                     item.dataset.props = JSON.stringify(p);
+                                    renderItemPreview(item);
                                 }
                                 item.querySelectorAll('input[data-prop]').forEach(function(el){
                                     el.addEventListener('input', syncProps);
@@ -546,9 +602,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                     fmtSelEl.addEventListener('change', function(){
                                         var rx = item.querySelector('input[data-prop="regex"]');
                                         if (rx) rx.style.display = (fmtSelEl.value==='regex') ? 'inline-block' : 'none';
+                        // auto-suggest placeholder if empty
+                        var ph = item.querySelector('input[data-prop="placeholder"]');
+                        if (ph && ph.value.trim()==='') { ph.value = suggestPlaceholder(fmtSelEl.value); }
                                         syncProps();
                                     });
                                 }
+                // initial preview
+                renderItemPreview(item);
                                 item.querySelector('[data-act="remove"]').onclick = function(){
                                     var canvasRef = document.getElementById('arCanvas');
                                     var idx = Array.from(canvasRef.children).indexOf(item);
@@ -563,6 +624,52 @@ document.addEventListener('DOMContentLoaded', function() {
                                 canvas.appendChild(item);
                                 return item;
                         }
+
+            // Fullscreen form preview + submit
+            function inputAttrsByFormat(fmt){
+                var a = { type:'text', inputmode:'', pattern:'' };
+                if (fmt==='email') a.type='email';
+                else if (fmt==='numeric') { a.inputmode='numeric'; a.pattern='[0-9]*'; }
+                else if (fmt==='mobile_ir' || fmt==='mobile_intl' || fmt==='tel') { a.inputmode='tel'; }
+                else if (fmt==='time') a.type='time';
+                else if (fmt==='date_greg') a.type='date';
+                return a;
+            }
+            function renderFormPreview(id){
+                document.body.classList.add('preview-only');
+                var content = document.getElementById('arshlineDashboardContent');
+                content.innerHTML = '<div class="card glass" style="padding:1.2rem;max-width:720px;margin:0 auto;">\
+                    <div class="title" style="margin-bottom:1rem;">پیش‌نمایش فرم #' + id + '</div>\
+                    <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
+                    <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
+                </div>';
+                fetch(ARSHLINE_REST + 'forms/' + id)
+                    .then(r=>r.json())
+                    .then(function(data){
+                        var fwrap = document.getElementById('arFormPreviewFields');
+                        (data.fields||[]).forEach(function(f){
+                            var p = f.props || f;
+                            var fmt = p.format || 'free_text';
+                            var attrs = inputAttrsByFormat(fmt);
+                            var phS = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
+                            var row = document.createElement('div');
+                            row.innerHTML = '<label class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
+                                '<input class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" ' + (p.required?'required':'') + ' />';
+                            fwrap.appendChild(row);
+                        });
+                        document.getElementById('arPreviewSubmit').onclick = function(){
+                            var vals = [];
+                            fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
+                                var fid = parseInt(inp.getAttribute('data-field-id')||'0');
+                                vals.push({ field_id: fid, value: inp.value||'' });
+                            });
+                            fetch(ARSHLINE_REST + 'forms/'+id+'/submissions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) })
+                                .then(async r=>{ if (!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                                .then(function(){ notify('ارسال شد', 'success'); })
+                                .catch(function(){ notify('اعتبارسنجی/ارسال ناموفق بود', 'error'); });
+                        };
+                    });
+            }
                         function saveFields(){
                                 var id = parseInt(document.getElementById('arBuilder').dataset.formId||'0');
                                 var canvas = document.getElementById('arCanvas');
