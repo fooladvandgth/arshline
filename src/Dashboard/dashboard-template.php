@@ -256,26 +256,54 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>\
                         </div>';
         } else if (tab === 'forms') {
-            content.innerHTML = '<div class="card glass" style="padding:1rem;">\
+                        content.innerHTML = '<div class="card glass" style="padding:1rem;">\
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">\
                   <span class="title">فرم‌ها</span>\
                   <button id="arCreateFormBtn" class="mode-switch" style="font-size:.95rem;padding:.45rem .8rem;">+ فرم جدید</button>\
                 </div>\
-                <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
+                                <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
+                                <div id="arBuilder" style="margin-top:1rem;display:none;">\
+                                    <div class="card glass" style="padding:1rem;">\
+                                        <div style="display:flex;gap:1rem;align-items:flex-start;">\
+                                            <div style="min-width:200px;">\
+                                                <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
+                                                <div id="arPalette" class="hint">\
+                                                    <button data-type="text" class="mode-switch" style="display:block;width:100%;margin-bottom:.5rem;">فیلد متن</button>\
+                                                    <button data-type="email" class="mode-switch" style="display:block;width:100%;margin-bottom:.5rem;">ایمیل</button>\
+                                                    <button data-type="textarea" class="mode-switch" style="display:block;width:100%;margin-bottom:.5rem;">متن چندخطی</button>\
+                                                </div>\
+                                            </div>\
+                                            <div style="flex:1;">\
+                                                <div class="title" style="margin-bottom:.6rem;">بوم فرم</div>\
+                                                <div id="arCanvas" style="min-height:160px;border:1px dashed var(--border);border-radius:12px;padding:10px;"></div>\
+                                                <div style="margin-top:.8rem;text-align:left;">\
+                                                    <button id="arSaveFields" class="mode-switch" style="font-size:.9rem;padding:.45rem 1rem;">ذخیره</button>\
+                                                </div>\
+                                            </div>\
+                                        </div>\
+                                    </div>\
+                                </div>\
             </div>';
             fetch('/wp-json/arshline/v1/forms', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } }).then(r=>r.json()).then(function(rows){
                 var box = document.getElementById('arFormsList');
                 if (!rows || rows.length===0) { box.textContent = 'فرمی یافت نشد.'; return; }
-                var html = rows.map(function(it){
+                                var html = rows.map(function(it){
                     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
                         <div>\
                           <b style="color:var(--text)">'+(it.title||'بدون عنوان')+'</b>\
                           <span class="hint" style="margin-inline-start:.6rem">#'+it.id+' · '+it.status+'</span>\
                         </div>\
-                        <a href="#" data-id="'+it.id+'" class="hint">ویرایش</a>\
+                                                <a href="#" data-id="'+it.id+'" class="hint arEditForm">ویرایش</a>\
                     </div>';
                 }).join('');
                 box.innerHTML = html;
+                                box.querySelectorAll('.arEditForm').forEach(function(a){
+                                        a.addEventListener('click', function(e){
+                                                e.preventDefault();
+                                                var id = parseInt(a.getAttribute('data-id'));
+                                                openBuilder(id);
+                                        });
+                                });
             }).catch(()=>{
                 var box = document.getElementById('arFormsList');
                 if (box) box.textContent = 'خطا در بارگذاری فرم‌ها';
@@ -286,6 +314,45 @@ document.addEventListener('DOMContentLoaded', function() {
                 fetch('/wp-json/arshline/v1/forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title||'فرم جدید' }) })
                     .then(r=>r.json()).then(function(){ renderTab('forms'); });
             });
+                        function openBuilder(id){
+                                var holder = document.getElementById('arBuilder');
+                                holder.style.display = 'block';
+                                holder.dataset.formId = String(id);
+                                fetch('/wp-json/arshline/v1/forms/'+id, { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+                                        .then(r=>r.json()).then(function(data){
+                                                var canvas = document.getElementById('arCanvas');
+                                                canvas.innerHTML = '';
+                                                (data.fields||[]).forEach(function(f){ addFieldToCanvas(f.props||f); });
+                                        });
+                                var palette = document.getElementById('arPalette');
+                                palette.querySelectorAll('button[data-type]').forEach(function(b){
+                                        b.onclick = function(){ addFieldToCanvas({ type: b.dataset.type, label: b.textContent }); };
+                                });
+                                document.getElementById('arSaveFields').onclick = function(){ saveFields(); };
+                        }
+                        function addFieldToCanvas(props){
+                                var canvas = document.getElementById('arCanvas');
+                                var item = document.createElement('div');
+                                item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
+                                item.innerHTML = '<div><b>'+ (props.label || props.type) +'</b> <span class="hint">('+props.type+')</span></div>\
+                                                                    <div>\
+                                                                        <button class="mode-switch" data-act="up" style="padding:.2rem .5rem;font-size:.8rem;">▲</button>\
+                                                                        <button class="mode-switch" data-act="down" style="padding:.2rem .5rem;font-size:.8rem;">▼</button>\
+                                                                        <button class="mode-switch" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;background:#b91c1c;">حذف</button>\
+                                                                    </div>';
+                                item.dataset.props = JSON.stringify(props);
+                                item.querySelector('[data-act="remove"]').onclick = function(){ item.remove(); };
+                                item.querySelector('[data-act="up"]').onclick = function(){ if (item.previousElementSibling) canvas.insertBefore(item, item.previousElementSibling); };
+                                item.querySelector('[data-act="down"]').onclick = function(){ if (item.nextElementSibling) canvas.insertBefore(item.nextElementSibling, item); };
+                                canvas.appendChild(item);
+                        }
+                        function saveFields(){
+                                var id = parseInt(document.getElementById('arBuilder').dataset.formId||'0');
+                                var canvas = document.getElementById('arCanvas');
+                                var fields = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); });
+                                fetch('/wp-json/arshline/v1/forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: fields }) })
+                                        .then(r=>r.json()).then(function(){ alert('ذخیره شد'); });
+                        }
         } else if (tab === 'submissions') {
             content.innerHTML = '<div class="card glass" style="padding:1rem;">\
                 <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
