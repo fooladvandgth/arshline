@@ -191,6 +191,8 @@ if (!defined('ABSPATH')) exit;
     </main>
 </div>
 <script>
+// WP REST nonce for authenticated requests
+var ARSHLINE_NONCE = '<?php echo wp_create_nonce('wp_rest'); ?>';
 // apply saved theme preference on load (default: light)
 (function() {
     var saved = localStorage.getItem('arshlineTheme');
@@ -261,7 +263,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>\
                 <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
             </div>';
-            fetch('/wp-json/arshline/v1/forms').then(r=>r.json()).then(function(rows){
+            fetch('/wp-json/arshline/v1/forms', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } }).then(r=>r.json()).then(function(rows){
                 var box = document.getElementById('arFormsList');
                 if (!rows || rows.length===0) { box.textContent = 'فرمی یافت نشد.'; return; }
                 var html = rows.map(function(it){
@@ -281,7 +283,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var btn = document.getElementById('arCreateFormBtn');
             if (btn) btn.addEventListener('click', function(){
                 var title = prompt('عنوان فرم را وارد کنید:', 'فرم جدید');
-                fetch('/wp-json/arshline/v1/forms', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title: title||'فرم جدید' }) })
+                fetch('/wp-json/arshline/v1/forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title||'فرم جدید' }) })
                     .then(r=>r.json()).then(function(){ renderTab('forms'); });
             });
         } else if (tab === 'submissions') {
@@ -292,7 +294,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>\
                 <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
             </div>';
-            fetch('/wp-json/arshline/v1/forms').then(r=>r.json()).then(function(forms){
+            fetch('/wp-json/arshline/v1/forms', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } }).then(r=>r.json()).then(function(forms){
                 var sel = document.getElementById('arFormSelect');
                 if (!sel) return;
                 sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
@@ -301,7 +303,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     var list = document.getElementById('arSubsList');
                     if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
                     list.textContent = 'در حال بارگذاری...';
-                    fetch('/wp-json/arshline/v1/forms/'+id+'/submissions').then(r=>r.json()).then(function(rows){
+                    fetch('/wp-json/arshline/v1/forms/'+id+'/submissions', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } }).then(r=>r.json()).then(function(rows){
                         if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
                         var html = rows.map(function(it){
                             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
