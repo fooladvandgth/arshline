@@ -453,7 +453,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     case 'date_jalali': return '1403/01/15';
                     case 'date_greg': return '2025-09-22';
                     case 'regex': return 'مطابق الگو';
-                    case 'free_text':
+                    case 'free_text': return 'متن خود را وارد کنید';
                     default: return '';
                 }
             }
@@ -553,7 +553,18 @@ document.addEventListener('DOMContentLoaded', function() {
                                 });
                                 var fmtSelEl = item.querySelector('select[data-prop="format"]');
                                 if (fmtSelEl) {
-                                    fmtSelEl.addEventListener('change', function(){ syncProps(); });
+                                    fmtSelEl.addEventListener('change', function(){
+                                        // force re-render of input attributes and placeholder
+                                        var mainInput = item.querySelector('.ar-field-main');
+                                        if (mainInput){
+                                            if (typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker) {
+                                                try { jQuery(mainInput).pDatepicker('destroy'); } catch(e){}
+                                                try { mainInput.classList.remove('pwt-datepicker-input-element'); } catch(e){}
+                                            }
+                                            mainInput.value = '';
+                                        }
+                                        syncProps();
+                                    });
                                 }
                                 // apply format behavior to the field main input (on-canvas preview)
                                 function renderSample(){
@@ -579,8 +590,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                         try { jQuery(mainInput).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
                                     }
                                 }
-                                // initial
-                                renderSample();
+                                // initial props sync to render correct attrs and placeholder
+                                syncProps();
                                 item.querySelector('[data-act="remove"]').onclick = function(){
                                     var canvasRef = document.getElementById('arCanvas');
                                     var idx = Array.from(canvasRef.children).indexOf(item);
