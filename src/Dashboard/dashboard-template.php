@@ -639,7 +639,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.body.classList.add('preview-only');
                 var content = document.getElementById('arshlineDashboardContent');
                 content.innerHTML = '<div class="card glass" style="padding:1.2rem;max-width:720px;margin:0 auto;">\
-                    <div class="title" style="margin-bottom:1rem;">پیش‌نمایش فرم #' + id + '</div>\
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">\
+                        <div class="title">پیش‌نمایش فرم #' + id + '</div>\
+                        <button id="arPreviewBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                    </div>\
                     <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
                     <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
                 </div>';
@@ -654,8 +657,17 @@ document.addEventListener('DOMContentLoaded', function() {
                             var phS = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
                             var row = document.createElement('div');
                             row.innerHTML = '<label class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
-                                '<input class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" ' + (p.required?'required':'') + ' />';
+                                '<input class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' />';
                             fwrap.appendChild(row);
+                        });
+                        // apply masks
+                        fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
+                            var field = (data.fields||[])[idx] || {};
+                            var props = field.props || field || {};
+                            applyInputMask(inp, props);
+                            if (props.format === 'date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
+                                try { jQuery(inp).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
+                            }
                         });
                         document.getElementById('arPreviewSubmit').onclick = function(){
                             var vals = [];
@@ -668,6 +680,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 .then(function(){ notify('ارسال شد', 'success'); })
                                 .catch(function(){ notify('اعتبارسنجی/ارسال ناموفق بود', 'error'); });
                         };
+                        document.getElementById('arPreviewBack').onclick = function(){ document.body.classList.remove('preview-only'); renderTab('forms'); };
                     });
             }
                         function saveFields(){
@@ -741,6 +754,11 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
 <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+<!-- Persian datepicker (optional) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
 <script>
 // lightweight toast notifications
 function ensureToastWrap(){
@@ -775,6 +793,55 @@ function notify(message, opts){
     var duration = (opts && opts.duration) || 2800;
     setTimeout(function(){ el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; }, Math.max(200, duration - 500));
     setTimeout(function(){ el.remove(); }, duration);
+}
+</script>
+<script>
+// Input masks for preview inputs
+function applyInputMask(inp, props){
+    var fmt = props.format || 'free_text';
+    var maxLen = (props.max != null) ? parseInt(props.max,10) : null;
+    var minLen = (props.min != null) ? parseInt(props.min,10) : null;
+    function clampLen(){ if (maxLen && inp.value.length > maxLen) inp.value = inp.value.slice(0, maxLen); }
+    function digitsOnly(){ inp.value = inp.value.replace(/\D+/g,''); }
+    function allowChars(regex){ inp.value = (inp.value.match(regex)||[]).join(''); }
+    function setInvalid(msg){ inp.style.borderColor = '#b91c1c'; if (msg) inp.title = msg; }
+    function clearInvalid(){ inp.style.borderColor = ''; inp.title = ''; }
+    inp.addEventListener('input', function(){
+        switch(fmt){
+            case 'numeric': digitsOnly(); break;
+            case 'mobile_ir': inp.value = inp.value.replace(/[^\d]/g,''); if (/^9\d/.test(inp.value)) inp.value = '0'+inp.value; if (inp.value.startsWith('98')) inp.value = '0'+inp.value.slice(2); if (inp.value.length>11) inp.value = inp.value.slice(0,11); break;
+            case 'mobile_intl': inp.value = inp.value.replace(/(?!^)[^\d]/g,'').replace(/^([^+\d])+/,''); if (!inp.value.startsWith('+')) inp.value = '+'+inp.value.replace(/\+/g,''); inp.value = inp.value.replace(/(.*\d{15}).*$/, '$1'); break;
+            case 'tel': inp.value = inp.value.replace(/[^0-9\-\+\s\(\)]/g,''); break;
+            case 'ip': inp.value = inp.value.replace(/[^0-9\.]/g,'').replace(/\.\.+/g,'.'); break;
+            case 'time': inp.value = inp.value.replace(/[^0-9]/g,''); if (inp.value.length>2) inp.value = inp.value.slice(0,2)+":"+inp.value.slice(2,4); if (inp.value.length>5) inp.value = inp.value.slice(0,5); break;
+            case 'fa_letters': allowChars(/[\u0600-\u06FF\s]/g); break;
+            case 'en_letters': allowChars(/[A-Za-z\s]/g); break;
+            case 'date_jalali': inp.value = inp.value.replace(/[^0-9/]/g,'').slice(0,10); break;
+            default: break;
+        }
+        clampLen();
+    });
+    inp.addEventListener('blur', function(){
+        clearInvalid();
+        var v = inp.value.trim(); if (!v) return;
+        var msg = props.error_message || null;
+        if (minLen && v.length < minLen) { setInvalid(msg||'کمتر از حداقل است'); return; }
+        if (maxLen && v.length > maxLen) { setInvalid(msg||'بیشتر از حداکثر است'); return; }
+        switch(fmt){
+            case 'email': if (!/^\S+@\S+\.\S+$/.test(v)) setInvalid(msg||'ایمیل نامعتبر است'); break;
+            case 'mobile_ir': if (!/^(\+98|0)?9\d{9}$/.test(v)) setInvalid(msg||'شماره موبایل ایران نامعتبر است'); break;
+            case 'mobile_intl': if (!/^\+?[1-9]\d{7,14}$/.test(v)) setInvalid(msg||'شماره موبایل بین‌المللی نامعتبر است'); break;
+            case 'tel': if (!/^[0-9\-\+\s\(\)]{5,20}$/.test(v)) setInvalid(msg||'شماره تلفن نامعتبر است'); break;
+            case 'numeric': if (!/^\d+$/.test(v)) setInvalid(msg||'فقط عددی'); break;
+            case 'fa_letters': if (!/^[\u0600-\u06FF\s]+$/.test(v)) setInvalid(msg||'فقط حروف فارسی'); break;
+            case 'en_letters': if (!/^[A-Za-z\s]+$/.test(v)) setInvalid(msg||'فقط حروف انگلیسی'); break;
+            case 'ip': if (!/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v)) setInvalid(msg||'IP نامعتبر است'); break;
+            case 'time': if (!/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(v)) setInvalid(msg||'زمان نامعتبر است'); break;
+            case 'date_jalali': if (!/^\d{4}\/(0[1-6]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid(msg||'تاریخ شمسی نامعتبر است'); break;
+            case 'date_greg': if (!/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid(msg||'تاریخ میلادی نامعتبر است'); break;
+            default: break;
+        }
+    });
 }
 </script>
 </body>
