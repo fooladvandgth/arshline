@@ -463,6 +463,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
                 item.setAttribute('draggable','true');
                 var fmt = props.format || 'free_text';
+                props.format = fmt;
                 var html = ''
                     + '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;flex:1 1 auto;">'
                     +   '<span class="ar-dnd-handle" title="جابجایی" draggable="true">&#8942;&#8942;</span>'
@@ -483,6 +484,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     +       '<option value="date_jalali"' + (fmt==='date_jalali'?' selected':'') + '>تاریخ شمسی</option>'
                     +       '<option value="date_greg"' + (fmt==='date_greg'?' selected':'') + '>تاریخ میلادی</option>'
                     +   '</select>'
+                    +   '<label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">'
+                    +       '<input type="checkbox" data-prop="required"' + (props.required ? ' checked' : '') + '> اجباری'
+                    +   '</label>'
+                    +   '<label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">'
+                    +       '<input type="checkbox" data-prop="show_description"' + (props.show_description ? ' checked' : '') + '> توضیح'
+                    +   '</label>'
+                    +   '<input type="text" data-prop="description" value="' + (props.description || '') + '" placeholder="توضیح زیر سؤال" class="ar-input" style="min-width:260px;display:' + (props.show_description ? 'inline-block' : 'none') + ';" />'
                     + '</div>'
                     + '<div>'
                     +   '<button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>'
@@ -540,9 +548,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                 function syncProps(){
                                     var p = JSON.parse(item.dataset.props || '{}');
                                     var fmtSel = item.querySelector('select[data-prop="format"]');
+                                    var req = item.querySelector('input[data-prop="required"]');
+                                    var showDesc = item.querySelector('input[data-prop="show_description"]');
+                                    var desc = item.querySelector('input[data-prop="description"]');
                                     p.type = 'short_text';
                                     p.label = p.label || 'پاسخ کوتاه';
                                     p.format = fmtSel ? (fmtSel.value || 'free_text') : (p.format || 'free_text');
+                                    p.required = req ? !!req.checked : !!p.required;
+                                    p.show_description = showDesc ? !!showDesc.checked : !!p.show_description;
+                                    p.description = desc ? desc.value : p.description;
                                     // keep placeholder if already present in props, but we don't edit it here
                                     item.dataset.props = JSON.stringify(p);
                                     renderSample();
@@ -551,6 +565,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                 item.querySelectorAll('select[data-prop]').forEach(function(el){
                                     el.addEventListener('change', syncProps);
                                 });
+                                // toggles and description
+                                var showDescEl = item.querySelector('input[data-prop="show_description"]');
+                                if (showDescEl) showDescEl.addEventListener('change', function(){
+                                    var d = item.querySelector('input[data-prop="description"]');
+                                    if (d) d.style.display = showDescEl.checked ? 'inline-block' : 'none';
+                                    syncProps();
+                                });
+                                var reqEl = item.querySelector('input[data-prop="required"]');
+                                if (reqEl) reqEl.addEventListener('change', syncProps);
+                                var descEl = item.querySelector('input[data-prop="description"]');
+                                if (descEl) descEl.addEventListener('input', syncProps);
                                 var fmtSelEl = item.querySelector('select[data-prop="format"]');
                                 if (fmtSelEl) {
                                     fmtSelEl.addEventListener('change', function(){
@@ -583,7 +608,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     if (a.inputmode) mainInput.setAttribute('inputmode', a.inputmode); else mainInput.removeAttribute('inputmode');
                                     if (a.pattern) mainInput.setAttribute('pattern', a.pattern); else mainInput.removeAttribute('pattern');
                                     // placeholder suggestion in the field input
-                                    var phText = (p.placeholder && p.placeholder.trim()) ? p.placeholder : suggestPlaceholder(fmt);
+                                    var phText = suggestPlaceholder(fmt);
                                     mainInput.setAttribute('placeholder', phText || '');
                                     // attach jalali datepicker only for date_jalali
                                     if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
