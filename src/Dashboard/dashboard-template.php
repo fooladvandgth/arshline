@@ -641,9 +641,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.body.classList.add('preview-only');
                 var content = document.getElementById('arshlineDashboardContent');
                 content.innerHTML = '<div class="card glass" style="padding:1.2rem;max-width:720px;margin:0 auto;">\
-                                    // placeholder suggestion: prefer explicit placeholder (config); else default example
-                                    var phText = (p.placeholder && p.placeholder.trim()) ? p.placeholder : suggestPlaceholder(fmt);
-                                    mainInput.setAttribute('placeholder', phText || '');
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">\
+                        <div class="title">پیش‌نمایش فرم #'+ id +'</div>\
+                        <button id="arPreviewBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                    </div>\
+                    <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
                     <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
                 </div>';
                 fetch(ARSHLINE_REST + 'forms/' + id)
