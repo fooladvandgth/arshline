@@ -115,6 +115,7 @@ if (!defined('ABSPATH')) exit;
     .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
     .ar-dnd-ghost { opacity:.6; }
     .ar-dnd-over { outline: 2px dashed var(--primary); outline-offset: 4px; }
+    .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
         /* دارک مود */
         body.dark { background: var(--bg-surface); color: var(--text); }
     body.dark .arshline-main { color: var(--text); }
@@ -290,9 +291,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                             <div style="min-width:200px;">\
                                                 <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
                                                 <div id="arPalette" class="hint">\
-                                                    <button data-type="text" class="mode-switch" style="display:block;width:100%;margin-bottom:.5rem;">فیلد متن</button>\
-                                                    <button data-type="email" class="mode-switch" style="display:block;width:100%;margin-bottom:.5rem;">ایمیل</button>\
-                                                    <button data-type="textarea" class="mode-switch" style="display:block;width:100%;margin-bottom:.5rem;">متن چندخطی</button>\
+                                                    <button data-type="text" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">فیلد متن</button>\
+                                                    <button data-type="email" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">ایمیل</button>\
+                                                    <button data-type="textarea" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">متن چندخطی</button>\
                                                 </div>\
                                             </div>\
                                             <div style="flex:1;">\
@@ -374,7 +375,40 @@ document.addEventListener('DOMContentLoaded', function() {
                                 var palette = document.getElementById('arPalette');
                                 palette.querySelectorAll('button[data-type]').forEach(function(b){
                                         b.onclick = function(){ addFieldToCanvas({ type: b.dataset.type, label: b.textContent }); };
+                                        b.addEventListener('dragstart', function(e){
+                                            e.dataTransfer.effectAllowed = 'copy';
+                                            e.dataTransfer.setData('text/arshline-tool', JSON.stringify({ type: b.dataset.type, label: b.textContent }));
+                                        });
                                 });
+                                var canvasEl = document.getElementById('arCanvas');
+                                if (!canvasEl._dndBound) {
+                                    canvasEl.addEventListener('dragover', function(e){
+                                        e.preventDefault();
+                                    });
+                                    canvasEl.addEventListener('drop', function(e){
+                                        e.preventDefault();
+                                        // Drop from palette (new tool)
+                                        var data = '';
+                                        try { data = e.dataTransfer.getData('text/arshline-tool'); } catch(_){ data=''; }
+                                        if (data) {
+                                            try { var props = JSON.parse(data); addFieldToCanvas(props); return; } catch(_){}
+                                        }
+                                        // Reorder drop into canvas empty area or end
+                                        var dragging = canvasEl._dragging;
+                                        if (dragging && dragging.parentNode === canvasEl) {
+                                            // find nearest position by cursor
+                                            var y = e.clientY;
+                                            var beforeNode = null;
+                                            Array.from(canvasEl.children).some(function(ch){
+                                                var r = ch.getBoundingClientRect();
+                                                if (y < r.top + r.height/2) { beforeNode = ch; return true; }
+                                                return false;
+                                            });
+                                            if (beforeNode) canvasEl.insertBefore(dragging, beforeNode); else canvasEl.appendChild(dragging);
+                                        }
+                                    });
+                                    canvasEl._dndBound = true;
+                                }
                                 document.getElementById('arSaveFields').onclick = function(){ saveFields(); };
                         }
             function addFieldToCanvas(props){
