@@ -1,0 +1,24 @@
+{
+  "name": "drkerami/arshline",
+  "description": "Arshline plugin",
+  "type": "project",
+  "require": {},
+  "require-dev": {
+    "phpunit/phpunit": "^10.5",
+    "brain/monkey": "^2.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "Arshline\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Arshline\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit --configuration phpunit.xml.dist",
+    "test:ci": "phpunit --configuration phpunit.xml.dist --colors=always"
+  }
+}
