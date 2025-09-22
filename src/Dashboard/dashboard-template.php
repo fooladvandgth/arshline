@@ -124,6 +124,18 @@ if (!defined('ABSPATH')) exit;
         /* دارک مود */
         body.dark { background: var(--bg-surface); color: var(--text); }
     body.dark .arshline-main { color: var(--text); }
+    /* VC toggle switch styles (scoped) */
+    .vc-toggle-container { display:inline-block; }
+    .vc-small-switch { position: relative; display: inline-block; width: var(--vc-width,50px); height: var(--vc-height,25px); }
+    .vc-small-switch input { display:none; }
+    .vc-switch-label { position: absolute; inset: 0; cursor: pointer; background: var(--vc-off-color,#d1d3d4); border-radius: var(--vc-box-border-radius,18px); transition: background var(--vc-animation-speed,.15s ease-out); font-family: var(--vc-font-family,Arial); font-weight: var(--vc-font-weight,300); font-size: var(--vc-font-size,11px); color: var(--vc-off-font-color,#fff); }
+    .vc-switch-label:before { content: attr(data-off); position: absolute; right: var(--vc-label-position-off,12px); line-height: var(--vc-height,25px); }
+    .vc-switch-label:after  { content: attr(data-on); position: absolute; left: var(--vc-label-position-on,11px); line-height: var(--vc-height,25px); opacity: 0; }
+    .vc-switch-handle { position: absolute; top: var(--vc-handle-top,5px); right: 5px; width: var(--vc-handle-width,15px); height: var(--vc-handle-height,15px); background: var(--vc-handle-color,#fff); border-radius: var(--vc-handle-border-radius,20px); transition: all var(--vc-animation-speed,.15s ease-out); box-shadow: var(--vc-handle-shadow,1px 1px 5px rgba(0,0,0,.2)); }
+    .vc-small-switch input:checked ~ .vc-switch-label { background: var(--vc-on-color,#38cf5b); color: var(--vc-on-font-color,#fff); }
+    .vc-small-switch input:checked ~ .vc-switch-label:before { opacity: 0; }
+    .vc-small-switch input:checked ~ .vc-switch-label:after  { opacity: 1; }
+    .vc-small-switch input:checked ~ .vc-switch-handle { right: calc(100% - var(--vc-handle-width,15px) - 5px); }
     </style>
     <script>
     const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
@@ -213,6 +225,7 @@ if (!defined('ABSPATH')) exit;
                 .then(r=>r.json())
                 .then(function(data){
                     var fwrap = document.getElementById('arFormPreviewFields');
+                    var qCount = 0;
                     (data.fields||[]).forEach(function(f){
                         var p = f.props || f;
                         var fmt = p.format || 'free_text';
@@ -221,8 +234,13 @@ if (!defined('ABSPATH')) exit;
                         var row = document.createElement('div');
                         var inputId = 'f_'+(f.id||Math.random().toString(36).slice(2));
                         var descId = inputId+'_desc';
-                        row.innerHTML = '<label for="'+inputId+'" class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
-                            '<input id="'+inputId+'" class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" />' +
+                        var showQ = p.question && String(p.question).trim();
+                        var numbered = (p.numbered !== false);
+                        var numberStr = '';
+                        if (showQ && numbered) { qCount++; numberStr = qCount + '. '; }
+                        row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+String(p.question).trim()+'</div>') : '')+
+                            '<label for="'+inputId+'" class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
+                            '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" />' +
                             (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
                         fwrap.appendChild(row);
                     });
@@ -260,8 +278,12 @@ if (!defined('ABSPATH')) exit;
                     <button id="arEditorBack" class="ar-btn ar-btn--muted">بازگشت</button>\
                 </div>\
                 <div style="display:flex;gap:1rem;align-items:flex-start;">\
-                    <div class="ar-settings" style="width:360px;flex:0 0 360px;">\
+                    <div class="ar-settings" style="width:380px;flex:0 0 380px;">\
                         <div class="title" style="margin-bottom:.6rem;">تنظیمات فیلد</div>\
+                        <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
+                            <label class="hint">سؤال</label>\
+                            <textarea id="fQuestion" class="ar-input" rows="2" placeholder="متن سؤال"></textarea>\
+                        </div>\
                         <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
                             <label class="hint">نوع ورودی</label>\
                             <select id="fType" class="ar-select">\
@@ -289,14 +311,24 @@ if (!defined('ABSPATH')) exit;
                                 <span class="toggle-switch-handle"></span>\
                             </label>\
                         </div>\
-                        <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">\
-                            <span class="hint">توضیحات</span>\
-                            <label class="toggle-switch" title="نمایش توضیح" style="transform:scale(.9)">\
-                                <input type="checkbox" id="fDescToggle">\
+                        <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">\
+                            <span class="hint">شماره‌گذاری سؤال</span>\
+                            <label class="toggle-switch" title="نمایش شماره سؤال" style="transform:scale(.9)">\
+                                <input type="checkbox" id="fNumbered">\
                                 <span class="toggle-switch-background"></span>\
                                 <span class="toggle-switch-handle"></span>\
                             </label>\
                         </div>\
+                                                <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">\
+                                                        <span class="hint">توضیحات</span>\
+                                                        <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">\
+                                                            <label class="vc-small-switch">\
+                                                                <input type="checkbox" id="fDescToggle" class="vc-switch-input"/>\
+                                                                <span class="vc-switch-label" data-on="بله" data-off="خیر"></span>\
+                                                                <span class="vc-switch-handle"></span>\
+                                                            </label>\
+                                                        </div>\
+                                                </div>\
                         <div class="field" id="fDescWrap" style="display:none">\
                             <textarea id="fDescText" class="ar-input" rows="2" placeholder="توضیح زیر سؤال"></textarea>\
                         </div>\
@@ -311,9 +343,10 @@ if (!defined('ABSPATH')) exit;
                     <div class="ar-preview" style="flex:1;">\
                         <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>\
                         <div id="pvWrap">\
+                            <div id="pvQuestion" class="hint" style="display:none;margin-bottom:.25rem"></div>\
                             <label class="hint" id="pvLabel" style="display:block;margin-bottom:.3rem">پاسخ کوتاه</label>\
                             <div id="pvDesc" class="hint" style="display:none;margin-bottom:.35rem"></div>\
-                            <input id="pvInput" class="ar-input" />\
+                            <input id="pvInput" class="ar-input" style="width:100%" />\
                             <div id="pvHelp" class="hint" style="display:none"></div>\
                             <div id="pvErr" class="hint" style="color:#b91c1c;margin-top:.3rem"></div>\
                         </div>\
@@ -323,7 +356,7 @@ if (!defined('ABSPATH')) exit;
 
             document.getElementById('arEditorBack').onclick = function(){ renderTab('forms'); };
 
-            var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'' };
+            var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
             fetch(ARSHLINE_REST + 'forms/' + id)
                 .then(r=>r.json())
                 .then(function(data){
@@ -341,6 +374,8 @@ if (!defined('ABSPATH')) exit;
                     var dTx = document.getElementById('fDescText');
                     var dWrap = document.getElementById('fDescWrap');
                     var help = document.getElementById('fHelp');
+                    var qEl = document.getElementById('fQuestion');
+                    var numEl = document.getElementById('fNumbered');
 
                     function updateHiddenProps(p){
                         var el = document.querySelector('#arCanvas .ar-item');
@@ -375,6 +410,12 @@ if (!defined('ABSPATH')) exit;
                         if (attrs && attrs.pattern) inp.setAttribute('pattern', attrs.pattern); else inp.removeAttribute('pattern');
                         var ph = (p.placeholder && p.placeholder.trim()) ? p.placeholder : (fmt==='free_text' ? 'پاسخ را وارد کنید' : suggestPlaceholder(fmt));
                         inp.setAttribute('placeholder', ph || '');
+                        var qNode = document.getElementById('pvQuestion');
+                        if (qNode){
+                            var showQ = (p.question && p.question.trim());
+                            qNode.style.display = showQ ? 'block' : 'none';
+                            qNode.textContent = showQ ? ((p.numbered ? '1. ' : '') + p.question.trim()) : '';
+                        }
                         var lbl = document.getElementById('pvLabel'); if (lbl) lbl.innerHTML = (p.label||'پاسخ کوتاه') + (p.required?' *':'');
                         var desc = document.getElementById('pvDesc'); if (desc){ desc.textContent = p.description || ''; desc.style.display = p.show_description && p.description ? 'block' : 'none'; }
                         var helpEl = document.getElementById('pvHelp'); if (helpEl) { helpEl.textContent=''; helpEl.style.display='none'; }
@@ -390,6 +431,8 @@ if (!defined('ABSPATH')) exit;
                     if (dTg){ dTg.checked = !!field.show_description; if (dWrap) dWrap.style.display = field.show_description ? 'block':'none'; dTg.addEventListener('change', function(){ field.show_description = !!dTg.checked; if(dWrap){ dWrap.style.display = field.show_description ? 'block':'none'; } sync(); }); }
                     if (dTx){ dTx.value = field.description || ''; dTx.addEventListener('input', function(){ field.description = dTx.value; sync(); }); }
                     if (help){ help.value = field.placeholder || ''; help.addEventListener('input', function(){ field.placeholder = help.value; sync(); }); }
+                    if (qEl){ qEl.value = field.question || ''; qEl.addEventListener('input', function(){ field.question = qEl.value; sync(); }); }
+                    if (numEl){ numEl.checked = field.numbered !== false; field.numbered = numEl.checked; numEl.addEventListener('change', function(){ field.numbered = !!numEl.checked; sync(); }); }
 
                     applyPreviewFrom(field);
                     var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = function(){ saveFields(); };
