@@ -493,6 +493,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                         <input type="checkbox" data-prop="show_description" '+ (props.show_description ? 'checked' : '') +'> نمایش توضیح\
                                                     </label>\
                                                     <input type="text" data-prop="description" value="'+ (props.description || '') +'" placeholder="توضیح زیر سؤال" class="ar-input" style="min-width:260px;display:'+(props.show_description?'inline-block':'none')+';" />\
+                                                    <input class="ar-input ar-field-main" type="text" style="min-width:240px;opacity:.95;" placeholder="" title="پیش‌نمایش فیلد" aria-invalid="false"/>\
                                                 </div>\
                                                 <div>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
@@ -585,12 +586,12 @@ document.addEventListener('DOMContentLoaded', function() {
                                         syncProps();
                                     });
                                 }
-                                // apply format behavior to the main placeholder input
+                                // apply format behavior to the field main input (on-canvas preview)
                                 function renderSample(){
                                     var p = JSON.parse(item.dataset.props || '{}');
                                     var fmt = p.format || 'free_text';
                                     var a = inputAttrsByFormat(fmt);
-                                    var mainInput = item.querySelector('input[data-prop="placeholder"]');
+                                    var mainInput = item.querySelector('.ar-field-main');
                                     if (!mainInput) return;
                                     // teardown any previous jalali datepicker on this input
                                     if (typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker) {
@@ -601,11 +602,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                     mainInput.setAttribute('type', a.type || 'text');
                                     if (a.inputmode) mainInput.setAttribute('inputmode', a.inputmode); else mainInput.removeAttribute('inputmode');
                                     if (a.pattern) mainInput.setAttribute('pattern', a.pattern); else mainInput.removeAttribute('pattern');
-                                    // show suggested placeholder in placeholder attribute when empty
+                                    // placeholder suggestion in the field input
                                     var phText = (p.placeholder && p.placeholder.trim()) ? p.placeholder : suggestPlaceholder(fmt);
-                                    if ((mainInput.value||'').trim() === '') {
-                                        mainInput.setAttribute('placeholder', 'در صورت تمایل متن نمایش در باکس (مثال: '+(phText||'')+')');
-                                    }
+                                    mainInput.setAttribute('placeholder', phText || '');
                                     // attach jalali datepicker only for date_jalali
                                     if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
                                         try { jQuery(mainInput).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
@@ -642,11 +641,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.body.classList.add('preview-only');
                 var content = document.getElementById('arshlineDashboardContent');
                 content.innerHTML = '<div class="card glass" style="padding:1.2rem;max-width:720px;margin:0 auto;">\
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">\
-                        <div class="title">پیش‌نمایش فرم #' + id + '</div>\
-                        <button id="arPreviewBack" class="ar-btn ar-btn--muted">بازگشت</button>\
-                    </div>\
-                    <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
+                                    // placeholder suggestion: prefer explicit placeholder (config); else default example
+                                    var phText = (p.placeholder && p.placeholder.trim()) ? p.placeholder : suggestPlaceholder(fmt);
+                                    mainInput.setAttribute('placeholder', phText || '');
                     <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
                 </div>';
                 fetch(ARSHLINE_REST + 'forms/' + id)
