@@ -167,6 +167,12 @@ if (!defined('ABSPATH')) exit;
         @media (prefers-reduced-motion: reduce) {
             * { animation: none !important; transition: none !important; }
         }
+
+        /* Toasts */
+        .ar-toast-wrap { position: fixed; left: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+        .ar-toast { background: var(--surface); color: var(--text); border:1px solid var(--border); border-radius: 10px; padding: .55rem .8rem; box-shadow: var(--shadow-card); min-width: 200px; max-width: 360px; }
+        .ar-toast--success { border-color: #16a34a; }
+        .ar-toast--error { border-color: #b91c1c; }
     </style>
 </head>
 <body>
@@ -193,6 +199,7 @@ if (!defined('ABSPATH')) exit;
 <script>
 // WP REST nonce for authenticated requests
 var ARSHLINE_NONCE = '<?php echo wp_create_nonce('wp_rest'); ?>';
+var ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
 // apply saved theme preference on load (default: light)
 (function() {
     var saved = localStorage.getItem('arshlineTheme');
@@ -259,7 +266,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         content.innerHTML = '<div class="card glass" style="padding:1rem;">\
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">\
                   <span class="title">فرم‌ها</span>\
-                  <button id="arCreateFormBtn" class="mode-switch" style="font-size:.95rem;padding:.45rem .8rem;">+ فرم جدید</button>\
+                  <div style="display:flex;align-items:center;gap:.5rem;">\
+                    <button id="arCreateFormBtn" class="mode-switch" style="font-size:.95rem;padding:.45rem .8rem;">+ فرم جدید</button>\
+                    <div id="arCreateInline" style="display:none;align-items:center;gap:.4rem;">\
+                      <input id="arNewFormTitle" type="text" placeholder="عنوان فرم..." style="padding:.4rem .6rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);min-width:200px;" />\
+                      <button id="arCreateFormSubmit" class="mode-switch" style="font-size:.9rem;padding:.4rem .8rem;">ایجاد</button>\
+                      <button id="arCreateFormCancel" class="mode-switch" style="font-size:.9rem;padding:.4rem .8rem;background:#64748b;">انصراف</button>\
+                    </div>\
+                  </div>\
                 </div>\
                                 <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
                                 <div id="arBuilder" style="margin-top:1rem;display:none;">\
@@ -284,18 +298,18 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>\
                                 </div>\
             </div>';
-            fetch('/wp-json/arshline/v1/forms', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+            fetch('/wp-json/arshline/v1/forms')
             .then(async r=>{ if(!r.ok){ throw new Error('HTTP '+r.status); } return r.json(); })
             .then(function(rows){
                 var box = document.getElementById('arFormsList');
                 if (!rows || rows.length===0) { box.textContent = 'فرمی یافت نشد.'; return; }
-                                var html = rows.map(function(it){
+                                                                var html = rows.map(function(it){
                     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
                         <div>\
                           <b style="color:var(--text)">'+(it.title||'بدون عنوان')+'</b>\
                           <span class="hint" style="margin-inline-start:.6rem">#'+it.id+' · '+it.status+'</span>\
                         </div>\
-                                                <a href="#" data-id="'+it.id+'" class="hint arEditForm">ویرایش</a>\
+                                                                                                '+ (ARSHLINE_CAN_MANAGE ? ('<a href="#" data-id="'+it.id+'" class="hint arEditForm">ویرایش</a>') : '') +'\
                     </div>';
                 }).join('');
                 box.innerHTML = html;
@@ -309,20 +323,41 @@ document.addEventListener('DOMContentLoaded', function() {
             }).catch((err)=>{
                 var box = document.getElementById('arFormsList');
                 if (box) box.textContent = 'خطا در بارگذاری فرم‌ها. لطفاً وارد شوید یا مجوز دسترسی را بررسی کنید.';
+                notify('خطا در بارگذاری فرم‌ها', 'error');
             });
             var btn = document.getElementById('arCreateFormBtn');
+            var inlineWrap = null;
             if (btn) btn.addEventListener('click', function(){
-                var title = prompt('عنوان فرم را وارد کنید:', 'فرم جدید');
-                fetch('/wp-json/arshline/v1/forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title||'فرم جدید' }) })
+                inlineWrap = inlineWrap || document.getElementById('arCreateInline');
+                if (!inlineWrap) return;
+                var showing = inlineWrap.style.display !== 'none';
+                inlineWrap.style.display = showing ? 'none' : 'flex';
+                if (!showing) {
+                    var input = document.getElementById('arNewFormTitle');
+                    if (input) { input.value = ''; input.focus(); }
+                }
+            });
+            if (!ARSHLINE_CAN_MANAGE && btn){ btn.style.display = 'none'; }
+            var submitBtn = document.getElementById('arCreateFormSubmit');
+            var cancelBtn = document.getElementById('arCreateFormCancel');
+            if (cancelBtn) cancelBtn.addEventListener('click', function(){
+                var w = document.getElementById('arCreateInline');
+                if (w) w.style.display = 'none';
+            });
+            if (submitBtn) submitBtn.addEventListener('click', function(){
+                var titleEl = document.getElementById('arNewFormTitle');
+                var title = (titleEl && titleEl.value.trim()) || 'فرم جدید';
+                fetch('/wp-json/arshline/v1/forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) })
                     .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                    .then(function(){ renderTab('forms'); })
-                    .catch(function(){ alert('ایجاد فرم ناموفق بود. لطفاً وارد شوید یا مجوز دسترسی را بررسی کنید.'); });
+                    .then(function(){ notify('فرم ایجاد شد', 'success'); renderTab('forms'); })
+                    .catch(function(){ notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); });
             });
                         function openBuilder(id){
                                 var holder = document.getElementById('arBuilder');
                                 holder.style.display = 'block';
                                 holder.dataset.formId = String(id);
-                                fetch('/wp-json/arshline/v1/forms/'+id, { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+                if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); return; }
+                fetch('/wp-json/arshline/v1/forms/'+id)
                                         .then(r=>r.json()).then(function(data){
                                                 var canvas = document.getElementById('arCanvas');
                                                 canvas.innerHTML = '';
@@ -334,28 +369,64 @@ document.addEventListener('DOMContentLoaded', function() {
                                 });
                                 document.getElementById('arSaveFields').onclick = function(){ saveFields(); };
                         }
-                        function addFieldToCanvas(props){
+            function addFieldToCanvas(props){
                                 var canvas = document.getElementById('arCanvas');
                                 var item = document.createElement('div');
                                 item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
-                                item.innerHTML = '<div><b>'+ (props.label || props.type) +'</b> <span class="hint">('+props.type+')</span></div>\
-                                                                    <div>\
-                                                                        <button class="mode-switch" data-act="up" style="padding:.2rem .5rem;font-size:.8rem;">▲</button>\
-                                                                        <button class="mode-switch" data-act="down" style="padding:.2rem .5rem;font-size:.8rem;">▼</button>\
-                                                                        <button class="mode-switch" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;background:#b91c1c;">حذف</button>\
-                                                                    </div>';
+                                item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">\
+                                                    <span class="hint">('+ (props.type || 'text') +')</span>\
+                                                    <input type="text" data-prop="label" value="'+ (props.label || props.type || '') +'" placeholder="برچسب"\
+                                                        style="padding:.3rem .5rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);min-width:160px;"/>\
+                                                    <input type="text" data-prop="placeholder" value="'+ (props.placeholder || '') +'" placeholder="راهنما (Placeholder)"\
+                                                        style="padding:.3rem .5rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);min-width:160px;"/>\
+                                                    <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
+                                                        <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
+                                                    </label>\
+                                                </div>\
+                                                <div>\
+                                                    <button class="mode-switch" data-act="up" style="padding:.2rem .5rem;font-size:.8rem;">▲</button>\
+                                                    <button class="mode-switch" data-act="down" style="padding:.2rem .5rem;font-size:.8rem;">▼</button>\
+                                                    <button class="mode-switch" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;background:#b91c1c;">حذف</button>\
+                                                </div>';
                                 item.dataset.props = JSON.stringify(props);
-                                item.querySelector('[data-act="remove"]').onclick = function(){ item.remove(); };
+                                function syncProps(){
+                                    var p = JSON.parse(item.dataset.props || '{}');
+                                    var label = item.querySelector('input[data-prop="label"]');
+                                    var ph = item.querySelector('input[data-prop="placeholder"]');
+                                    var req = item.querySelector('input[data-prop="required"]');
+                                    p.label = label ? label.value : p.label;
+                                    p.placeholder = ph ? ph.value : p.placeholder;
+                                    p.required = req ? !!req.checked : !!p.required;
+                                    item.dataset.props = JSON.stringify(p);
+                                }
+                                item.querySelectorAll('input[data-prop]').forEach(function(el){
+                                    el.addEventListener('input', syncProps);
+                                    el.addEventListener('change', syncProps);
+                                });
+                                item.querySelector('[data-act="remove"]').onclick = function(){
+                                    var canvasRef = document.getElementById('arCanvas');
+                                    var idx = Array.from(canvasRef.children).indexOf(item);
+                                    var backup = JSON.parse(item.dataset.props || '{}');
+                                    item.remove();
+                                    notify('فیلد حذف شد', { type: 'error', actionLabel: 'بازگردانی', onAction: function(){
+                                        var newEl = addFieldToCanvas(backup);
+                                        var ref = canvasRef.children[idx] || null;
+                                        if (ref) canvasRef.insertBefore(newEl, ref); else canvasRef.appendChild(newEl);
+                                    }});
+                                };
                                 item.querySelector('[data-act="up"]').onclick = function(){ if (item.previousElementSibling) canvas.insertBefore(item, item.previousElementSibling); };
                                 item.querySelector('[data-act="down"]').onclick = function(){ if (item.nextElementSibling) canvas.insertBefore(item.nextElementSibling, item); };
                                 canvas.appendChild(item);
+                                return item;
                         }
                         function saveFields(){
                                 var id = parseInt(document.getElementById('arBuilder').dataset.formId||'0');
                                 var canvas = document.getElementById('arCanvas');
                                 var fields = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); });
                                 fetch('/wp-json/arshline/v1/forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: fields }) })
-                                        .then(r=>r.json()).then(function(){ alert('ذخیره شد'); });
+                                        .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                                        .then(function(){ notify('ذخیره شد', 'success'); })
+                                        .catch(function(){ notify('ذخیره تغییرات ناموفق بود', 'error'); });
                         }
         } else if (tab === 'submissions') {
             content.innerHTML = '<div class="card glass" style="padding:1rem;">\
@@ -365,7 +436,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>\
                 <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
             </div>';
-            fetch('/wp-json/arshline/v1/forms', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } }).then(r=>r.json()).then(function(forms){
+            fetch('/wp-json/arshline/v1/forms').then(r=>r.json()).then(function(forms){
                 var sel = document.getElementById('arFormSelect');
                 if (!sel) return;
                 sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
@@ -374,7 +445,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     var list = document.getElementById('arSubsList');
                     if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
                     list.textContent = 'در حال بارگذاری...';
-                    fetch('/wp-json/arshline/v1/forms/'+id+'/submissions', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } }).then(r=>r.json()).then(function(rows){
+                    fetch('/wp-json/arshline/v1/forms/'+id+'/submissions').then(r=>r.json()).then(function(rows){
                         if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
                         var html = rows.map(function(it){
                             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
@@ -419,5 +490,41 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
 <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+<script>
+// lightweight toast notifications
+function ensureToastWrap(){
+    var w = document.getElementById('arToastWrap');
+    if (!w){
+        w = document.createElement('div');
+        w.id = 'arToastWrap';
+        w.className = 'ar-toast-wrap';
+        document.body.appendChild(w);
+    }
+    return w;
+}
+function notify(message, opts){
+    var wrap = ensureToastWrap();
+    var el = document.createElement('div');
+    var type = typeof opts === 'string' ? opts : (opts && opts.type) || '';
+    el.className = 'ar-toast ' + (type ? ('ar-toast--'+type) : '');
+    var hasAction = opts && opts.actionLabel && typeof opts.onAction === 'function';
+    if (hasAction){
+        var span = document.createElement('span');
+        span.textContent = message;
+        var btn = document.createElement('button');
+        btn.textContent = opts.actionLabel;
+        btn.style.cssText = 'margin-inline-start:.6rem;padding:.25rem .6rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;';
+        btn.addEventListener('click', function(){ opts.onAction(); el.remove(); });
+        el.appendChild(span);
+        el.appendChild(btn);
+    } else {
+        el.textContent = message;
+    }
+    wrap.appendChild(el);
+    var duration = (opts && opts.duration) || 2800;
+    setTimeout(function(){ el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; }, Math.max(200, duration - 500));
+    setTimeout(function(){ el.remove(); }, duration);
+}
+</script>
 </body>
 </html>
