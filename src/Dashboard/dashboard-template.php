@@ -284,7 +284,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>\
                                 </div>\
             </div>';
-            fetch('/wp-json/arshline/v1/forms', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } }).then(r=>r.json()).then(function(rows){
+            fetch('/wp-json/arshline/v1/forms', { headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+            .then(async r=>{ if(!r.ok){ throw new Error('HTTP '+r.status); } return r.json(); })
+            .then(function(rows){
                 var box = document.getElementById('arFormsList');
                 if (!rows || rows.length===0) { box.textContent = 'فرمی یافت نشد.'; return; }
                                 var html = rows.map(function(it){
@@ -304,15 +306,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 openBuilder(id);
                                         });
                                 });
-            }).catch(()=>{
+            }).catch((err)=>{
                 var box = document.getElementById('arFormsList');
-                if (box) box.textContent = 'خطا در بارگذاری فرم‌ها';
+                if (box) box.textContent = 'خطا در بارگذاری فرم‌ها. لطفاً وارد شوید یا مجوز دسترسی را بررسی کنید.';
             });
             var btn = document.getElementById('arCreateFormBtn');
             if (btn) btn.addEventListener('click', function(){
                 var title = prompt('عنوان فرم را وارد کنید:', 'فرم جدید');
                 fetch('/wp-json/arshline/v1/forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title||'فرم جدید' }) })
-                    .then(r=>r.json()).then(function(){ renderTab('forms'); });
+                    .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                    .then(function(){ renderTab('forms'); })
+                    .catch(function(){ alert('ایجاد فرم ناموفق بود. لطفاً وارد شوید یا مجوز دسترسی را بررسی کنید.'); });
             });
                         function openBuilder(id){
                                 var holder = document.getElementById('arBuilder');
