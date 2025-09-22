@@ -116,6 +116,8 @@ if (!defined('ABSPATH')) exit;
     .ar-dnd-ghost { opacity:.6; }
     .ar-dnd-over { outline: 2px dashed var(--primary); outline-offset: 4px; }
     .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
+    .ar-dnd-placeholder { border:1px solid var(--border); border-radius:10px; margin:.4rem 0; background: var(--surface); opacity:.35; padding:.5rem .8rem; pointer-events:none; }
+    .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
         /* دارک مود */
         body.dark { background: var(--bg-surface); color: var(--text); }
     body.dark .arshline-main { color: var(--text); }
@@ -291,9 +293,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                             <div style="min-width:200px;">\
                                                 <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
                                                 <div id="arPalette" class="hint">\
-                                                    <button data-type="text" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">فیلد متن</button>\
-                                                    <button data-type="email" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">ایمیل</button>\
-                                                    <button data-type="textarea" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">متن چندخطی</button>\
+                                                    <button data-type="short_text" class="ar-btn ar-tool" draggable="true" style="display:block;width:100%;margin-bottom:.5rem;">متن کوتاه</button>\
                                                 </div>\
                                             </div>\
                                             <div style="flex:1;">\
@@ -374,16 +374,29 @@ document.addEventListener('DOMContentLoaded', function() {
                                         });
                                 var palette = document.getElementById('arPalette');
                                 palette.querySelectorAll('button[data-type]').forEach(function(b){
-                                        b.onclick = function(){ addFieldToCanvas({ type: b.dataset.type, label: b.textContent }); };
+                                        b.onclick = function(){ addFieldToCanvas({ type: 'short_text', label: 'متن کوتاه', format: 'free_text' }); };
                                         b.addEventListener('dragstart', function(e){
                                             e.dataTransfer.effectAllowed = 'copy';
-                                            e.dataTransfer.setData('text/arshline-tool', JSON.stringify({ type: b.dataset.type, label: b.textContent }));
+                                            e.dataTransfer.setData('text/arshline-tool', JSON.stringify({ type: 'short_text', label: 'متن کوتاه', format: 'free_text' }));
                                         });
                                 });
                                 var canvasEl = document.getElementById('arCanvas');
                                 if (!canvasEl._dndBound) {
                                     canvasEl.addEventListener('dragover', function(e){
                                         e.preventDefault();
+                                        var dragging = canvasEl._dragging;
+                                        var y = e.clientY;
+                                        // Ensure placeholder exists and sized
+                                        var ph = canvasEl._placeholder || document.createElement('div');
+                                        ph.className = 'ar-dnd-placeholder';
+                                        if (!ph.parentNode) canvasEl.appendChild(ph);
+                                        if (dragging) ph.style.height = dragging.offsetHeight + 'px';
+                                        // find beforeNode by cursor
+                                        var beforeNode = null;
+                                        Array.from(canvasEl.children).some(function(ch){ if(ch===ph) return false; var r=ch.getBoundingClientRect(); if (y < r.top + r.height/2){ beforeNode = ch; return true;} return false; });
+                                        if (dragging) { ph.innerHTML = dragging.innerHTML; }
+                                        if (beforeNode) canvasEl.insertBefore(ph, beforeNode); else canvasEl.appendChild(ph);
+                                        canvasEl._placeholder = ph;
                                     });
                                     canvasEl.addEventListener('drop', function(e){
                                         e.preventDefault();
@@ -391,21 +404,25 @@ document.addEventListener('DOMContentLoaded', function() {
                                         var data = '';
                                         try { data = e.dataTransfer.getData('text/arshline-tool'); } catch(_){ data=''; }
                                         if (data) {
-                                            try { var props = JSON.parse(data); addFieldToCanvas(props); return; } catch(_){}
+                                            try {
+                                                var props = JSON.parse(data);
+                                                var el = addFieldToCanvas(props);
+                                                var phx = canvasEl._placeholder;
+                                                if (phx && phx.parentNode) {
+                                                    canvasEl.insertBefore(el, phx);
+                                                    phx.parentNode.removeChild(phx);
+                                                    canvasEl._placeholder = null;
+                                                }
+                                                return;
+                                            } catch(_){}
                                         }
-                                        // Reorder drop into canvas empty area or end
+                                        // Reorder using placeholder position
                                         var dragging = canvasEl._dragging;
-                                        if (dragging && dragging.parentNode === canvasEl) {
-                                            // find nearest position by cursor
-                                            var y = e.clientY;
-                                            var beforeNode = null;
-                                            Array.from(canvasEl.children).some(function(ch){
-                                                var r = ch.getBoundingClientRect();
-                                                if (y < r.top + r.height/2) { beforeNode = ch; return true; }
-                                                return false;
-                                            });
-                                            if (beforeNode) canvasEl.insertBefore(dragging, beforeNode); else canvasEl.appendChild(dragging);
+                                        var ph = canvasEl._placeholder;
+                                        if (dragging && ph && ph.parentNode === canvasEl) {
+                                            canvasEl.insertBefore(dragging, ph);
                                         }
+                                        if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
                                     });
                                     canvasEl._dndBound = true;
                                 }
@@ -416,18 +433,33 @@ document.addEventListener('DOMContentLoaded', function() {
                                 var item = document.createElement('div');
                 item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
                 item.setAttribute('draggable','true');
+                var fmt = props.format || 'free_text';
                 item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">\
                                                     <span class="ar-dnd-handle" title="جابجایی" draggable="true">⋮⋮</span>\
-                                                    <span class="hint">('+ (props.type || 'text') +')</span>\
-                                                    <input type="text" data-prop="label" value="'+ (props.label || props.type || '') +'" placeholder="برچسب" class="ar-input" style="min-width:160px;"/>\
+                                                    <span class="hint">(متن کوتاه)</span>\
+                                                    <input type="text" data-prop="label" value="'+ (props.label || 'متن کوتاه') +'" placeholder="برچسب" class="ar-input" style="min-width:160px;"/>\
                                                     <input type="text" data-prop="placeholder" value="'+ (props.placeholder || '') +'" placeholder="راهنما (Placeholder)" class="ar-input" style="min-width:160px;"/>\
+                                                    <select class="ar-select" data-prop="format">\
+                                                        <option value="free_text"'+(fmt==='free_text'?' selected':'')+'>متن آزاد</option>\
+                                                        <option value="email"'+(fmt==='email'?' selected':'')+'>ایمیل</option>\
+                                                        <option value="mobile_ir"'+(fmt==='mobile_ir'?' selected':'')+'>موبایل ایران</option>\
+                                                        <option value="mobile_intl"'+(fmt==='mobile_intl'?' selected':'')+'>موبایل بین‌المللی</option>\
+                                                        <option value="tel"'+(fmt==='tel'?' selected':'')+'>تلفن</option>\
+                                                        <option value="numeric"'+(fmt==='numeric'?' selected':'')+'>فقط عددی</option>\
+                                                        <option value="fa_letters"'+(fmt==='fa_letters'?' selected':'')+'>حروف فارسی</option>\
+                                                        <option value="en_letters"'+(fmt==='en_letters'?' selected':'')+'>حروف انگلیسی</option>\
+                                                        <option value="ip"'+(fmt==='ip'?' selected':'')+'>IP</option>\
+                                                        <option value="time"'+(fmt==='time'?' selected':'')+'>زمان</option>\
+                                                        <option value="date_jalali"'+(fmt==='date_jalali'?' selected':'')+'>تاریخ شمسی</option>\
+                                                        <option value="date_greg"'+(fmt==='date_greg'?' selected':'')+'>تاریخ میلادی</option>\
+                                                        <option value="regex"'+(fmt==='regex'?' selected':'')+'>الگوی دلخواه</option>\
+                                                    </select>\
+                                                    <input type="text" data-prop="regex" value="'+ (props.regex || '') +'" placeholder="/الگو/" class="ar-input" style="min-width:140px;display:'+(fmt==='regex'?'inline-block':'none')+';" />\
                                                     <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
                                                         <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
                                                     </label>\
                                                 </div>\
                                                 <div>\
-                                                    <button class="ar-btn" data-act="up" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;">▲</button>\
-                                                    <button class="ar-btn" data-act="down" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;">▼</button>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
                                                 </div>';
                                 item.dataset.props = JSON.stringify(props);
@@ -437,42 +469,75 @@ document.addEventListener('DOMContentLoaded', function() {
                     e.dataTransfer.setData('text/plain', 'drag');
                     item.classList.add('ar-dnd-ghost');
                     canvas._dragging = item;
+                    // custom drag image
+                    var txt = (JSON.parse(item.dataset.props||'{}').label) || 'Field';
+                    var ghost = document.createElement('div');
+                    ghost.className = 'ar-dnd-ghost-proxy';
+                    ghost.textContent = txt;
+                    document.body.appendChild(ghost);
+                    e.dataTransfer.setDragImage(ghost, 10, 10);
+                    canvas._dragGhost = ghost;
                 });
                 item.addEventListener('dragend', function(){
                     item.classList.remove('ar-dnd-ghost');
                     Array.from(canvas.children).forEach(function(c){ c.classList.remove('ar-dnd-over'); });
-                    canvas._dragging = null;
+                    var ph = canvas._placeholder; if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
+                    var gh = canvas._dragGhost; if (gh && gh.parentNode) gh.parentNode.removeChild(gh);
+                    canvas._dragging = null; canvas._placeholder = null; canvas._dragGhost = null;
                 });
                 item.addEventListener('dragover', function(e){
                     e.preventDefault();
                     var dragging = canvas._dragging;
                     if (!dragging || dragging===item) return;
-                    item.classList.add('ar-dnd-over');
-                });
-                item.addEventListener('dragleave', function(){ item.classList.remove('ar-dnd-over'); });
-                item.addEventListener('drop', function(e){
-                    e.preventDefault();
-                    item.classList.remove('ar-dnd-over');
-                    var dragging = canvas._dragging;
-                    if (!dragging || dragging===item) return;
+                    // manage placeholder relative to this item
+                    var ph = canvas._placeholder || document.createElement('div');
+                    ph.className = 'ar-dnd-placeholder';
+                    ph.style.height = (dragging.offsetHeight || item.offsetHeight) + 'px';
+                    ph.innerHTML = dragging.innerHTML;
                     var rect = item.getBoundingClientRect();
                     var before = (e.clientY - rect.top) < (rect.height/2);
-                    if (before) canvas.insertBefore(dragging, item); else canvas.insertBefore(dragging, item.nextSibling);
+                    if (before) canvas.insertBefore(ph, item); else canvas.insertBefore(ph, item.nextSibling);
+                    canvas._placeholder = ph;
+                });
+                item.addEventListener('dragleave', function(){ /* no-op */ });
+                item.addEventListener('drop', function(e){
+                    e.preventDefault();
+                    var dragging = canvas._dragging;
+                    if (!dragging || dragging===item) return;
+                    var ph = canvas._placeholder;
+                    if (ph && ph.parentNode) {
+                        canvas.insertBefore(dragging, ph);
+                        ph.parentNode.removeChild(ph);
+                        canvas._placeholder = null;
+                    }
                 });
                                 function syncProps(){
                                     var p = JSON.parse(item.dataset.props || '{}');
                                     var label = item.querySelector('input[data-prop="label"]');
                                     var ph = item.querySelector('input[data-prop="placeholder"]');
                                     var req = item.querySelector('input[data-prop="required"]');
+                                    var fmtSel = item.querySelector('select[data-prop="format"]');
+                                    var rx = item.querySelector('input[data-prop="regex"]');
                                     p.label = label ? label.value : p.label;
                                     p.placeholder = ph ? ph.value : p.placeholder;
                                     p.required = req ? !!req.checked : !!p.required;
+                                    p.type = 'short_text';
+                                    if (fmtSel) p.format = fmtSel.value || 'free_text';
+                                    if (rx) p.regex = rx.value || '';
                                     item.dataset.props = JSON.stringify(p);
                                 }
                                 item.querySelectorAll('input[data-prop]').forEach(function(el){
                                     el.addEventListener('input', syncProps);
                                     el.addEventListener('change', syncProps);
                                 });
+                                var fmtSelEl = item.querySelector('select[data-prop="format"]');
+                                if (fmtSelEl) {
+                                    fmtSelEl.addEventListener('change', function(){
+                                        var rx = item.querySelector('input[data-prop="regex"]');
+                                        if (rx) rx.style.display = (fmtSelEl.value==='regex') ? 'inline-block' : 'none';
+                                        syncProps();
+                                    });
+                                }
                                 item.querySelector('[data-act="remove"]').onclick = function(){
                                     var canvasRef = document.getElementById('arCanvas');
                                     var idx = Array.from(canvasRef.children).indexOf(item);
@@ -484,8 +549,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                         if (ref) canvasRef.insertBefore(newEl, ref); else canvasRef.appendChild(newEl);
                                     }});
                                 };
-                                item.querySelector('[data-act="up"]').onclick = function(){ if (item.previousElementSibling) canvas.insertBefore(item, item.previousElementSibling); };
-                                item.querySelector('[data-act="down"]').onclick = function(){ if (item.nextElementSibling) canvas.insertBefore(item.nextElementSibling, item); };
                                 canvas.appendChild(item);
                                 return item;
                         }
