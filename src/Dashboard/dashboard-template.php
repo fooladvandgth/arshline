@@ -485,7 +485,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
                                                         <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
                                                     </label>\
-                                                    <input class="ar-input ar-live-sample" type="text" style="min-width:240px;opacity:.9;" placeholder="" title="نمونه ورودی"/>\
                                                 </div>\
                                                 <div>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
@@ -570,26 +569,30 @@ document.addEventListener('DOMContentLoaded', function() {
                                         syncProps();
                                     });
                                 }
-                                // sample renderer based on format and placeholder
+                                // apply format behavior to the main placeholder input
                                 function renderSample(){
                                     var p = JSON.parse(item.dataset.props || '{}');
                                     var fmt = p.format || 'free_text';
                                     var a = inputAttrsByFormat(fmt);
-                                    var sample = item.querySelector('.ar-live-sample');
-                                    if (!sample) return;
-                                    sample.setAttribute('type', a.type || 'text');
-                                    if (a.inputmode) sample.setAttribute('inputmode', a.inputmode); else sample.removeAttribute('inputmode');
-                                    if (a.pattern) sample.setAttribute('pattern', a.pattern); else sample.removeAttribute('pattern');
-                                    var phText = (p.placeholder && p.placeholder.trim()) ? p.placeholder : suggestPlaceholder(fmt);
-                                    sample.setAttribute('placeholder', phText || '');
-                                    // jalali datepicker if available
-                                    if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
-                                        try { jQuery(sample).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
+                                    var mainInput = item.querySelector('input[data-prop="placeholder"]');
+                                    if (!mainInput) return;
+                                    // teardown any previous jalali datepicker on this input
+                                    if (typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker) {
+                                        try { jQuery(mainInput).pDatepicker('destroy'); } catch(e){}
+                                        try { mainInput.classList.remove('pwt-datepicker-input-element'); } catch(e){}
                                     }
-                                    // also update config placeholder input's placeholder to show suggestion
-                                    var cfgPh = item.querySelector('input[data-prop="placeholder"]');
-                                    if (cfgPh && (cfgPh.value||'').trim()==='') {
-                                        cfgPh.setAttribute('placeholder', 'در صورت تمایل متن نمایش در باکس (مثال: '+(phText||'')+')');
+                                    // set attributes on the main input
+                                    mainInput.setAttribute('type', a.type || 'text');
+                                    if (a.inputmode) mainInput.setAttribute('inputmode', a.inputmode); else mainInput.removeAttribute('inputmode');
+                                    if (a.pattern) mainInput.setAttribute('pattern', a.pattern); else mainInput.removeAttribute('pattern');
+                                    // show suggested placeholder in placeholder attribute when empty
+                                    var phText = (p.placeholder && p.placeholder.trim()) ? p.placeholder : suggestPlaceholder(fmt);
+                                    if ((mainInput.value||'').trim() === '') {
+                                        mainInput.setAttribute('placeholder', 'در صورت تمایل متن نمایش در باکس (مثال: '+(phText||'')+')');
+                                    }
+                                    // attach jalali datepicker only for date_jalali
+                                    if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
+                                        try { jQuery(mainInput).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
                                     }
                                 }
                                 // initial
