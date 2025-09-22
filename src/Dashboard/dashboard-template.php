@@ -142,6 +142,23 @@ if (!defined('ABSPATH')) exit;
     /* View transition */
     #arshlineDashboardContent.view { animation: arViewIn .28s ease both; }
     @keyframes arViewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    /* Modern solid cards (original design) */
+    .tagline { text-align:center; font-size:1.05rem; font-weight:700; color: var(--text); margin-bottom: 1rem; }
+    body.dark .tagline { color: #e5e7eb; }
+    .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:30px; padding: 10px 0 30px; }
+    .ar-card { position:relative; width:320px; height:450px; background:#1e40af; border-radius:20px; border-bottom-left-radius:160px; border-bottom-right-radius:160px; display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 12px 0 #fff, inset 0 -10px 0 rgba(255,255,255,.18), 0 36px 0 rgba(0,0,0,.12); }
+    .ar-card::before { content:""; position:absolute; top:-140px; left:-40%; width:100%; height:120%; background: rgba(255,255,255,.06); transform: rotate(35deg); pointer-events:none; filter: blur(5px); }
+    .ar-card .icon { position:relative; width:140px; height:120px; background:#0d1321; border-bottom-left-radius:100px; border-bottom-right-radius:100px; box-shadow: 0 12px 0 rgba(0,0,0,.1), inset 0 -8px 0 #fff; z-index:2; display:flex; justify-content:center; align-items:flex-start; }
+    .ar-card .icon::before { content:""; position:absolute; top:0; left:-50px; width:50px; height:50px; background:transparent; border-top-right-radius:50px; box-shadow: 15px -15px 0 15px #0d1321; }
+    .ar-card .icon::after { content:""; position:absolute; top:0; right:-50px; width:50px; height:50px; background:transparent; border-top-left-radius:50px; box-shadow: -15px -15px 0 15px #0d1321; }
+    .ar-card .icon ion-icon { color:#fff; position:relative; font-size:6em; --ionicon-stroke-width:24px; }
+    .ar-card .content { position:absolute; width:100%; padding:30px; padding-top:150px; text-align:center; z-index:1; }
+    .ar-card .content h2 { font-size:1.4rem; color:#fff; margin-bottom:12px; }
+    .ar-card .content p { color:#f1f5f9; line-height:1.6; font-size:.95rem; }
+    .ar-card--blue { background:#1e40af; }
+    .ar-card--amber { background:#b45309; }
+    .ar-card--violet { background:#6d28d9; }
+    body.dark .ar-card { box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35); }
     /* Toasts */
     .ar-toast-wrap { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .6rem; z-index: 9999; }
     .ar-toast { display:flex; align-items:center; gap:.6rem; padding:.6rem .8rem; border-radius:12px; background: var(--surface); color: var(--text); border:1px solid var(--border); border-inline-start: 4px solid var(--primary); box-shadow: var(--shadow-card); transition: opacity .25s ease, transform .25s ease; }
@@ -584,11 +601,21 @@ if (!defined('ABSPATH')) exit;
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
             if (tab === 'dashboard') {
-                content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
-                    card('فرم‌ساز سریع', 'فرم بسازید و منتشر کنید', '🧩') +
-                    card('پاسخ‌ها', 'مرور و جستجو', '🗃️') +
-                    card('گزارشات', 'به‌زودی', '📈') +
-                '</div>';
+                content.innerHTML = '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>' +
+                    '<div class="ar-modern-cards">\
+                        <div class="ar-card ar-card--blue">\
+                            <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
+                            <div class="content"><h2>فرم‌ساز پیشرفته</h2><p>(در حال توسعه)</p></div>\
+                        </div>\
+                        <div class="ar-card ar-card--amber">\
+                            <div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>\
+                            <div class="content"><h2>مدیریت پاسخ‌ها</h2><p>(در حال توسعه)</p></div>\
+                        </div>\
+                        <div class="ar-card ar-card--violet">\
+                            <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
+                            <div class="content"><h2>تحلیل و گزارش</h2><p>(در حال توسعه)</p></div>\
+                        </div>\
+                    </div>';
             } else if (tab === 'forms') {
                 content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
                     <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
