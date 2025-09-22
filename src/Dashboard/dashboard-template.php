@@ -444,6 +444,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     case 'mobile_intl': return '+14155552671';
                     case 'tel': return '021-12345678';
                     case 'numeric': return '123456';
+                    case 'national_id_ir': return '0012345678';
+                    case 'postal_code_ir': return '1234567890';
                     case 'fa_letters': return 'مثال فارسی';
                     case 'en_letters': return 'Sample text';
                     case 'ip': return '192.168.1.1';
@@ -473,6 +475,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                                         <option value="mobile_intl"'+(fmt==='mobile_intl'?' selected':'')+'>موبایل بین‌المللی</option>\
                                                         <option value="tel"'+(fmt==='tel'?' selected':'')+'>تلفن</option>\
                                                         <option value="numeric"'+(fmt==='numeric'?' selected':'')+'>فقط عددی</option>\
+                                                        <option value="national_id_ir"'+(fmt==='national_id_ir'?' selected':'')+'>کد ملی ایران</option>\
+                                                        <option value="postal_code_ir"'+(fmt==='postal_code_ir'?' selected':'')+'>کد پستی ایران</option>\
                                                         <option value="fa_letters"'+(fmt==='fa_letters'?' selected':'')+'>حروف فارسی</option>\
                                                         <option value="en_letters"'+(fmt==='en_letters'?' selected':'')+'>حروف انگلیسی</option>\
                                                         <option value="ip"'+(fmt==='ip'?' selected':'')+'>IP</option>\
@@ -485,6 +489,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
                                                         <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
                                                     </label>\
+                                                    <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
+                                                        <input type="checkbox" data-prop="show_description" '+ (props.show_description ? 'checked' : '') +'> نمایش توضیح\
+                                                    </label>\
+                                                    <input type="text" data-prop="description" value="'+ (props.description || '') +'" placeholder="توضیح زیر سؤال" class="ar-input" style="min-width:260px;display:'+(props.show_description?'inline-block':'none')+';" />\
                                                 </div>\
                                                 <div>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
@@ -543,11 +551,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     var label = item.querySelector('input[data-prop="label"]');
                                     var ph = item.querySelector('input[data-prop="placeholder"]');
                                     var req = item.querySelector('input[data-prop="required"]');
+                                    var showDesc = item.querySelector('input[data-prop="show_description"]');
+                                    var desc = item.querySelector('input[data-prop="description"]');
                                     var fmtSel = item.querySelector('select[data-prop="format"]');
                                     var rx = item.querySelector('input[data-prop="regex"]');
                                     p.label = label ? label.value : p.label;
                                     p.placeholder = ph ? ph.value : p.placeholder;
                                     p.required = req ? !!req.checked : !!p.required;
+                                    p.show_description = showDesc ? !!showDesc.checked : !!p.show_description;
+                                    p.description = desc ? desc.value : p.description;
                                     p.type = 'short_text';
                                     if (fmtSel) p.format = fmtSel.value || 'free_text';
                                     if (rx) p.regex = rx.value || '';
@@ -566,6 +578,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                         // put suggested placeholder as placeholder attribute (not value)
                                         var ph = item.querySelector('input[data-prop="placeholder"]');
                                         if (ph && ph.value.trim()==='') { ph.setAttribute('placeholder', 'در صورت تمایل متن نمایش در باکس (مثال: '+suggestPlaceholder(fmtSelEl.value)+')'); }
+                                        // toggle description input visibility
+                                        var desc = item.querySelector('input[data-prop="description"]');
+                                        var showDesc = item.querySelector('input[data-prop="show_description"]');
+                                        if (desc && showDesc) desc.style.display = showDesc.checked ? 'inline-block' : 'none';
                                         syncProps();
                                     });
                                 }
@@ -617,7 +633,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var a = { type:'text', inputmode:'', pattern:'' };
                 if (fmt==='email') a.type='email';
                 else if (fmt==='numeric') { a.inputmode='numeric'; a.pattern='[0-9]*'; }
-                else if (fmt==='mobile_ir' || fmt==='mobile_intl' || fmt==='tel') { a.inputmode='tel'; }
+                else if (fmt==='mobile_ir' || fmt==='mobile_intl' || fmt==='tel' || fmt==='national_id_ir' || fmt==='postal_code_ir') { a.inputmode='tel'; }
                 else if (fmt==='time') a.type='time';
                 else if (fmt==='date_greg') a.type='date';
                 return a;
@@ -643,8 +659,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             var attrs = inputAttrsByFormat(fmt);
                             var phS = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
                             var row = document.createElement('div');
-                            row.innerHTML = '<label class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
-                                '<input class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' />';
+                            var inputId = 'f_'+(f.id||Math.random().toString(36).slice(2));
+                            var descId = inputId+'_desc';
+                            row.innerHTML = '<label for="'+inputId+'" class="hint" style="display:block;margin-bottom:.3rem;">'+(p.label||'فیلد')+(p.required?' *':'')+'</label>' +
+                                '<input id="'+inputId+'" class="ar-input" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" />' +
+                                (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
                             fwrap.appendChild(row);
                         });
                         // apply masks
@@ -786,12 +805,22 @@ function notify(message, opts){
 // Input masks for preview inputs
 function applyInputMask(inp, props){
     var fmt = props.format || 'free_text';
+    function normalizeDigits(str){
+        var fa = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        var ar = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        return (str||'').replace(/[۰-۹٠-٩]/g, function(d){
+            var i = fa.indexOf(d); if (i>-1) return String(i);
+            var j = ar.indexOf(d); if (j>-1) return String(j);
+            return d;
+        });
+    }
     function clampLen(){}
-    function digitsOnly(){ inp.value = inp.value.replace(/\D+/g,''); }
-    function allowChars(regex){ inp.value = (inp.value.match(regex)||[]).join(''); }
+    function digitsOnly(){ inp.value = normalizeDigits(inp.value).replace(/\D+/g,''); }
+    function allowChars(regex){ var s = normalizeDigits(inp.value); inp.value = (s.match(regex)||[]).join(''); }
     function setInvalid(msg){ inp.style.borderColor = '#b91c1c'; if (msg) inp.title = msg; }
     function clearInvalid(){ inp.style.borderColor = ''; inp.title = ''; }
     inp.addEventListener('input', function(){
+        inp.value = normalizeDigits(inp.value);
         switch(fmt){
             case 'numeric': digitsOnly(); break;
             case 'mobile_ir': inp.value = inp.value.replace(/[^\d]/g,''); if (/^9\d/.test(inp.value)) inp.value = '0'+inp.value; if (inp.value.startsWith('98')) inp.value = '0'+inp.value.slice(2); if (inp.value.length>11) inp.value = inp.value.slice(0,11); break;
@@ -802,6 +831,8 @@ function applyInputMask(inp, props){
             case 'fa_letters': allowChars(/[\u0600-\u06FF\s]/g); break;
             case 'en_letters': allowChars(/[A-Za-z\s]/g); break;
             case 'date_jalali': inp.value = inp.value.replace(/[^0-9/]/g,'').slice(0,10); break;
+            case 'national_id_ir': inp.value = inp.value.replace(/\D+/g,'').slice(0,10); break;
+            case 'postal_code_ir': inp.value = inp.value.replace(/\D+/g,'').slice(0,10); break;
             default: break;
         }
         clampLen();
@@ -822,8 +853,22 @@ function applyInputMask(inp, props){
             case 'time': if (!/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(v)) setInvalid('زمان نامعتبر است'); break;
             case 'date_jalali': if (!/^\d{4}\/(0[1-6]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ شمسی نامعتبر است'); break;
             case 'date_greg': if (!/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ میلادی نامعتبر است'); break;
+            case 'national_id_ir':
+                var nid = v.padStart(10,'0');
+                if (!/^\d{10}$/.test(nid)) { setInvalid('کد ملی نامعتبر است'); break; }
+                if (/^(\d)\1{9}$/.test(nid)) { setInvalid('کد ملی نامعتبر است'); break; }
+                var sum = 0; for (var i=0;i<9;i++){ sum += parseInt(nid[i]) * (10 - i); }
+                var r = sum % 11; var c = parseInt(nid[9]);
+                if (!((r<2 && c===r) || (r>=2 && c===(11-r)))) setInvalid('کد ملی نامعتبر است');
+                break;
+            case 'postal_code_ir':
+                var pc = v;
+                if (!/^\d{10}$/.test(pc)) { setInvalid('کد پستی نامعتبر است'); break; }
+                if (/^(\d)\1{9}$/.test(pc)) { setInvalid('کد پستی نامعتبر است'); break; }
+                break;
             default: break;
         }
+        inp.setAttribute('aria-invalid', inp.style.borderColor ? 'true' : 'false');
     });
 }
 </script>
