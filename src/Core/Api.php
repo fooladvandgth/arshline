@@ -22,12 +22,12 @@ class Api
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_forms'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => function() { return current_user_can('list_users') || current_user_can('manage_options'); },
         ]);
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'POST',
             'callback' => [self::class, 'create_form'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
             'args' => [
                 'title' => [ 'type' => 'string', 'required' => false ],
             ],
@@ -36,12 +36,12 @@ class Api
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'get_submissions'],
-                'permission_callback' => '__return_true',
+                'permission_callback' => function() { return current_user_can('list_users') || current_user_can('manage_options'); },
             ],
             [
                 'methods' => 'POST',
                 'callback' => [self::class, 'create_submission'],
-                'permission_callback' => '__return_true',
+                'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
             ]
         ]);
     }

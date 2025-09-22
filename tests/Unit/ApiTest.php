@@ -26,6 +26,7 @@ class ApiTest extends TestCase
         Functions::when('register_rest_route')->alias(function($ns, $route, $args) use (&$calls) {
             $calls[] = [$ns, $route, $args];
         });
+        Functions::when('current_user_can')->justReturn(true);
         Functions::when('__return_true')->justReturn(true);
 
         Api::register_routes();
@@ -33,6 +34,27 @@ class ApiTest extends TestCase
         $this->assertNotEmpty($calls);
         $paths = array_map(fn($c) => $c[1], $calls);
         $this->assertContains('/forms', $paths[0]);
+    }
+
+    public function testPermissionsCallbacks()
+    {
+        $perms = [];
+        Functions::when('register_rest_route')->alias(function($ns, $route, $args) use (&$perms) {
+            if (is_array($args) && isset($args['permission_callback'])) {
+                $perms[] = $args['permission_callback'];
+            } elseif (is_array($args) && isset($args[0]['permission_callback'])) {
+                $perms[] = $args[0]['permission_callback'];
+                $perms[] = $args[1]['permission_callback'];
+            }
+        });
+        // simulate caps
+        Functions::when('current_user_can')->alias(function($cap){ return in_array($cap, ['manage_options','edit_posts','list_users']); });
+
+        Api::register_routes();
+        $this->assertNotEmpty($perms);
+        foreach ($perms as $cb) {
+            $this->assertTrue((bool) call_user_func($cb));
+        }
     }
 
     public function testGetFormsReturnsArray()
