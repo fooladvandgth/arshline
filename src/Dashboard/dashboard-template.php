@@ -465,9 +465,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var fmt = props.format || 'free_text';
                 item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;flex:1 1 auto;">\
                                                     <span class="ar-dnd-handle" title="جابجایی" draggable="true">⋮⋮</span>\
-                                                    <span class="hint">(متن کوتاه)</span>\
-                                                    <input type="text" data-prop="label" value="'+ (props.label || 'متن کوتاه') +'" placeholder="برچسب" class="ar-input" style="min-width:160px;"/>\
-                                                    <input type="text" data-prop="placeholder" value="'+ (props.placeholder || '') +'" placeholder="در صورت تمایل متن نمایش در باکس" class="ar-input" style="min-width:220px;"/>\
+                                                    <input class="ar-input ar-field-main" type="text" style="min-width:260px;opacity:.95;" placeholder="" title="پاسخ کوتاه" aria-invalid="false"/>\
                                                     <select class="ar-select" data-prop="format">\
                                                         <option value="free_text"'+(fmt==='free_text'?' selected':'')+'>متن آزاد</option>\
                                                         <option value="email"'+(fmt==='email'?' selected':'')+'>ایمیل</option>\
@@ -483,17 +481,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                                         <option value="time"'+(fmt==='time'?' selected':'')+'>زمان</option>\
                                                         <option value="date_jalali"'+(fmt==='date_jalali'?' selected':'')+'>تاریخ شمسی</option>\
                                                         <option value="date_greg"'+(fmt==='date_greg'?' selected':'')+'>تاریخ میلادی</option>\
-                                                        <option value="regex"'+(fmt==='regex'?' selected':'')+'>الگوی دلخواه</option>\
+                                                        
                                                     </select>\
-                                                    <input type="text" data-prop="regex" value="'+ (props.regex || '') +'" placeholder="/الگو/" class="ar-input" style="min-width:140px;display:'+(fmt==='regex'?'inline-block':'none')+';" />\
-                                                    <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
-                                                        <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
-                                                    </label>\
-                                                    <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
-                                                        <input type="checkbox" data-prop="show_description" '+ (props.show_description ? 'checked' : '') +'> نمایش توضیح\
-                                                    </label>\
-                                                    <input type="text" data-prop="description" value="'+ (props.description || '') +'" placeholder="توضیح زیر سؤال" class="ar-input" style="min-width:260px;display:'+(props.show_description?'inline-block':'none')+';" />\
-                                                    <input class="ar-input ar-field-main" type="text" style="min-width:240px;opacity:.95;" placeholder="" title="پیش‌نمایش فیلد" aria-invalid="false"/>\
+                                                    
                                                 </div>\
                                                 <div>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
@@ -549,42 +539,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
                                 function syncProps(){
                                     var p = JSON.parse(item.dataset.props || '{}');
-                                    var label = item.querySelector('input[data-prop="label"]');
-                                    var ph = item.querySelector('input[data-prop="placeholder"]');
-                                    var req = item.querySelector('input[data-prop="required"]');
-                                    var showDesc = item.querySelector('input[data-prop="show_description"]');
-                                    var desc = item.querySelector('input[data-prop="description"]');
                                     var fmtSel = item.querySelector('select[data-prop="format"]');
-                                    var rx = item.querySelector('input[data-prop="regex"]');
-                                    p.label = label ? label.value : p.label;
-                                    p.placeholder = ph ? ph.value : p.placeholder;
-                                    p.required = req ? !!req.checked : !!p.required;
-                                    p.show_description = showDesc ? !!showDesc.checked : !!p.show_description;
-                                    p.description = desc ? desc.value : p.description;
                                     p.type = 'short_text';
-                                    if (fmtSel) p.format = fmtSel.value || 'free_text';
-                                    if (rx) p.regex = rx.value || '';
+                                    p.label = p.label || 'پاسخ کوتاه';
+                                    p.format = fmtSel ? (fmtSel.value || 'free_text') : (p.format || 'free_text');
+                                    // keep placeholder if already present in props, but we don't edit it here
                                     item.dataset.props = JSON.stringify(p);
                                     renderSample();
                                 }
-                                item.querySelectorAll('input[data-prop]').forEach(function(el){
-                                    el.addEventListener('input', syncProps);
+                                // only format select now has data-prop
+                                item.querySelectorAll('select[data-prop]').forEach(function(el){
                                     el.addEventListener('change', syncProps);
                                 });
                                 var fmtSelEl = item.querySelector('select[data-prop="format"]');
                                 if (fmtSelEl) {
-                                    fmtSelEl.addEventListener('change', function(){
-                                        var rx = item.querySelector('input[data-prop="regex"]');
-                                        if (rx) rx.style.display = (fmtSelEl.value==='regex') ? 'inline-block' : 'none';
-                                        // put suggested placeholder as placeholder attribute (not value)
-                                        var ph = item.querySelector('input[data-prop="placeholder"]');
-                                        if (ph && ph.value.trim()==='') { ph.setAttribute('placeholder', 'در صورت تمایل متن نمایش در باکس (مثال: '+suggestPlaceholder(fmtSelEl.value)+')'); }
-                                        // toggle description input visibility
-                                        var desc = item.querySelector('input[data-prop="description"]');
-                                        var showDesc = item.querySelector('input[data-prop="show_description"]');
-                                        if (desc && showDesc) desc.style.display = showDesc.checked ? 'inline-block' : 'none';
-                                        syncProps();
-                                    });
+                                    fmtSelEl.addEventListener('change', function(){ syncProps(); });
                                 }
                                 // apply format behavior to the field main input (on-canvas preview)
                                 function renderSample(){
