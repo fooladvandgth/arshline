@@ -35,6 +35,11 @@ class FormValidator
             $type = $props['type'] ?? 'short_text';
             $format = $props['format'] ?? 'free_text';
             if ($type === 'short_text') {
+                $len = mb_strlen($val);
+                $min = isset($props['min']) ? (int)$props['min'] : null;
+                $max = isset($props['max']) ? (int)$props['max'] : null;
+                if ($min !== null && $len < $min) { $errors[] = ($props['error_message'] ?? 'طول مقدار کمتر از حداقل مجاز است.'); continue; }
+                if ($max !== null && $len > $max) { $errors[] = ($props['error_message'] ?? 'طول مقدار بیشتر از حداکثر مجاز است.'); continue; }
                 switch ($format) {
                     case 'email':
                         if (!filter_var($val, FILTER_VALIDATE_EMAIL)) $errors[] = 'ایمیل نامعتبر است.';
