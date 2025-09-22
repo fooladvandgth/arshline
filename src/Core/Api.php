@@ -23,12 +23,12 @@ class Api
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_forms'],
-            'permission_callback' => function() { return current_user_can('list_users') || current_user_can('manage_options'); },
+            'permission_callback' => function() { return is_user_logged_in() && (current_user_can('read') || current_user_can('edit_posts') || current_user_can('manage_options')); },
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_form'],
-            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'permission_callback' => function() { return is_user_logged_in() && (current_user_can('read') || current_user_can('edit_posts') || current_user_can('manage_options')); },
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/fields', [
             'methods' => 'PUT',
@@ -47,7 +47,7 @@ class Api
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'get_submissions'],
-                'permission_callback' => function() { return current_user_can('list_users') || current_user_can('manage_options'); },
+                'permission_callback' => function() { return is_user_logged_in() && (current_user_can('read') || current_user_can('edit_posts') || current_user_can('manage_options')); },
             ],
             [
                 'methods' => 'POST',
