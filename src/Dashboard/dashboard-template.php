@@ -285,10 +285,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     .then(r=>r.json()).then(function(){ renderTab('forms'); });
             });
         } else if (tab === 'submissions') {
-            content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
-                <div class="card glass"><span class="title">پاسخ‌ها</span><div class="hint">مرتب‌سازی، فیلتر و جستجو (Placeholder)</div></div>\
-                <div class="card glass"><span class="title">جزئیات پاسخ</span><div class="hint">پیش‌نمایش پاسخ انتخابی (Placeholder)</div></div>\
+            content.innerHTML = '<div class="card glass" style="padding:1rem;">\
+                <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
+                  <span class="title">پاسخ‌ها</span>\
+                  <select id="arFormSelect" style="margin-inline-start:auto;padding:.35rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></select>\
+                </div>\
+                <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
             </div>';
+            fetch('/wp-json/arshline/v1/forms').then(r=>r.json()).then(function(forms){
+                var sel = document.getElementById('arFormSelect');
+                if (!sel) return;
+                sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
+                sel.addEventListener('change', function(){
+                    var id = parseInt(sel.value||'0');
+                    var list = document.getElementById('arSubsList');
+                    if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
+                    list.textContent = 'در حال بارگذاری...';
+                    fetch('/wp-json/arshline/v1/forms/'+id+'/submissions').then(r=>r.json()).then(function(rows){
+                        if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
+                        var html = rows.map(function(it){
+                            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
+                                <div>#'+it.id+' · '+(it.status)+'<span class="hint" style="margin-inline-start:.6rem">'+(it.created_at||'')+'</span></div>\
+                                <a href="#" class="hint">جزئیات</a>\
+                            </div>';
+                        }).join('');
+                        list.innerHTML = html;
+                    }).catch(()=>{ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
+                });
+            });
         } else if (tab === 'reports') {
             content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
                 card('نمودار نرخ تبدیل', 'به‌زودی') +
