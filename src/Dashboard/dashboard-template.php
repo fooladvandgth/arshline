@@ -455,30 +455,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     default: return '';
                 }
             }
-            function computePreviewAttrs(p){
-                var fmt = p.format || 'free_text';
-                var placeholder = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
-                var type = 'text', inputmode = '', pattern = '';
-                if (fmt==='email') type = 'email';
-                else if (fmt==='numeric') { inputmode='numeric'; pattern='[0-9]*'; }
-                else if (fmt==='mobile_ir' || fmt==='mobile_intl' || fmt==='tel') { inputmode='tel'; }
-                else if (fmt==='time') type='time';
-                else if (fmt==='date_greg') type='date';
-                return { type:type, inputmode:inputmode, pattern:pattern, placeholder:placeholder };
-            }
-            function renderItemPreview(item){
-                var p = JSON.parse(item.dataset.props || '{}');
-                var attrs = computePreviewAttrs(p);
-                var lbl = item.querySelector('.ar-preview-label');
-                var inp = item.querySelector('.ar-preview-input');
-                if (lbl) lbl.textContent = p.label || 'متن کوتاه';
-                if (inp) {
-                    inp.setAttribute('type', attrs.type || 'text');
-                    inp.setAttribute('placeholder', attrs.placeholder || '');
-                    if (attrs.inputmode) inp.setAttribute('inputmode', attrs.inputmode); else inp.removeAttribute('inputmode');
-                    if (attrs.pattern) inp.setAttribute('pattern', attrs.pattern); else inp.removeAttribute('pattern');
-                }
-            }
             function addFieldToCanvas(props){
                                 var canvas = document.getElementById('arCanvas');
                                 var item = document.createElement('div');
@@ -506,16 +482,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                                         <option value="regex"'+(fmt==='regex'?' selected':'')+'>الگوی دلخواه</option>\
                                                     </select>\
                                                     <input type="text" data-prop="regex" value="'+ (props.regex || '') +'" placeholder="/الگو/" class="ar-input" style="min-width:140px;display:'+(fmt==='regex'?'inline-block':'none')+';" />\
-                                                    <input type="number" data-prop="min" value="'+ (props.min != null ? props.min : '') +'" placeholder="حداقل" class="ar-input" style="width:90px;"/>\
-                                                    <input type="number" data-prop="max" value="'+ (props.max != null ? props.max : '') +'" placeholder="حداکثر" class="ar-input" style="width:90px;"/>\
-                                                    <input type="text" data-prop="error_message" value="'+ (props.error_message || '') +'" placeholder="پیام خطای سفارشی" class="ar-input" style="min-width:180px;"/>\
                                                     <label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">\
                                                         <input type="checkbox" data-prop="required" '+ (props.required ? 'checked' : '') +'> اجباری\
                                                     </label>\
-                                                    <div class="ar-preview-field" style="display:flex;flex-direction:column;gap:.3rem;background:var(--bg-surface);padding:.5rem;border-radius:8px;border:1px dashed var(--border);">\
-                                                        <span class="ar-preview-label" style="font-size:.9rem;color:var(--muted);">'+(props.label || 'متن کوتاه')+'</span>\
-                                                        <input class="ar-input ar-preview-input" type="text" disabled placeholder="" style="opacity:.85;"/>\
-                                                    </div>\
                                                 </div>\
                                                 <div>\
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
@@ -576,22 +545,13 @@ document.addEventListener('DOMContentLoaded', function() {
                                     var req = item.querySelector('input[data-prop="required"]');
                                     var fmtSel = item.querySelector('select[data-prop="format"]');
                                     var rx = item.querySelector('input[data-prop="regex"]');
-                                    var minEl = item.querySelector('input[data-prop="min"]');
-                                    var maxEl = item.querySelector('input[data-prop="max"]');
-                                    var errEl = item.querySelector('input[data-prop="error_message"]');
                                     p.label = label ? label.value : p.label;
                                     p.placeholder = ph ? ph.value : p.placeholder;
                                     p.required = req ? !!req.checked : !!p.required;
                                     p.type = 'short_text';
                                     if (fmtSel) p.format = fmtSel.value || 'free_text';
                                     if (rx) p.regex = rx.value || '';
-                                    var minVal = minEl && minEl.value !== '' ? parseInt(minEl.value, 10) : null;
-                                    var maxVal = maxEl && maxEl.value !== '' ? parseInt(maxEl.value, 10) : null;
-                                    if (minVal != null && !isNaN(minVal)) p.min = minVal; else delete p.min;
-                                    if (maxVal != null && !isNaN(maxVal)) p.max = maxVal; else delete p.max;
-                                    if (errEl && errEl.value) p.error_message = errEl.value; else delete p.error_message;
                                     item.dataset.props = JSON.stringify(p);
-                                    renderItemPreview(item);
                                 }
                                 item.querySelectorAll('input[data-prop]').forEach(function(el){
                                     el.addEventListener('input', syncProps);
@@ -608,8 +568,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                         syncProps();
                                     });
                                 }
-                // initial preview
-                renderItemPreview(item);
+                // auto-suggest placeholder on create if empty
+                var phInit = item.querySelector('input[data-prop="placeholder"]');
+                if (phInit && (phInit.value||'').trim()==='') { phInit.value = suggestPlaceholder(fmt); var evt = new Event('input'); phInit.dispatchEvent(evt); }
                                 item.querySelector('[data-act="remove"]').onclick = function(){
                                     var canvasRef = document.getElementById('arCanvas');
                                     var idx = Array.from(canvasRef.children).indexOf(item);
@@ -799,9 +760,7 @@ function notify(message, opts){
 // Input masks for preview inputs
 function applyInputMask(inp, props){
     var fmt = props.format || 'free_text';
-    var maxLen = (props.max != null) ? parseInt(props.max,10) : null;
-    var minLen = (props.min != null) ? parseInt(props.min,10) : null;
-    function clampLen(){ if (maxLen && inp.value.length > maxLen) inp.value = inp.value.slice(0, maxLen); }
+    function clampLen(){}
     function digitsOnly(){ inp.value = inp.value.replace(/\D+/g,''); }
     function allowChars(regex){ inp.value = (inp.value.match(regex)||[]).join(''); }
     function setInvalid(msg){ inp.style.borderColor = '#b91c1c'; if (msg) inp.title = msg; }
@@ -824,21 +783,19 @@ function applyInputMask(inp, props){
     inp.addEventListener('blur', function(){
         clearInvalid();
         var v = inp.value.trim(); if (!v) return;
-        var msg = props.error_message || null;
-        if (minLen && v.length < minLen) { setInvalid(msg||'کمتر از حداقل است'); return; }
-        if (maxLen && v.length > maxLen) { setInvalid(msg||'بیشتر از حداکثر است'); return; }
+        var msg = null;
         switch(fmt){
-            case 'email': if (!/^\S+@\S+\.\S+$/.test(v)) setInvalid(msg||'ایمیل نامعتبر است'); break;
-            case 'mobile_ir': if (!/^(\+98|0)?9\d{9}$/.test(v)) setInvalid(msg||'شماره موبایل ایران نامعتبر است'); break;
-            case 'mobile_intl': if (!/^\+?[1-9]\d{7,14}$/.test(v)) setInvalid(msg||'شماره موبایل بین‌المللی نامعتبر است'); break;
-            case 'tel': if (!/^[0-9\-\+\s\(\)]{5,20}$/.test(v)) setInvalid(msg||'شماره تلفن نامعتبر است'); break;
-            case 'numeric': if (!/^\d+$/.test(v)) setInvalid(msg||'فقط عددی'); break;
-            case 'fa_letters': if (!/^[\u0600-\u06FF\s]+$/.test(v)) setInvalid(msg||'فقط حروف فارسی'); break;
-            case 'en_letters': if (!/^[A-Za-z\s]+$/.test(v)) setInvalid(msg||'فقط حروف انگلیسی'); break;
-            case 'ip': if (!/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v)) setInvalid(msg||'IP نامعتبر است'); break;
-            case 'time': if (!/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(v)) setInvalid(msg||'زمان نامعتبر است'); break;
-            case 'date_jalali': if (!/^\d{4}\/(0[1-6]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid(msg||'تاریخ شمسی نامعتبر است'); break;
-            case 'date_greg': if (!/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid(msg||'تاریخ میلادی نامعتبر است'); break;
+            case 'email': if (!/^\S+@\S+\.\S+$/.test(v)) setInvalid('ایمیل نامعتبر است'); break;
+            case 'mobile_ir': if (!/^(\+98|0)?9\d{9}$/.test(v)) setInvalid('شماره موبایل ایران نامعتبر است'); break;
+            case 'mobile_intl': if (!/^\+?[1-9]\d{7,14}$/.test(v)) setInvalid('شماره موبایل بین‌المللی نامعتبر است'); break;
+            case 'tel': if (!/^[0-9\-\+\s\(\)]{5,20}$/.test(v)) setInvalid('شماره تلفن نامعتبر است'); break;
+            case 'numeric': if (!/^\d+$/.test(v)) setInvalid('فقط عددی'); break;
+            case 'fa_letters': if (!/^[\u0600-\u06FF\s]+$/.test(v)) setInvalid('فقط حروف فارسی'); break;
+            case 'en_letters': if (!/^[A-Za-z\s]+$/.test(v)) setInvalid('فقط حروف انگلیسی'); break;
+            case 'ip': if (!/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v)) setInvalid('IP نامعتبر است'); break;
+            case 'time': if (!/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(v)) setInvalid('زمان نامعتبر است'); break;
+            case 'date_jalali': if (!/^\d{4}\/(0[1-6]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ شمسی نامعتبر است'); break;
+            case 'date_greg': if (!/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ میلادی نامعتبر است'); break;
             default: break;
         }
     });
