@@ -112,6 +112,9 @@ if (!defined('ABSPATH')) exit;
     .ar-btn--muted { background:#64748b; }
     .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
     .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
+    .ar-dnd-ghost { opacity:.6; }
+    .ar-dnd-over { outline: 2px dashed var(--primary); outline-offset: 4px; }
         /* دارک مود */
         body.dark { background: var(--bg-surface); color: var(--text); }
     body.dark .arshline-main { color: var(--text); }
@@ -377,8 +380,10 @@ document.addEventListener('DOMContentLoaded', function() {
             function addFieldToCanvas(props){
                                 var canvas = document.getElementById('arCanvas');
                                 var item = document.createElement('div');
-                                item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
-                                item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">\
+                item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.5rem .8rem;margin:.4rem 0;';
+                item.setAttribute('draggable','true');
+                item.innerHTML = '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">\
+                                                    <span class="ar-dnd-handle" title="جابجایی" draggable="true">⋮⋮</span>\
                                                     <span class="hint">('+ (props.type || 'text') +')</span>\
                                                     <input type="text" data-prop="label" value="'+ (props.label || props.type || '') +'" placeholder="برچسب" class="ar-input" style="min-width:160px;"/>\
                                                     <input type="text" data-prop="placeholder" value="'+ (props.placeholder || '') +'" placeholder="راهنما (Placeholder)" class="ar-input" style="min-width:160px;"/>\
@@ -392,6 +397,34 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     <button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>\
                                                 </div>';
                                 item.dataset.props = JSON.stringify(props);
+                // DnD events
+                item.addEventListener('dragstart', function(e){
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', 'drag');
+                    item.classList.add('ar-dnd-ghost');
+                    canvas._dragging = item;
+                });
+                item.addEventListener('dragend', function(){
+                    item.classList.remove('ar-dnd-ghost');
+                    Array.from(canvas.children).forEach(function(c){ c.classList.remove('ar-dnd-over'); });
+                    canvas._dragging = null;
+                });
+                item.addEventListener('dragover', function(e){
+                    e.preventDefault();
+                    var dragging = canvas._dragging;
+                    if (!dragging || dragging===item) return;
+                    item.classList.add('ar-dnd-over');
+                });
+                item.addEventListener('dragleave', function(){ item.classList.remove('ar-dnd-over'); });
+                item.addEventListener('drop', function(e){
+                    e.preventDefault();
+                    item.classList.remove('ar-dnd-over');
+                    var dragging = canvas._dragging;
+                    if (!dragging || dragging===item) return;
+                    var rect = item.getBoundingClientRect();
+                    var before = (e.clientY - rect.top) < (rect.height/2);
+                    if (before) canvas.insertBefore(dragging, item); else canvas.insertBefore(dragging, item.nextSibling);
+                });
                                 function syncProps(){
                                     var p = JSON.parse(item.dataset.props || '{}');
                                     var label = item.querySelector('input[data-prop="label"]');
