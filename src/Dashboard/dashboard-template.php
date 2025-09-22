@@ -453,7 +453,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     case 'date_jalali': return '1403/01/15';
                     case 'date_greg': return '2025-09-22';
                     case 'regex': return 'مطابق الگو';
-                    case 'free_text': return 'متن خود را وارد کنید';
+                    case 'free_text': return 'پاسخ خود را بنویسید';
                     default: return '';
                 }
             }
@@ -487,12 +487,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     +   '<label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">'
                     +       '<input type="checkbox" data-prop="required"' + (props.required ? ' checked' : '') + '> اجباری'
                     +   '</label>'
-                    +   '<label class="hint" style="display:inline-flex;align-items:center;gap:.3rem;">'
-                    +       '<input type="checkbox" data-prop="show_description"' + (props.show_description ? ' checked' : '') + '> توضیح'
-                    +   '</label>'
+                    +   '<button type="button" class="ar-btn ar-btn--muted ar-toggle-desc" data-prop="toggle_description" style="padding:.35rem .6rem;">' + (props.show_description ? 'توضیح: روشن' : 'توضیح: خاموش') + '</button>'
                     +   '<input type="text" data-prop="description" value="' + (props.description || '') + '" placeholder="توضیح زیر سؤال" class="ar-input" style="min-width:260px;display:' + (props.show_description ? 'inline-block' : 'none') + ';" />'
                     + '</div>'
-                    + '<div>'
+                    + '<div style="display:flex;align-items:center;gap:.5rem;">'
                     +   '<button class="ar-btn" data-act="remove" style="padding:.2rem .5rem;font-size:.8rem;line-height:1;background:#b91c1c;">حذف</button>'
                     + '</div>';
                 item.innerHTML = html;
@@ -566,10 +564,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                     el.addEventListener('change', syncProps);
                                 });
                                 // toggles and description
-                                var showDescEl = item.querySelector('input[data-prop="show_description"]');
-                                if (showDescEl) showDescEl.addEventListener('change', function(){
+                                var toggleBtn = item.querySelector('.ar-toggle-desc');
+                                if (toggleBtn) toggleBtn.addEventListener('click', function(){
+                                    var p = JSON.parse(item.dataset.props || '{}');
+                                    p.show_description = !p.show_description;
+                                    item.dataset.props = JSON.stringify(p);
                                     var d = item.querySelector('input[data-prop="description"]');
-                                    if (d) d.style.display = showDescEl.checked ? 'inline-block' : 'none';
+                                    if (d) d.style.display = p.show_description ? 'inline-block' : 'none';
+                                    toggleBtn.textContent = p.show_description ? 'توضیح: روشن' : 'توضیح: خاموش';
                                     syncProps();
                                 });
                                 var reqEl = item.querySelector('input[data-prop="required"]');
