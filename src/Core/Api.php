@@ -9,6 +9,7 @@ use Arshline\Modules\Forms\FormRepository;
 use Arshline\Modules\Forms\Submission;
 use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
+use Arshline\Modules\Forms\FieldRepository;
 
 class Api
 {
@@ -23,6 +24,16 @@ class Api
             'methods' => 'GET',
             'callback' => [self::class, 'get_forms'],
             'permission_callback' => function() { return current_user_can('list_users') || current_user_can('manage_options'); },
+        ]);
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_form'],
+            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
+        ]);
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/fields', [
+            'methods' => 'PUT',
+            'callback' => [self::class, 'update_fields'],
+            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
         ]);
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'POST',
@@ -75,6 +86,29 @@ class Api
         $form = new Form($formData);
         $id = FormRepository::save($form);
         return new WP_REST_Response([ 'id' => $id, 'title' => $title, 'status' => 'draft' ], 201);
+    }
+
+    public static function get_form(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        $form = FormRepository::find($id);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        $fields = FieldRepository::listByForm($id);
+        return new WP_REST_Response([
+            'id' => $form->id,
+            'status' => $form->status,
+            'meta' => $form->meta,
+            'fields' => $fields,
+        ], 200);
+    }
+
+    public static function update_fields(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        $fields = $request->get_param('fields');
+        if (!is_array($fields)) $fields = [];
+        FieldRepository::replaceAll($id, $fields);
+        return new WP_REST_Response(['ok'=>true], 200);
     }
 
     public static function get_submissions(WP_REST_Request $request)
