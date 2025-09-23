@@ -845,7 +845,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 .catch(function(){ notify('حذف سؤال ناموفق بود', 'error'); });
                         }); });
                         // External tool drag-in insertion
-                        var toolPh = placeholder; // reuse same placeholder style
+                        var toolPh = null; // dedicated placeholder for tool insertion
                         var draggingTool = false;
                         function ensureToolPlaceholder(heightRef){
                             if (!toolPh) { toolPh = document.createElement('div'); toolPh.className = 'ar-dnd-placeholder'; }
