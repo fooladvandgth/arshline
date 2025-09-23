@@ -121,9 +121,13 @@ if (!defined('ABSPATH')) exit;
     [dir='rtl'] body:not(.dark) .theme-toggle .knob { transform: translateX(-0px); }
     [dir='rtl'] body.dark .theme-toggle .knob { transform: translateX(26px); }
     [dir='ltr'] body.dark .theme-toggle .knob { transform: translateX(-26px); }
-    .ar-btn { cursor:pointer; font-weight:600; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.5rem .9rem; box-shadow: 0 6px 16px rgba(0,0,0,.12); transition: transform .2s ease, box-shadow .2s ease; font-family: inherit; }
-    .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
+    .ar-btn { cursor:pointer; font-weight:700; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.55rem .95rem; box-shadow: 0 8px 18px rgba(0,0,0,.12); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; font-family: inherit; letter-spacing:.2px; }
+    .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.18); }
+    .ar-btn:disabled { opacity:.6; cursor:not-allowed; box-shadow:none; }
     .ar-btn--muted { background:#64748b; }
+    .ar-btn--outline { background:transparent; color: var(--text); border:1px solid var(--border); }
+    .ar-btn--danger { background:#b91c1c; }
+    .ar-btn--soft { background: rgba(30,64,175,.1); color: var(--primary); }
     .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
     .ar-input::placeholder { color: var(--muted); opacity: .85; }
     .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
@@ -195,7 +199,7 @@ if (!defined('ABSPATH')) exit;
     <script>
     const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
     const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
-    const ARSHLINE_CAN_MANAGE = <?php echo current_user_can('manage_options') ? 'true' : 'false'; ?>;
+    const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
     </script>
     <script>
     // Tabs: render content per menu item
@@ -668,6 +672,8 @@ if (!defined('ABSPATH')) exit;
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
+            var headerActions = document.getElementById('arHeaderActions');
+            if (headerActions) headerActions.innerHTML = '';
             if (tab === 'dashboard') {
                 content.innerHTML = '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>' +
                     '<div class="ar-modern-cards">\
@@ -689,19 +695,22 @@ if (!defined('ABSPATH')) exit;
                         </div>\
                     </div>';
             } else if (tab === 'forms') {
+                var headerActions = document.getElementById('arHeaderActions');
+                if (headerActions && ARSHLINE_CAN_MANAGE){ headerActions.innerHTML = '<button id="arHeaderCreateForm" class="ar-btn">+ فرم جدید</button>'; }
                 content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
                     <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
                       <span class="title">فرم‌ها</span>\
-                      <button id="arCreateFormBtn" class="ar-btn" style="margin-inline-start:auto;">+ فرم جدید</button>\
+                      <button id="arCreateFormBtn" class="ar-btn ar-btn--soft" style="margin-inline-start:auto;">+ فرم جدید</button>\
                     </div>\
                     <div id="arCreateInline" style="display:none;align-items:center;gap:.5rem;margin-bottom:.8rem;">\
                       <input id="arNewFormTitle" class="ar-input" placeholder="عنوان فرم" style="min-width:220px"/>\
                       <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
-                      <button id="arCreateFormCancel" class="ar-btn ar-btn--muted">انصراف</button>\
+                      <button id="arCreateFormCancel" class="ar-btn ar-btn--outline">انصراف</button>\
                     </div>\
                     <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
                 </div>';
                 var createBtn = document.getElementById('arCreateFormBtn');
+                var headerCreateBtn = document.getElementById('arHeaderCreateForm');
                 var inlineWrap = document.getElementById('arCreateInline');
                 var submitBtn = document.getElementById('arCreateFormSubmit');
                 var cancelBtn = document.getElementById('arCreateFormCancel');
@@ -709,6 +718,10 @@ if (!defined('ABSPATH')) exit;
                 if (createBtn) createBtn.addEventListener('click', function(){
                     if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex';
                     if (!showing){ var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } }
+                });
+                if (headerCreateBtn) headerCreateBtn.addEventListener('click', function(){
+                    // ensure we are on forms tab, show inline create
+                    if (!inlineWrap) return; inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); }
                 });
                 if (cancelBtn) cancelBtn.addEventListener('click', function(){ if (inlineWrap) inlineWrap.style.display = 'none'; });
                 if (submitBtn) submitBtn.addEventListener('click', function(){
@@ -727,9 +740,9 @@ if (!defined('ABSPATH')) exit;
                         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
                             <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'</div>\
                             <div style="display:flex;gap:.6rem;">\
-                                <a href="#" class="arEditForm" data-id="'+f.id+'">ویرایش</a>\
-                                <a href="#" class="arPreviewForm" data-id="'+f.id+'">پیش‌نمایش</a>\
-                                '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm" data-id="'+f.id+'" style="color:#b91c1c">حذف</a>' : '')+'\
+                                <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
+                                <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
+                                '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
                             </div>\
                         </div>';
                     }).join('');
@@ -812,7 +825,7 @@ if (!defined('ABSPATH')) exit;
         </aside>
         <main class="arshline-main">
             <div class="arshline-header">
-                <div></div>
+                <div id="arHeaderActions"></div>
                 <div id="arThemeToggle" class="theme-toggle" role="switch" aria-checked="false" tabindex="0">
                     <span class="sun">☀</span>
                     <span class="moon">🌙</span>
