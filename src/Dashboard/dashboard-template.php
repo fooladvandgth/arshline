@@ -138,10 +138,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-input::placeholder { color: var(--muted); opacity: .85; }
     .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
     .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
-    .ar-dnd-ghost { opacity:.6; }
-    .ar-dnd-over { outline: 2px dashed var(--primary); outline-offset: 4px; }
+    .ar-dnd-ghost { opacity:.6; transform: scale(.98); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+    .ar-dnd-over { outline: 2px dashed var(--primary); outline-offset: 4px; background: rgba(30,64,175,.05); }
     .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
-    .ar-dnd-placeholder { border:1px solid var(--border); border-radius:10px; margin:.4rem 0; background: var(--surface); opacity:.35; padding:.5rem .8rem; pointer-events:none; }
+    .ar-dnd-placeholder { border:1px dashed var(--border); border-radius:10px; margin:.4rem 0; background: transparent; opacity:.6; padding:.5rem .8rem; pointer-events:none; transition: height .15s ease, margin .15s ease, opacity .15s ease; }
+    .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+    .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
     /* Preview-only mode */
     body.preview-only .arshline-sidebar, body.preview-only .arshline-header { display:none !important; }
@@ -374,7 +376,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             content.innerHTML = '<div id="arBuilder" class="card glass" data-form-id="'+id+'" data-field-index="'+fieldIndex+'" style="padding:1rem;max-width:980px;margin:0 auto;">\
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">\
                     <div class="title" id="arEditorTitle">...</div>\
-                    <button id="arEditorBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                    <div style="display:flex;gap:.5rem;align-items:center;">\
+                        <button id="arEditorPreview" class="ar-btn ar-btn--outline">پیش‌نمایش</button>\
+                        <button id="arEditorBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                    </div>\
                 </div>\
                 <div style="display:flex;gap:1rem;align-items:flex-start;">\
                     <div class="ar-settings" style="width:380px;flex:0 0 380px;">\
@@ -453,6 +458,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             </div>' + hiddenCanvas;
 
             document.getElementById('arEditorBack').onclick = function(){ renderFormBuilder(id); };
+            var prevBtnE = document.getElementById('arEditorPreview'); if (prevBtnE) prevBtnE.onclick = function(){ renderFormPreview(id); };
             content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
 
             var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
@@ -656,7 +662,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             content.innerHTML = '<div class="card glass" style="padding:1rem;max-width:1080px;margin:0 auto;">\
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">\
                     <div class="title">ویرایش فرم #'+id+'</div>\
-                    <button id="arBuilderBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                    <div style="display:flex;gap:.5rem;align-items:center;">\
+                        <button id="arBuilderPreview" class="ar-btn ar-btn--outline">پیش‌نمایش</button>\
+                        <button id="arBuilderBack" class="ar-btn ar-btn--muted">بازگشت</button>\
+                    </div>\
                 </div>\
                 <div style="display:flex;gap:1rem;align-items:flex-start;">\
                     <div id="arFormSide" style="flex:1;">\
@@ -674,6 +683,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 </div>\
             </div>';
             document.getElementById('arBuilderBack').onclick = function(){ renderTab('forms'); };
+            var prevBtn = document.getElementById('arBuilderPreview'); if (prevBtn) prevBtn.onclick = function(){ renderFormPreview(id); };
             content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
             var list = document.getElementById('arFormFieldsList');
             list.textContent = 'در حال بارگذاری...';
@@ -732,8 +742,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0);
                             } catch(_){ }
                         }
-                        function placeholderAfter(el){ if (el && el.parentNode){ el.parentNode.insertBefore(placeholder, el.nextSibling); } }
-                        function placeholderBefore(el){ if (el && el.parentNode){ el.parentNode.insertBefore(placeholder, el); } }
+                        function setPhHeight(ref){ try{ placeholder.style.height = Math.max(44, ref.offsetHeight||44) + 'px'; }catch(_){ placeholder.style.height = '48px'; } }
+                        function placeholderAfter(el){ if (el && el.parentNode){ setPhHeight(el); el.parentNode.insertBefore(placeholder, el.nextSibling); } }
+                        function placeholderBefore(el){ if (el && el.parentNode){ setPhHeight(el); el.parentNode.insertBefore(placeholder, el); } }
                         function commitReorder(){
                             var orderEls = Array.from(list.children).filter(function(el){ return el.classList && (el.classList.contains('ar-draggable') || el.classList.contains('ar-dnd-placeholder')); });
                             var newOrder = [];
@@ -758,7 +769,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 item.classList.add('ar-dnd-ghost');
                             });
                             item.addEventListener('dragend', function(){ dragging = null; item.classList.remove('ar-dnd-ghost'); if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); });
-                            item.addEventListener('dragover', function(e){ e.preventDefault(); var rect = item.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height/2); if (dragging && dragging !== item){ if (before) placeholderBefore(item); else placeholderAfter(item); }});
+                            item.addEventListener('dragover', function(e){ e.preventDefault(); var rect = item.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height/2); if (dragging && dragging !== item){ item.classList.add('ar-dnd-over'); if (before) placeholderBefore(item); else placeholderAfter(item); }});
+                            item.addEventListener('dragenter', function(){ if (dragging && dragging !== item){ item.classList.add('ar-dnd-over'); setPhHeight(item); }});
+                            item.addEventListener('dragleave', function(){ item.classList.remove('ar-dnd-over'); });
                             item.addEventListener('drop', function(e){ e.preventDefault(); if (!dragging) return; if (placeholder.parentNode) placeholder.parentNode.insertBefore(dragging, placeholder); commitReorder(); });
                         });
                         // Support dropping after the last item
@@ -768,7 +781,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (!last) return; var rect = last.getBoundingClientRect();
                             if (e.clientY >= rect.top + rect.height/2) { placeholderAfter(last); }
                         });
-                        list.addEventListener('drop', function(e){ if (!dragging) return; e.preventDefault(); if (placeholder.parentNode) placeholder.parentNode.insertBefore(dragging, placeholder); commitReorder(); });
+                        list.addEventListener('drop', function(e){ if (!dragging) return; e.preventDefault(); if (placeholder.parentNode) { placeholder.parentNode.insertBefore(dragging, placeholder); } list.querySelectorAll('.ar-dnd-over').forEach(function(el){ el.classList.remove('ar-dnd-over'); }); commitReorder(); });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
                         // External tool drag-in insertion
                         var toolPh = placeholder; // reuse same placeholder style
