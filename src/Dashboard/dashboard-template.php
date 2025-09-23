@@ -309,8 +309,23 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(r=>r.json())
                 .then(function(data){
                     var fwrap = document.getElementById('arFormPreviewFields');
-                    (data.fields||[]).forEach(function(f, i){
+                    var qNum = 0;
+                    var questionProps = [];
+                    (data.fields||[]).forEach(function(f){
                         var p = f.props || f;
+                        var type = p.type || f.type || 'short_text';
+                        if (type === 'welcome' || type === 'thank_you'){
+                            var block = document.createElement('div');
+                            block.className = 'card glass';
+                            block.style.cssText = 'padding:.8rem;';
+                            var heading = (p.heading && String(p.heading).trim()) || (type==='welcome'?'پیام خوش‌آمد':'پیام تشکر');
+                            var message = (p.message && String(p.message).trim()) || '';
+                            var img = (p.image_url && String(p.image_url).trim()) ? ('<div style="margin-bottom:.4rem"><img src="'+String(p.image_url).trim()+'" alt="" style="max-width:100%;border-radius:10px"/></div>') : '';
+                            block.innerHTML = (heading ? ('<div class="title" style="margin-bottom:.35rem;">'+heading+'</div>') : '') + img + (message ? ('<div class="hint">'+message+'</div>') : '');
+                            fwrap.appendChild(block);
+                            return; // no input for message blocks
+                        }
+                        // question-type field
                         var fmt = p.format || 'free_text';
                         var attrs = inputAttrsByFormat(fmt);
                         var phS = p.placeholder && p.placeholder.trim() ? p.placeholder : suggestPlaceholder(fmt);
@@ -319,18 +334,19 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         var descId = inputId+'_desc';
                         var showQ = p.question && String(p.question).trim();
                         var numbered = (p.numbered !== false);
-                        var numberStr = numbered ? ((i+1) + '. ') : '';
+                        if (numbered) qNum += 1;
+                        var numberStr = numbered ? (qNum + '. ') : '';
                         row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+String(p.question).trim()+'</div>') : '')+
                             '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+numberStr+String(p.question).trim()+'"'):'') + ' />' +
                             (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
                         fwrap.appendChild(row);
+                        questionProps.push(p);
                     });
                     // apply masks
                     fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
-                        var field = (data.fields||[])[idx] || {};
-                        var props = field.props || field || {};
+                        var props = questionProps[idx] || {};
                         applyInputMask(inp, props);
-                        if (props.format === 'date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
+                        if ((props.format||'') === 'date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
                             try { jQuery(inp).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
                         }
                     });
@@ -452,13 +468,91 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (idx < 0 || idx >= fields.length) idx = 0;
                     var base = fields[idx] || defaultProps;
                     var field = base.props || base || defaultProps;
-                    // ensure base
-                    field.type = 'short_text';
-                    field.label = 'پاسخ کوتاه';
+                    var fType = field.type || base.type || 'short_text';
+                    // ensure defaults by type
+                    if (fType === 'short_text'){
+                        field.type = 'short_text';
+                        field.label = 'پاسخ کوتاه';
+                    } else if (fType === 'welcome'){
+                        field.type = 'welcome';
+                        field.label = 'پیام خوش‌آمد';
+                        if (typeof field.heading === 'undefined') field.heading = 'خوش آمدید';
+                        if (typeof field.message === 'undefined') field.message = '';
+                        if (typeof field.image_url === 'undefined') field.image_url = '';
+                    } else if (fType === 'thank_you'){
+                        field.type = 'thank_you';
+                        field.label = 'پیام تشکر';
+                        if (typeof field.heading === 'undefined') field.heading = 'با تشکر از شما';
+                        if (typeof field.message === 'undefined') field.message = '';
+                        if (typeof field.image_url === 'undefined') field.image_url = '';
+                    }
                     // inject hidden props
                     var canvasEl = document.querySelector('#arCanvas .ar-item');
                     if (canvasEl) canvasEl.setAttribute('data-props', JSON.stringify(field));
-                    // setup controls
+                    // setup controls based on type
+                    if (field.type === 'welcome' || field.type === 'thank_you'){
+                        var sWrap = document.querySelector('.ar-settings');
+                        var pWrap = document.querySelector('.ar-preview');
+                        if (sWrap){
+                            sWrap.innerHTML = '\
+                                <div class="title" style="margin-bottom:.6rem;">تنظیمات پیام</div>\
+                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
+                                    <label class="hint">عنوان</label>\
+                                    <input id="wHeading" class="ar-input" placeholder="'+(field.type==='welcome'?'مثال: خوش آمدید':'مثال: با تشکر')+'" />\
+                                </div>\
+                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
+                                    <label class="hint">متن پیام</label>\
+                                    <textarea id="wMessage" class="ar-input" rows="3" placeholder="متن پیام"></textarea>\
+                                </div>\
+                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
+                                    <label class="hint">آدرس تصویر (اختیاری)</label>\
+                                    <input id="wImageUrl" class="ar-input" placeholder="https://..." />\
+                                    <div style="display:flex;gap:.5rem;align-items:center;">\
+                                        <input id="wImageFile" type="file" accept="image/*" style="display:none" />\
+                                        <button id="wUploadBtn" class="ar-btn ar-btn--outline" type="button">انتخاب و آپلود تصویر</button>\
+                                        <span id="wUploadStat" class="hint"></span>\
+                                    </div>\
+                                </div>\
+                                <div style="margin-top:12px">\
+                                    <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>\
+                                </div>';
+                        }
+                        if (pWrap){
+                            pWrap.innerHTML = '\
+                                <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>\
+                                <div id="wPreview" class="card glass" style="padding:.8rem;"></div>';
+                        }
+                        function applyMsgPreview(p){
+                            var pv = document.getElementById('wPreview'); if (!pv) return;
+                            var heading = (p.heading && String(p.heading).trim()) || (p.type==='welcome'?'پیام خوش‌آمد':'پیام تشکر');
+                            var message = (p.message && String(p.message).trim()) || '';
+                            var img = (p.image_url && String(p.image_url).trim()) ? ('<div style="margin-bottom:.4rem"><img src="'+String(p.image_url).trim()+'" alt="" style="max-width:100%;border-radius:10px"/></div>') : '';
+                            pv.innerHTML = (heading ? ('<div class="title" style="margin-bottom:.35rem;">'+heading+'</div>') : '') + img + (message ? ('<div class="hint">'+message+'</div>') : '');
+                        }
+                        function updateHiddenProps(p){ var el = document.querySelector('#arCanvas .ar-item'); if (el) el.setAttribute('data-props', JSON.stringify(p)); }
+                        var hIn = document.getElementById('wHeading'); var mIn = document.getElementById('wMessage'); var uIn = document.getElementById('wImageUrl');
+                        var fIn = document.getElementById('wImageFile'); var uBtn = document.getElementById('wUploadBtn'); var uStat = document.getElementById('wUploadStat');
+                        if (hIn) { hIn.value = field.heading || ''; hIn.addEventListener('input', function(){ field.heading = hIn.value; updateHiddenProps(field); applyMsgPreview(field); }); }
+                        if (mIn) { mIn.value = field.message || ''; mIn.addEventListener('input', function(){ field.message = mIn.value; updateHiddenProps(field); applyMsgPreview(field); }); }
+                        if (uIn) { uIn.value = field.image_url || ''; uIn.addEventListener('input', function(){ field.image_url = uIn.value; updateHiddenProps(field); applyMsgPreview(field); }); }
+                        if (uBtn && fIn) {
+                            uBtn.addEventListener('click', function(){ fIn.click(); });
+                            fIn.addEventListener('change', function(){
+                                if (!fIn.files || !fIn.files[0]) return;
+                                var fd = new FormData(); fd.append('file', fIn.files[0]);
+                                if (uStat) uStat.textContent = 'در حال آپلود...'; if (uBtn) uBtn.disabled = true;
+                                fetch(ARSHLINE_REST + 'upload', { method:'POST', credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE }, body: fd })
+                                    .then(async function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                                    .then(function(obj){ if (obj && obj.url){ uIn.value = obj.url; field.image_url = obj.url; updateHiddenProps(field); applyMsgPreview(field); notify('آپلود شد', 'success'); } })
+                                    .catch(function(){ notify('آپلود تصویر ناموفق بود', 'error'); })
+                                    .finally(function(){ if (uStat) uStat.textContent=''; if (uBtn) uBtn.disabled=false; fIn.value=''; });
+                            });
+                        }
+                        applyMsgPreview(field);
+                        var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok) renderFormBuilder(id); };
+                        return; // stop short_text editor init
+                    }
+                    // short_text editor
                     var sel = document.getElementById('fType');
                     var req = document.getElementById('fRequired');
                     var dTg = document.getElementById('fDescToggle');
@@ -505,7 +599,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         if (qNode){
                             var showQ = (p.question && p.question.trim());
                             qNode.style.display = showQ ? 'block' : 'none';
-                            qNode.textContent = showQ ? ((p.numbered ? '1. ' : '') + p.question.trim()) : '';
+                            // Number based on actual position among question fields
+                            var qIndex = 1;
+                            try {
+                                var beforeCount = 0;
+                                (fields||[]).forEach(function(ff, i3){ if (i3 <= idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
+                                qIndex = beforeCount;
+                            } catch(_){ qIndex = (idx+1); }
+                            qNode.textContent = showQ ? ((p.numbered ? (qIndex + '. ') : '') + p.question.trim()) : '';
                         }
                         // label removed; question sits above input
                         var desc = document.getElementById('pvDesc'); if (desc){ desc.textContent = p.description || ''; desc.style.display = p.show_description && p.description ? 'block' : 'none'; }
@@ -538,8 +639,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
                     var arr = (data && data.fields) ? data.fields.slice() : [];
-                    arr.push(defaultProps);
-                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return arr.length-1; });
+                    var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
+                    var insertAt = hasThank ? (arr.length - 1) : arr.length;
+                    if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
+                    arr.splice(insertAt, 0, defaultProps);
+                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return insertAt; });
                 })
                 .then(function(newIndex){ renderFormEditor(formId, { index: newIndex }); })
                 .catch(function(){ notify('افزودن فیلد ناموفق بود', 'error'); });
@@ -562,6 +666,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     <div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">\
                         <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
                         <button id="arAddShortText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ کوتاه</button>\
+                        <div style="height:.5rem"></div>\
+                        <button id="arAddWelcome" class="ar-btn ar-btn--soft" style="width:100%">افزودن پیام خوش‌آمد</button>\
+                        <div style="height:.4rem"></div>\
+                        <button id="arAddThank" class="ar-btn ar-btn--soft" style="width:100%">افزودن پیام تشکر</button>\
                     </div>\
                 </div>\
             </div>';
@@ -573,15 +681,40 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(r=>r.json())
                 .then(function(data){
                     var fields = data.fields || [];
-                    if (!fields.length){ list.innerHTML = '<div class="hint">هنوز فیلدی اضافه نشده است.</div>'; }
+                    // Build visible order: welcome (if any), then regulars, then thank_you (if any)
+                    var wIdx = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
+                    var tIdx = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; });
+                    var welcome = (wIdx !== -1) ? fields[wIdx] : null;
+                    var thankyou = (tIdx !== -1) ? fields[tIdx] : null;
+                    var regulars = fields.map(function(x,i){ return {item:x, original:i}; }).filter(function(z){ var p=z.item.props||z.item; var ty=p.type||z.item.type; return ty!=='welcome' && ty!=='thank_you'; });
+                    var visible = [];
+                    var visibleMap = [];
+                    if (welcome){ visible.push(welcome); visibleMap.push(wIdx); }
+                    regulars.forEach(function(z){ visible.push(z.item); visibleMap.push(z.original); });
+                    if (thankyou){ visible.push(thankyou); visibleMap.push(tIdx); }
+                    if (!visible.length){ list.innerHTML = '<div class="hint">هنوز فیلدی اضافه نشده است.</div>'; }
                     else {
-                        list.innerHTML = fields.map(function(f, idx){
-                            var p = f.props || f; var q = (p.question&&p.question.trim()) || 'پرسش بدون عنوان'; var n = (p.numbered!==false) ? (idx+1)+'. ' : '';
-                            return '<div class="card ar-draggable" draggable="true" data-index="'+idx+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+                        var qCounter = 0;
+                        list.innerHTML = visible.map(function(f, vIdx){
+                            var p = f.props || f; var type = p.type || f.type || 'short_text';
+                            if (type==='welcome' || type==='thank_you'){
+                                var ttl = (type==='welcome'?'پیام خوش‌آمد':'پیام تشکر');
+                                var head = (p.heading&&String(p.heading).trim()) || ttl;
+                                return '<div class="card" data-vid="'+vIdx+'" data-oid="'+visibleMap[vIdx]+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+                                    <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
+                                        <div class="hint">'+ttl+' — '+head+'</div>\
+                                        <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
+                                    </div>\
+                                </div>';
+                            }
+                            var q = (p.question&&p.question.trim()) || 'پرسش بدون عنوان';
+                            var n = '';
+                            if (p.numbered !== false) { qCounter += 1; n = qCounter + '. '; }
+                            return '<div class="card ar-draggable" draggable="true" data-vid="'+vIdx+'" data-oid="'+visibleMap[vIdx]+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
                                 <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
                                     <span class="ar-dnd-handle" title="جابجایی">≡</span>\
                                     <div class="hint">'+n+q+'</div>\
-                                    <a href="#" class="arEditField" data-id="'+id+'" data-index="'+idx+'">ویرایش</a>\
+                                    <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
                                 </div>\
                             </div>';
                         }).join('');
@@ -604,9 +737,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         function commitReorder(){
                             var orderEls = Array.from(list.children).filter(function(el){ return el.classList && (el.classList.contains('ar-draggable') || el.classList.contains('ar-dnd-placeholder')); });
                             var newOrder = [];
-                            orderEls.forEach(function(el){ if (el === placeholder) return; var idx = parseInt(el.getAttribute('data-index')||''); if (!isNaN(idx)) newOrder.push(idx); });
-                            var reordered = newOrder.map(function(i){ return fields[i]; });
-                            fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: reordered }) })
+                            orderEls.forEach(function(el){ if (el === placeholder) return; var vi = parseInt(el.getAttribute('data-vid')||''); if (!isNaN(vi)) newOrder.push(vi); });
+                            // Preserve fixed blocks at ends
+                            var welcomeItem = (visible.length && (visible[0].props||visible[0]).type === 'welcome') ? visible[0] : null;
+                            var thankItem = (visible.length && (visible[visible.length-1].props||visible[visible.length-1]).type === 'thank_you') ? visible[visible.length-1] : null;
+                            var reorderedRegulars = newOrder.map(function(vi){ return visible[vi]; });
+                            var finalArr = [];
+                            if (welcomeItem) finalArr.push(welcomeItem);
+                            finalArr = finalArr.concat(reorderedRegulars);
+                            if (thankItem) finalArr.push(thankItem);
+                            fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: finalArr }) })
                                 .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
                                 .then(function(){ notify('چیدمان به‌روزرسانی شد', 'success'); renderFormBuilder(id); })
                                 .catch(function(){ notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
@@ -688,12 +828,18 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                     .then(function(data){
                                         var arr = (data && data.fields) ? data.fields.slice() : [];
                                         var newField = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
-                                        if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
-                                        arr.splice(insertAt, 0, newField);
-                                        return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) });
+                                        var hasWelcome = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; }) !== -1;
+                                        var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
+                                        var baseOffset = hasWelcome ? 1 : 0;
+                                        var maxPos = arr.length - (hasThank ? 1 : 0);
+                                        var realAt = baseOffset + insertAt;
+                                        if (realAt < baseOffset) realAt = baseOffset;
+                                        if (realAt > maxPos) realAt = maxPos;
+                                        arr.splice(realAt, 0, newField);
+                                        return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return {res:r, index: realAt}; });
                                     })
-                                    .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                    .then(function(){ notify('فیلد جدید درج شد', 'success'); renderFormBuilder(id); })
+                                    .then(function(obj){ return obj.res.json().then(function(){ return obj.index; }); })
+                                    .then(function(newIndex){ notify('فیلد جدید درج شد', 'success'); renderFormEditor(id, { index: newIndex }); })
                                     .catch(function(){ notify('درج فیلد ناموفق بود', 'error'); })
                                     .finally(function(){ if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
                             }
@@ -719,6 +865,40 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'سؤال با پاسخ کوتاه'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
                 });
                 addBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+            }
+            var addWelcomeBtn = document.getElementById('arAddWelcome');
+            if (addWelcomeBtn){
+                addWelcomeBtn.addEventListener('click', function(){
+                    fetch(ARSHLINE_REST + 'forms/'+id)
+                        .then(r=>r.json())
+                        .then(function(data){
+                            var arr = (data && data.fields) ? data.fields.slice() : [];
+                            var wIndex = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
+                            if (wIndex !== -1){ notify('پیام خوش‌آمد موجود است — در حال باز کردن ویرایشگر', 'info'); renderFormEditor(id, { index: wIndex }); return Promise.reject('exists'); }
+                            var newField = { type:'welcome', label:'پیام خوش‌آمد', heading:'خوش آمدید', message:'', image_url:'' };
+                            arr.unshift(newField);
+                            return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return 0; });
+                        })
+                        .then(function(idxOpen){ notify('پیام خوش‌آمد افزوده شد', 'success'); renderFormEditor(id, { index: idxOpen }); })
+                        .catch(function(err){ if (err!=='exists') notify('افزودن پیام خوش‌آمد ناموفق بود', 'error'); });
+                });
+            }
+            var addThankBtn = document.getElementById('arAddThank');
+            if (addThankBtn){
+                addThankBtn.addEventListener('click', function(){
+                    fetch(ARSHLINE_REST + 'forms/'+id)
+                        .then(r=>r.json())
+                        .then(function(data){
+                            var arr = (data && data.fields) ? data.fields.slice() : [];
+                            var tIndex = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; });
+                            if (tIndex !== -1){ notify('پیام تشکر موجود است — در حال باز کردن ویرایشگر', 'info'); renderFormEditor(id, { index: tIndex }); return Promise.reject('exists'); }
+                            var newField = { type:'thank_you', label:'پیام تشکر', heading:'با تشکر از شما', message:'', image_url:'' };
+                            arr.push(newField);
+                            return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return arr.length-1; });
+                        })
+                        .then(function(idxOpen){ notify('پیام تشکر افزوده شد', 'success'); renderFormEditor(id, { index: idxOpen }); })
+                        .catch(function(err){ if (err!=='exists') notify('افزودن پیام تشکر ناموفق بود', 'error'); });
+                });
             }
             // allow drop to add
             var formSide = document.getElementById('arFormSide');
