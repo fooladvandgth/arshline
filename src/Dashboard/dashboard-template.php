@@ -121,7 +121,7 @@ if (!defined('ABSPATH')) exit;
     [dir='rtl'] body:not(.dark) .theme-toggle .knob { transform: translateX(-0px); }
     [dir='rtl'] body.dark .theme-toggle .knob { transform: translateX(26px); }
     [dir='ltr'] body.dark .theme-toggle .knob { transform: translateX(-26px); }
-    .ar-btn { cursor:pointer; font-weight:700; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.55rem .95rem; box-shadow: 0 8px 18px rgba(0,0,0,.12); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; font-family: inherit; letter-spacing:.2px; }
+    .ar-btn { cursor:pointer; font-weight:700; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.55rem .95rem; box-shadow: 0 8px 18px rgba(0,0,0,.12); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; font-family: inherit; letter-spacing:.2px; text-decoration:none; display:inline-flex; align-items:center; gap:.35rem; line-height:1.1; }
     .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.18); }
     .ar-btn:disabled { opacity:.6; cursor:not-allowed; box-shadow:none; }
     .ar-btn--muted { background:#64748b; }
@@ -204,7 +204,7 @@ if (!defined('ABSPATH')) exit;
     <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
-        var content = document.getElementById('arshlineDashboardContent');
+    var content = document.getElementById('arshlineDashboardContent');
         var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
 
         // theme switch (sun/moon)
@@ -673,7 +673,17 @@ if (!defined('ABSPATH')) exit;
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
             var headerActions = document.getElementById('arHeaderActions');
-            if (headerActions) headerActions.innerHTML = '';
+            if (headerActions) {
+                headerActions.innerHTML = ARSHLINE_CAN_MANAGE ? '<button id="arHeaderCreateForm" class="ar-btn">+ فرم جدید</button>' : '';
+            }
+            // Header create: always available, routes to forms and opens inline create
+            var globalHeaderCreateBtn = document.getElementById('arHeaderCreateForm');
+            if (globalHeaderCreateBtn) {
+                globalHeaderCreateBtn.addEventListener('click', function(){
+                    window._arOpenCreateInlineOnce = true;
+                    renderTab('forms');
+                });
+            }
             if (tab === 'dashboard') {
                 content.innerHTML = '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>' +
                     '<div class="ar-modern-cards">\
@@ -695,8 +705,7 @@ if (!defined('ABSPATH')) exit;
                         </div>\
                     </div>';
             } else if (tab === 'forms') {
-                var headerActions = document.getElementById('arHeaderActions');
-                if (headerActions && ARSHLINE_CAN_MANAGE){ headerActions.innerHTML = '<button id="arHeaderCreateForm" class="ar-btn">+ فرم جدید</button>'; }
+                // header button already rendered globally
                 content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
                     <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
                       <span class="title">فرم‌ها</span>\
@@ -742,6 +751,7 @@ if (!defined('ABSPATH')) exit;
                             <div style="display:flex;gap:.6rem;">\
                                 <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
                                 <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
+                                <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
                                 '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
                             </div>\
                         </div>';
@@ -749,9 +759,12 @@ if (!defined('ABSPATH')) exit;
                     box.innerHTML = html;
                     box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormBuilder(id); }); });
                     box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
+                    box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; window._pendingFormSelectId = id; renderTab('submissions'); }); });
                     if (ARSHLINE_CAN_MANAGE) {
                         box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
                     }
+                    // If header create was requested before arriving here, open inline create now
+                    if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
             } else if (tab === 'submissions') {
                 content.innerHTML = '<div class="card glass" style="padding:1rem;">\
@@ -781,6 +794,8 @@ if (!defined('ABSPATH')) exit;
                             list.innerHTML = html;
                         }).catch(()=>{ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
                     });
+                // If a form id was requested before arriving here, select it and trigger load
+                if (window._pendingFormSelectId){ sel.value = String(window._pendingFormSelectId); var evt = new Event('change'); sel.dispatchEvent(evt); window._pendingFormSelectId = null; }
                 });
             } else if (tab === 'reports') {
                 content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
