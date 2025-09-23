@@ -776,6 +776,31 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 </div>\
                             </div>';
                         }).join('');
+                        // Helper: refresh data-oid and editor indices without full rerender
+                        function refreshDomOidMapping(){
+                            try {
+                                var wIdxN = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
+                                var tIdxN = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; });
+                                var regularIdxsN = [];
+                                fields.forEach(function(x,i){ var p=x.props||x; var ty=p.type||x.type; if (ty!=='welcome' && ty!=='thank_you') regularIdxsN.push(i); });
+                                var rPtr = 0;
+                                Array.from(list.children).forEach(function(card){
+                                    var edit = card.querySelector && card.querySelector('.arEditField');
+                                    if (card.classList && card.classList.contains('ar-draggable')){
+                                        var noid = regularIdxsN[rPtr++];
+                                        if (typeof noid === 'number'){
+                                            card.setAttribute('data-oid', String(noid)); if (edit) edit.setAttribute('data-index', String(noid));
+                                        }
+                                    } else {
+                                        var hint = card.querySelector && card.querySelector('.hint');
+                                        var txt = hint && hint.textContent || '';
+                                        if (txt.indexOf('پیام خوش‌آمد') !== -1 && wIdxN !== -1){ card.setAttribute('data-oid', String(wIdxN)); if (edit) edit.setAttribute('data-index', String(wIdxN)); }
+                                        else if (txt.indexOf('پیام تشکر') !== -1 && tIdxN !== -1){ card.setAttribute('data-oid', String(tIdxN)); if (edit) edit.setAttribute('data-index', String(tIdxN)); }
+                                    }
+                                });
+                                try { updateBulkUI(); } catch(_){ }
+                            } catch(_){ }
+                        }
                         // DnD sorting via SortableJS
                         function commitReorder(){
                             var newOrderOids = [];
@@ -789,7 +814,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (thankItem) finalArr.push(thankItem);
                             fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: finalArr }) })
                                 .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                .then(function(){ notify('چیدمان به‌روزرسانی شد', 'success'); renderFormBuilder(id); })
+                                .then(function(){ fields = finalArr; refreshDomOidMapping(); notify('چیدمان به‌روزرسانی شد', 'success'); })
                                 .catch(function(){ notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
                         }
                         function ensureSortable(cb){ if (window.Sortable) { cb(); return; } var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js'; s.onload = function(){ cb(); }; document.head.appendChild(s); }
@@ -822,11 +847,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 var newFields = fields.filter(function(_f, idx){ return !oids.has(idx); });
                                 fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) })
                                     .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                    .then(function(){ notify('سؤالات انتخاب‌شده حذف شد', 'success'); renderFormBuilder(id); })
-                                    .catch(function(){ notify('حذف گروهی ناموفق بود', 'error'); renderFormBuilder(id); });
+                                    .then(function(){ fields = newFields; refreshDomOidMapping(); updateBulkUI(); notify('سؤالات انتخاب‌شده حذف شد', 'success'); })
+                                    .catch(function(){ notify('حذف گروهی ناموفق بود', 'error'); });
                         }); }
                         updateBulkUI();
-                        list.querySelectorAll('.arDeleteField').forEach(function(a){ a.addEventListener('click', function(e){
+            list.querySelectorAll('.arDeleteField').forEach(function(a){ a.addEventListener('click', function(e){
                             e.preventDefault();
                             var card = a.closest('.card');
                             if (!card) return;
@@ -841,7 +866,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             newFields.splice(oid, 1);
                             fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) })
                                 .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                .then(function(){ notify('سؤال حذف شد', 'success'); renderFormBuilder(id); })
+                .then(function(){ fields = newFields; try { animateRemove(card); } catch(_){ if (card && card.parentNode) card.parentNode.removeChild(card); } refreshDomOidMapping(); notify('سؤال حذف شد', 'success'); })
                                 .catch(function(){ notify('حذف سؤال ناموفق بود', 'error'); });
                         }); });
                         // External tool drag-in insertion
