@@ -91,25 +91,41 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
         .arshline-sidebar {
             width: 280px; background: var(--sidebar); border-inline-start: 1px solid var(--border);
-            backdrop-filter: blur(8px); display: flex; flex-direction: column; transition: width .3s;
+            backdrop-filter: blur(8px); display: flex; flex-direction: column; transition: width .3s ease; overflow: hidden;
         }
-        .arshline-sidebar.closed { width: 64px; }
+        .arshline-sidebar.closed { width: 72px; }
         .arshline-sidebar .logo {
             font-size: 1.4rem; font-weight: 700; color: var(--primary); padding: 1.75rem 1.25rem 1rem 1.25rem; text-align: right; display:flex; align-items:center; gap:.6rem;
         }
+        .arshline-sidebar .logo .label { transition: opacity .2s ease, transform .2s ease; }
+        .arshline-sidebar.closed .logo .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
         .arshline-sidebar nav {
-            flex: 1; display: flex; flex-direction: column; gap: 1rem; padding: 1rem 0;
+            flex: 1; display: flex; flex-direction: column; gap: 1rem; padding: 1rem .5rem; overflow-y: auto;
         }
         .arshline-sidebar nav a {
             display: flex; align-items: center; gap: .75rem; color: var(--muted); text-decoration: none; padding: .7rem 1.1rem; border-radius: 12px; transition: background .2s, color .2s, transform .2s, box-shadow .2s;
         }
+    .arshline-sidebar nav a .ic { width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center; }
+    /* Increase icon spacing to 50px (RTL uses margin-right) */
+    [dir='rtl'] .arshline-sidebar nav a .ic { margin-right: 50px; }
+    [dir='ltr'] .arshline-sidebar nav a .ic { margin-left: 50px; }
+        /* add extra breathing room from the right edge when collapsed (RTL) */
+        [dir='rtl'] .arshline-sidebar.closed nav { padding-inline-end: 12px; }
+        [dir='ltr'] .arshline-sidebar.closed nav { padding-inline-start: 12px; }
+    [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 50px; }
+    [dir='ltr'] .arshline-sidebar.closed nav a .ic { margin-left: 50px; }
+        .arshline-sidebar nav a .label { white-space: nowrap; transition: opacity .18s ease, transform .18s ease; }
+        .arshline-sidebar.closed nav a { justify-content: center; }
+        .arshline-sidebar.closed nav a .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
     .arshline-sidebar nav a svg { transition: transform .2s ease, filter .2s ease; }
     .arshline-sidebar nav a:hover svg { transform: translateX(-4px) scale(1.02); filter: drop-shadow(0 6px 10px rgba(37,99,255,.3)); }
 	.arshline-sidebar nav a.active { background: var(--primary); color: #fff; border: 0; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
 	.arshline-sidebar nav a:hover { background: rgba(37,99,255,.18); color: #0b1220; box-shadow: 0 8px 20px rgba(37,99,255,.18); }
-        .arshline-sidebar .toggle {
-            margin: 1rem 1.25rem; cursor: pointer; color: var(--muted); font-size: 1.2rem; text-align: right;
+        .arshline-sidebar .toggle { 
+            margin: 0 1.25rem 1rem 1.25rem; cursor: pointer; color: var(--muted); font-size: 1rem; text-align: center; background: transparent; border: 1px solid var(--border); padding: .35rem .55rem; border-radius: 10px; display:flex; align-items:center; justify-content:center; gap:.4rem; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif;
         }
+        .arshline-sidebar .toggle:hover { background: rgba(37,99,255,.08); }
+        .arshline-sidebar .toggle .chev { display:inline-block; transition: transform .2s ease; line-height: 1; font-size: 18px; }
         .arshline-main {
             flex: 1; padding: 2.2rem 2rem; min-height: 100vh; transition: background .3s;
         }
@@ -141,8 +157,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-dnd-ghost { opacity:.6; transform: scale(.98); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
     .ar-dnd-over { outline: none; background: transparent; }
     .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
-    .ar-dnd-placeholder { border:none; border-radius:10px; margin:.35rem 0; background: transparent; opacity:.0; padding:0; pointer-events:none; transition: height .16s ease, margin .16s ease, opacity .16s ease; }
-    .ar-dnd-placeholder--dashed { opacity:1; border:2px dashed var(--border); background: transparent; }
+    .ar-dnd-placeholder { border:2px dashed transparent; border-radius:10px; margin:.35rem 0; background: transparent; opacity:.0; padding:0; pointer-events:none; transition: height .14s ease, margin .14s ease, opacity .14s ease, border-color .14s ease; }
+    .ar-dnd-placeholder--dashed { opacity:1; border-color: var(--border); background: transparent; }
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
@@ -204,7 +220,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .vc-small-switch.vc-rtl input:checked ~ .vc-switch-handle { left: calc(100% - var(--vc-handle-width,15px) - 5px); right: auto; }
     .vc-small-switch.vc-rtl input:checked ~ .vc-switch-label:before { opacity: 0; }
     .vc-small-switch.vc-rtl input:checked ~ .vc-switch-label:after  { opacity: 1; }
-    </style>
+    /* Validation helpers (minimal, scoped) */
+    .ar-input--invalid { border-color: #b91c1c !important; box-shadow: 0 0 0 3px rgba(185,28,28,.12); }
+    .ar-required { color:#b91c1c; margin: 0 .2rem; font-weight: 700; }
+    .ar-field-error { color:#b91c1c; margin-top:.3rem; display:none; }
+     </style>
     <script>
     const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
     const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
@@ -216,6 +236,76 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
         var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
+        var sidebar = document.querySelector('.arshline-sidebar');
+        var sidebarToggle = document.getElementById('arSidebarToggle');
+
+        function setSidebarClosed(closed, persist){
+            if (!sidebar) return;
+            sidebar.classList.toggle('closed', !!closed);
+            try {
+                if (sidebarToggle) {
+                    sidebarToggle.setAttribute('aria-expanded', closed ? 'false' : 'true');
+                    var ch = sidebarToggle.querySelector('.chev');
+                    if (ch) ch.textContent = closed ? '❯' : '❮';
+                }
+            } catch(_){ }
+            if (persist){ try { localStorage.setItem('arSidebarClosed', closed ? '1' : '0'); } catch(_){ } }
+        }
+        try { var initClosed = localStorage.getItem('arSidebarClosed'); if (initClosed === '1') setSidebarClosed(true, false); } catch(_){ }
+
+        // Helpers for safe rich question HTML
+        function htmlToText(html){ try { var d=document.createElement('div'); d.innerHTML=String(html||''); return d.textContent||d.innerText||''; } catch(_){ return String(html||''); } }
+        function escapeAttr(s){
+            try {
+                return String(s||'')
+                    .replace(/&/g,'&amp;')
+                    .replace(/"/g,'&quot;')
+                    .replace(/'/g,'&#39;')
+                    .replace(/</g,'&lt;')
+                    .replace(/>/g,'&gt;');
+            } catch(_){ return String(s||''); }
+        }
+        function sanitizeQuestionHtml(html){
+            try {
+                var wrapper = document.createElement('div');
+                wrapper.innerHTML = String(html||'');
+                var allowed = { B:true, I:true, U:true, SPAN:true };
+                (function walk(node){
+                    var child = node.firstChild;
+                    while(child){
+                        var next = child.nextSibling;
+                        if (child.nodeType === 1){
+                            var tag = child.tagName;
+                            // Convert <font color> to <span style="color:...">
+                            if (tag === 'FONT'){
+                                try {
+                                    var span = document.createElement('span');
+                                    var col = child.getAttribute('color') || (child.style && child.style.color) || '';
+                                    if (col) span.setAttribute('style', 'color:'+col);
+                                    while(child.firstChild){ span.appendChild(child.firstChild); }
+                                    node.replaceChild(span, child);
+                                    child = span;
+                                    tag = 'SPAN';
+                                } catch(_){}
+                            }
+                            if (!allowed[tag]){
+                                while(child.firstChild){ node.insertBefore(child.firstChild, child); }
+                                node.removeChild(child);
+                            } else {
+                                for (var i = child.attributes.length - 1; i >= 0; i--) { child.removeAttribute(child.attributes[i].name); }
+                                if (tag === 'SPAN'){
+                                    var color = child.style && child.style.color ? child.style.color : '';
+                                    if (color){ child.setAttribute('style','color:'+color); } else { child.removeAttribute('style'); }
+                                }
+                                walk(child);
+                            }
+                        }
+                        child = next;
+                    }
+                })(wrapper);
+                return wrapper.innerHTML;
+            } catch(_) { return html ? String(html) : ''; }
+        }
 
         // Simple hash-based router so browser Back works correctly
         var _arNavSilence = 0;
@@ -248,6 +338,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var toggle = function(){ document.body.classList.toggle('dark'); applyAria(); try { localStorage.setItem('arshDark', document.body.classList.contains('dark') ? '1' : '0'); } catch(_){ } };
             themeToggle.addEventListener('click', toggle);
             themeToggle.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); toggle(); }});
+        }
+        if (sidebarToggle){
+            var tgl = function(){ var isClosed = sidebar && sidebar.classList.contains('closed'); setSidebarClosed(!isClosed, true); };
+            sidebarToggle.addEventListener('click', tgl);
+            sidebarToggle.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); tgl(); }});
         }
 
         function setActive(tab){
@@ -320,6 +415,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function renderFormPreview(id){
+            try { setSidebarClosed(true, false); } catch(_){ }
             try { setHash('preview/'+id); } catch(_){ }
             document.body.classList.add('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
@@ -362,8 +458,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         var numbered = (p.numbered !== false);
                         if (numbered) qNum += 1;
                         var numberStr = numbered ? (qNum + '. ') : '';
-                        row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+String(p.question).trim()+'</div>') : '')+
-                            '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+numberStr+String(p.question).trim()+'"'):'') + ' />' +
+                        var sanitizedQ = sanitizeQuestionHtml(showQ || '');
+                        var ariaQ = htmlToText(sanitizedQ);
+                        row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '')+
+                            '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+escapeAttr(numberStr+ariaQ)+'"'):'') + ' />' +
                             (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
                         fwrap.appendChild(row);
                         questionProps.push(p);
@@ -393,6 +491,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderFormEditor(id, opts){
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
+            try { setSidebarClosed(true, false); } catch(_){ }
             try { var idxHash = (opts && typeof opts.index!=='undefined') ? parseInt(opts.index) : 0; setHash('editor/'+id+'/'+(isNaN(idxHash)?0:idxHash)); } catch(_){ }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
@@ -411,7 +510,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         <div class="title" style="margin-bottom:.6rem;">تنظیمات فیلد</div>\
                         <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
                             <label class="hint">سؤال</label>\
-                            <textarea id="fQuestion" class="ar-input" rows="2" placeholder="متن سؤال"></textarea>\
+                            <div id="fQuestionToolbar" style="display:flex;gap:.35rem;align-items:center;">\
+                                <button id="fQBold" class="ar-btn ar-btn--outline" type="button" title="پررنگ"><b>B</b></button>\
+                                <button id="fQItalic" class="ar-btn ar-btn--outline" type="button" title="مورب"><i>I</i></button>\
+                                <button id="fQUnder" class="ar-btn ar-btn--outline" type="button" title="زیرخط"><u>U</u></button>\
+                                <input id="fQColor" type="color" title="رنگ" style="margin-inline-start:.25rem;width:36px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);" />\
+                            </div>\
+                            <div id="fQuestionRich" class="ar-input" contenteditable="true" style="min-height:60px;line-height:1.8;" placeholder="متن سؤال"></div>\
                         </div>\
                         <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
                             <label class="hint">نوع ورودی</label>\
@@ -570,9 +675,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var img = (p.image_url && String(p.image_url).trim()) ? ('<div style="margin-bottom:.4rem"><img src="'+String(p.image_url).trim()+'" alt="" style="max-width:100%;border-radius:10px"/></div>') : '';
                             pv.innerHTML = (heading ? ('<div class="title" style="margin-bottom:.35rem;">'+heading+'</div>') : '') + img + (message ? ('<div class="hint">'+message+'</div>') : '');
                         }
-                        function updateHiddenProps(p){ var el = document.querySelector('#arCanvas .ar-item'); if (el) el.setAttribute('data-props', JSON.stringify(p)); }
-                        var hIn = document.getElementById('wHeading'); var mIn = document.getElementById('wMessage'); var uIn = document.getElementById('wImageUrl');
-                        var fIn = document.getElementById('wImageFile'); var uBtn = document.getElementById('wUploadBtn'); var uStat = document.getElementById('wUploadStat');
+                        // Bind settings inputs for message editor
+                        var hIn = document.getElementById('wHeading');
+                        var mIn = document.getElementById('wMessage');
+                        var uIn = document.getElementById('wImageUrl');
+                        var uBtn = document.getElementById('wUploadBtn');
+                        var fIn = document.getElementById('wImageFile');
+                        var uStat = document.getElementById('wUploadStat');
                         if (hIn) { hIn.value = field.heading || ''; hIn.addEventListener('input', function(){ field.heading = hIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
                         if (mIn) { mIn.value = field.message || ''; mIn.addEventListener('input', function(){ field.message = mIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
                         if (uIn) { uIn.value = field.image_url || ''; uIn.addEventListener('input', function(){ field.image_url = uIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
@@ -600,7 +709,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var dTx = document.getElementById('fDescText');
                     var dWrap = document.getElementById('fDescWrap');
                     var help = document.getElementById('fHelp');
-                    var qEl = document.getElementById('fQuestion');
+                    var qEl = document.getElementById('fQuestionRich');
+                    var qBold = document.getElementById('fQBold');
+                    var qItalic = document.getElementById('fQItalic');
+                    var qUnder = document.getElementById('fQUnder');
+                    var qColor = document.getElementById('fQColor');
                     var numEl = document.getElementById('fNumbered');
 
                     function updateHiddenProps(p){
@@ -638,7 +751,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         inp.setAttribute('placeholder', ph || '');
                         var qNode = document.getElementById('pvQuestion');
                         if (qNode){
-                            var showQ = (p.question && p.question.trim());
+                            var showQ = (p.question && String(p.question).trim());
                             qNode.style.display = showQ ? 'block' : 'none';
                             // Number based on actual position among question fields
                             var qIndex = 1;
@@ -647,7 +760,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 (fields||[]).forEach(function(ff, i3){ if (i3 <= idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
                                 qIndex = beforeCount;
                             } catch(_){ qIndex = (idx+1); }
-                            qNode.textContent = showQ ? ((p.numbered ? (qIndex + '. ') : '') + p.question.trim()) : '';
+                            var numPrefix = (p.numbered ? (qIndex + '. ') : '');
+                            var sanitized = sanitizeQuestionHtml(showQ || '');
+                            qNode.innerHTML = showQ ? (numPrefix + sanitized) : '';
                         }
                         // label removed; question sits above input
                         var desc = document.getElementById('pvDesc'); if (desc){ desc.textContent = p.description || ''; desc.style.display = p.show_description && p.description ? 'block' : 'none'; }
@@ -666,7 +781,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (dTg){ dTg.checked = !!field.show_description; if (dWrap) dWrap.style.display = field.show_description ? 'block':'none'; dTg.addEventListener('change', function(){ field.show_description = !!dTg.checked; if(dWrap){ dWrap.style.display = field.show_description ? 'block':'none'; } sync(); setDirty(true); }); }
                     if (dTx){ dTx.value = field.description || ''; dTx.addEventListener('input', function(){ field.description = dTx.value; sync(); setDirty(true); }); }
                     if (help){ help.value = field.placeholder || ''; help.addEventListener('input', function(){ field.placeholder = help.value; sync(); setDirty(true); }); }
-                    if (qEl){ qEl.value = field.question || ''; qEl.addEventListener('input', function(){ field.question = qEl.value; sync(); setDirty(true); }); }
+                    if (qEl){ qEl.innerHTML = sanitizeQuestionHtml(field.question || ''); qEl.addEventListener('input', function(){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); }); }
+                    if (qBold){ qBold.addEventListener('click', function(e){ e.preventDefault(); document.execCommand('bold'); if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
+                    if (qItalic){ qItalic.addEventListener('click', function(e){ e.preventDefault(); document.execCommand('italic'); if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
+                    if (qUnder){ qUnder.addEventListener('click', function(e){ e.preventDefault(); document.execCommand('underline'); if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
+                    if (qColor){ qColor.addEventListener('input', function(){ try { document.execCommand('foreColor', false, qColor.value); } catch(_){} if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
                     if (numEl){ numEl.checked = field.numbered !== false; field.numbered = numEl.checked; numEl.addEventListener('change', function(){ field.numbered = !!numEl.checked; sync(); setDirty(true); }); }
 
                     applyPreviewFrom(field);
@@ -692,6 +811,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderFormBuilder(id){
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
+            try { setSidebarClosed(true, false); } catch(_){ }
             document.body.classList.remove('preview-only');
             try { setHash('builder/'+id); } catch(_){ }
             var content = document.getElementById('arshlineDashboardContent');
@@ -756,11 +876,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 return '<div class="card" data-vid="'+vIdx+'" data-oid="'+visibleMap[vIdx]+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
                                     <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
                                         <div class="hint">'+ttl+' — '+head+'</div>\
-                                        <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
+                                        <div style="display:flex;gap:.6rem;align-items:center;">\
+                                            <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
+                                            <a href="#" class="arDeleteMsg" title="حذف '+ttl+'" style="color:#d32f2f;">حذف</a>\
+                                        </div>\
                                     </div>\
                                 </div>';
                             }
-                            var q = (p.question&&p.question.trim()) || 'پرسش بدون عنوان';
+                            var q = (p.question&&p.question.trim()) || '';
+                            var qHtml = q ? sanitizeQuestionHtml(q) : 'پرسش بدون عنوان';
                             var n = '';
                             if (p.numbered !== false) { qCounter += 1; n = qCounter + '. '; }
                             return '<div class="card ar-draggable" draggable="true" data-vid="'+vIdx+'" data-oid="'+visibleMap[vIdx]+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
@@ -768,7 +892,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                     <div style="display:flex;align-items:center;gap:.5rem;">\
                                         <input type="checkbox" class="arSelectItem" title="انتخاب" />\
                                         <span class="ar-dnd-handle" title="جابجایی">≡</span>\
-                                        <div class="hint">'+n+q+'</div>\
+                                        <div class="hint">'+n+qHtml+'</div>\
                                     </div>\
                                     <div style="display:flex;gap:.6rem;align-items:center;">\
                                         <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
@@ -803,11 +927,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             } catch(_){ }
                         }
                         // DnD sorting via SortableJS
+                        var isReordering = false;
+                        var dragStartOrder = [];
                         function commitReorder(){
                             var newOrderOids = [];
                             Array.from(list.querySelectorAll('.ar-draggable')).forEach(function(el){ var oid = parseInt(el.getAttribute('data-oid')||''); if (!isNaN(oid)) newOrderOids.push(oid); });
-                            var welcomeItem = (visible.length && (visible[0].props||visible[0]).type === 'welcome') ? visible[0] : null;
-                            var thankItem = (visible.length && (visible[visible.length-1].props||visible[visible.length-1]).type === 'thank_you') ? visible[visible.length-1] : null;
+                            var wIdxNow = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
+                            var tIdxNow = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; });
+                            var welcomeItem = (wIdxNow !== -1) ? fields[wIdxNow] : null;
+                            var thankItem = (tIdxNow !== -1) ? fields[tIdxNow] : null;
                             var reorderedRegulars = newOrderOids.map(function(oid){ return fields[oid]; });
                             var finalArr = [];
                             if (welcomeItem) finalArr.push(welcomeItem);
@@ -815,29 +943,79 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (thankItem) finalArr.push(thankItem);
                             fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: finalArr }) })
                                 .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                .then(function(){ fields = finalArr; refreshDomOidMapping(); notify('چیدمان به‌روزرسانی شد', 'success'); })
+                                .then(function(){
+                                    notify('چیدمان به‌روزرسانی شد', 'success');
+                                    // Reload builder to ensure full sync with server (ids/sort)
+                                    renderFormBuilder(id);
+                                })
                                 .catch(function(){ notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
                         }
                         function ensureSortable(cb){ if (window.Sortable) { cb(); return; } var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js'; s.onload = function(){ cb(); }; document.head.appendChild(s); }
                         ensureSortable(function(){
                             try { if (window._arSortableInst) { window._arSortableInst.destroy(); } } catch(_){}
-                            var reorderPh = document.createElement('div'); reorderPh.className = 'ar-dnd-placeholder ar-dnd-placeholder--dashed'; reorderPh.style.height = '48px';
+                            var reorderPh = document.createElement('div'); reorderPh.className = 'ar-dnd-placeholder'; reorderPh.style.height = '48px';
                             window._arSortableInst = Sortable.create(list, {
                                 animation: 160,
                                 handle: '.ar-dnd-handle',
                                 draggable: '.ar-draggable',
                                 ghostClass: 'ar-dnd-ghost',
                                 direction: 'vertical',
-                                onStart: function(evt){ try { var it = evt.item; if (it){ var h = it.offsetHeight || 48; reorderPh.style.height = Math.max(44,h)+'px'; } } catch(_){ }
+                                onStart: function(evt){
+                                    isReordering = true;
+                                    try {
+                                        // capture order at drag start
+                                        dragStartOrder = Array.from(list.querySelectorAll('.ar-draggable')).map(function(el){ return parseInt(el.getAttribute('data-oid')||''); }).filter(function(n){ return !isNaN(n); });
+                                    } catch(_){ dragStartOrder = []; }
+                                    try { var it = evt.item; if (it){ var h = it.offsetHeight || 48; reorderPh.style.height = Math.max(44,h)+'px'; } } catch(_){ }
+                                    try { reorderPh.classList.add('ar-dnd-placeholder--dashed'); } catch(_){}
                                     try { if (reorderPh && !reorderPh.parentNode){ var sib = evt.item.nextSibling; list.insertBefore(reorderPh, sib); } } catch(_){ }
+                                    try { if (typeof toolPh !== 'undefined' && toolPh && toolPh.parentNode){ toolPh.parentNode.removeChild(toolPh); } } catch(_){ }
                                 },
-                                onEnd: function(evt){ try { if (reorderPh && reorderPh.parentNode) reorderPh.parentNode.removeChild(reorderPh); } catch(_){ }
-                                    if (evt.oldIndex !== evt.newIndex) commitReorder();
+                                onEnd: function(evt){
+                                    isReordering = false;
+                                    try { if (reorderPh){ reorderPh.classList.remove('ar-dnd-placeholder--dashed'); if (reorderPh.parentNode) reorderPh.parentNode.removeChild(reorderPh); } } catch(_){ }
+                                    try { if (typeof toolPh !== 'undefined' && toolPh && toolPh.parentNode){ toolPh.parentNode.removeChild(toolPh); } } catch(_){ }
+                                    // Compare order before/after; persist if changed
+                                    try {
+                                        var endOrder = Array.from(list.querySelectorAll('.ar-draggable')).map(function(el){ return parseInt(el.getAttribute('data-oid')||''); }).filter(function(n){ return !isNaN(n); });
+                                        var changed = (dragStartOrder.length !== endOrder.length) || endOrder.some(function(v,i){ return v !== dragStartOrder[i]; });
+                                        if (changed) commitReorder();
+                                    } catch(_){ if (evt.oldIndex !== evt.newIndex) commitReorder(); }
                                 },
-                                onMove: function(){ try { if (reorderPh && reorderPh.parentNode) reorderPh.parentNode.remove(); } catch(_){ } return true; }
+                                onMove: function(evt){
+                                    try {
+                                        var related = evt.related;
+                                        if (!related || !reorderPh) return true;
+                                        // Set placeholder height to the hovered card's height
+                                        var h = related.offsetHeight || 48; reorderPh.style.height = Math.max(44, h) + 'px';
+                                        // Insert before or after based on willInsertAfter
+                                        var willAfter = evt.willInsertAfter === true;
+                                        if (willAfter) {
+                                            if (related.nextSibling !== reorderPh) { list.insertBefore(reorderPh, related.nextSibling); }
+                                        } else {
+                                            if (related !== reorderPh) { list.insertBefore(reorderPh, related); }
+                                        }
+                                        reorderPh.classList.add('ar-dnd-placeholder--dashed');
+                                    } catch(_){}
+                                    return true;
+                                }
                             });
                         });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
+                        // Delete handlers for welcome/thank_you
+                        list.querySelectorAll('.arDeleteMsg').forEach(function(a){ a.addEventListener('click', function(e){
+                            e.preventDefault();
+                            var card = a.closest('.card'); if (!card) return;
+                            var oid = parseInt(card.getAttribute('data-oid')||''); if (isNaN(oid)) return;
+                            var pp = fields[oid] && (fields[oid].props || fields[oid]); var ty = pp && (pp.type || fields[oid].type) || '';
+                            var ttl = (ty==='welcome') ? 'پیام خوش‌آمد' : (ty==='thank_you' ? 'پیام تشکر' : 'آیتم');
+                            var ok = window.confirm('از حذف '+ttl+' مطمئن هستید؟'); if (!ok) return;
+                            var newFields = fields.slice(); newFields.splice(oid, 1);
+                            fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) })
+                                .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                                .then(function(){ fields = newFields; try { animateRemove(card); } catch(_){ if (card && card.parentNode) card.parentNode.removeChild(card); } refreshDomOidMapping(); notify(ttl+' حذف شد', 'success'); })
+                                .catch(function(){ notify('حذف '+ttl+' ناموفق بود', 'error'); });
+                        }); });
                         
                         // Bulk selection helpers
                         function selectedCards(){ return Array.from(list.querySelectorAll('.ar-draggable')).filter(function(card){ var cb = card.querySelector('.arSelectItem'); return cb && cb.checked; }); }
@@ -914,7 +1092,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         list.addEventListener('dragover', function(e){
                             var dt = e.dataTransfer; if (!dt) return;
                             // Do not show tool placeholder while Sortable is active drag
-                            if (window._arSortableInst && window._arSortableInst.dragged) return;
+                            if (isReordering || (window._arSortableInst && window._arSortableInst.dragged)) return;
                             var ok = false;
                             if (draggingTool) ok = true; else {
                                 var types = Array.from(dt.types||[]);
@@ -983,13 +1161,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         .then(function(data){
                             var arr = (data && data.fields) ? data.fields.slice() : [];
                             var wIndex = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
-                            if (wIndex !== -1){ notify('پیام خوش‌آمد موجود است — در حال باز کردن ویرایشگر', 'info'); renderFormEditor(id, { index: wIndex }); return Promise.reject('exists'); }
+                            if (wIndex !== -1){ renderFormEditor(id, { index: wIndex }); return Promise.reject('__AR_EXISTS__'); }
                             var newField = { type:'welcome', label:'پیام خوش‌آمد', heading:'خوش آمدید', message:'', image_url:'' };
                             arr.unshift(newField);
                             return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return 0; });
                         })
-                        .then(function(idxOpen){ notify('پیام خوش‌آمد افزوده شد', 'success'); renderFormEditor(id, { index: idxOpen }); })
-                        .catch(function(err){ if (err!=='exists') notify('افزودن پیام خوش‌آمد ناموفق بود', 'error'); });
+                        .then(function(idxOpen){ if (typeof idxOpen === 'number'){ notify('پیام خوش‌آمد افزوده شد', 'success'); renderFormEditor(id, { index: idxOpen }); } })
+                        .catch(function(err){ if (err === '__AR_EXISTS__') return; if (err) notify('افزودن پیام خوش‌آمد ناموفق بود', 'error'); });
                 });
             }
             var addThankBtn = document.getElementById('arAddThank');
@@ -1000,13 +1178,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         .then(function(data){
                             var arr = (data && data.fields) ? data.fields.slice() : [];
                             var tIndex = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; });
-                            if (tIndex !== -1){ notify('پیام تشکر موجود است — در حال باز کردن ویرایشگر', 'info'); renderFormEditor(id, { index: tIndex }); return Promise.reject('exists'); }
+                            if (tIndex !== -1){ renderFormEditor(id, { index: tIndex }); return Promise.reject('__AR_EXISTS__'); }
                             var newField = { type:'thank_you', label:'پیام تشکر', heading:'با تشکر از شما', message:'', image_url:'' };
                             arr.push(newField);
                             return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return arr.length-1; });
                         })
-                        .then(function(idxOpen){ notify('پیام تشکر افزوده شد', 'success'); renderFormEditor(id, { index: idxOpen }); })
-                        .catch(function(err){ if (err!=='exists') notify('افزودن پیام تشکر ناموفق بود', 'error'); });
+                        .then(function(idxOpen){ if (typeof idxOpen === 'number'){ notify('پیام تشکر افزوده شد', 'success'); renderFormEditor(id, { index: idxOpen }); } })
+                        .catch(function(err){ if (err === '__AR_EXISTS__') return; if (err) notify('افزودن پیام تشکر ناموفق بود', 'error'); });
                 });
             }
             // allow drop to add
@@ -1020,6 +1198,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
             try { if (['dashboard','forms','submissions','reports','users'].includes(tab)) setHash(tab); } catch(_){ }
+            try { setSidebarClosed(false, false); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
             var headerActions = document.getElementById('arHeaderActions');
@@ -1183,13 +1362,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <body>
     <div class="arshline-dashboard-root">
         <aside class="arshline-sidebar">
-            <div class="logo"><span>عرشلاین</span></div>
+            <div class="logo"><span class="label">عرشلاین</span></div>
+            <button id="arSidebarToggle" class="toggle" aria-expanded="true" title="باز/بسته کردن منو"><span class="chev">❮</span></button>
             <nav>
-                <a href="#" data-tab="dashboard">داشبورد</a>
-                <a href="#" data-tab="forms">فرم‌ها</a>
-                <a href="#" data-tab="submissions">پاسخ‌ها</a>
-                <a href="#" data-tab="reports">گزارشات</a>
-                <a href="#" data-tab="users">کاربران</a>
+                <a href="#" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
+                <a href="#" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
+                <a href="#" data-tab="submissions"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">پاسخ‌ها</span></a>
+                <a href="#" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
+                <a href="#" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
             </nav>
         </aside>
         <main class="arshline-main">
