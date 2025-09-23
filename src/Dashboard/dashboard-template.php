@@ -776,28 +776,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 </div>\
                             </div>';
                         }).join('');
-                        // DnD sorting
-                        var dragging = null;
-                        var placeholder = document.createElement('div');
-                        placeholder.className = 'ar-dnd-placeholder';
-                        function setDragImage(e, text){
-                            try {
-                                var img = document.createElement('div');
-                                img.className = 'ar-dnd-ghost-proxy';
-                                img.textContent = text || 'در حال جابجایی';
-                                document.body.appendChild(img);
-                                e.dataTransfer.setDragImage(img, 0, 0);
-                                setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0);
-                            } catch(_){ }
-                        }
-                        function setPhHeight(ref){ try{ placeholder.style.height = Math.max(44, ref.offsetHeight||44) + 'px'; }catch(_){ placeholder.style.height = '48px'; } }
-                        function placeholderAfter(el){ if (el && el.parentNode){ setPhHeight(el); el.parentNode.insertBefore(placeholder, el.nextSibling); } }
-                        function placeholderBefore(el){ if (el && el.parentNode){ setPhHeight(el); el.parentNode.insertBefore(placeholder, el); } }
+                        // DnD sorting via SortableJS
                         function commitReorder(){
-                            var orderEls = Array.from(list.children).filter(function(el){ return el.classList && (el.classList.contains('ar-draggable') || el.classList.contains('ar-dnd-placeholder')); });
                             var newOrderOids = [];
-                            orderEls.forEach(function(el){ if (el === placeholder) return; var oid = parseInt(el.getAttribute('data-oid')||''); if (!isNaN(oid)) newOrderOids.push(oid); });
-                            // Preserve fixed blocks at ends
+                            Array.from(list.querySelectorAll('.ar-draggable')).forEach(function(el){ var oid = parseInt(el.getAttribute('data-oid')||''); if (!isNaN(oid)) newOrderOids.push(oid); });
                             var welcomeItem = (visible.length && (visible[0].props||visible[0]).type === 'welcome') ? visible[0] : null;
                             var thankItem = (visible.length && (visible[visible.length-1].props||visible[visible.length-1]).type === 'thank_you') ? visible[visible.length-1] : null;
                             var reorderedRegulars = newOrderOids.map(function(oid){ return fields[oid]; });
@@ -810,27 +792,18 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 .then(function(){ notify('چیدمان به‌روزرسانی شد', 'success'); renderFormBuilder(id); })
                                 .catch(function(){ notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
                         }
-                        list.querySelectorAll('.ar-draggable').forEach(function(item){
-                            item.addEventListener('dragstart', function(e){
-                                dragging = item; e.dataTransfer.effectAllowed = 'move';
-                                setDragImage(e, (item.querySelector('.hint') && item.querySelector('.hint').textContent) || '');
-                                item.classList.add('ar-dnd-ghost');
-                                placeholder.style.opacity = '.15';
+                        function ensureSortable(cb){ if (window.Sortable) { cb(); return; } var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js'; s.onload = function(){ cb(); }; document.head.appendChild(s); }
+                        ensureSortable(function(){
+                            try { if (window._arSortableInst) { window._arSortableInst.destroy(); } } catch(_){}
+                            window._arSortableInst = Sortable.create(list, {
+                                animation: 160,
+                                handle: '.ar-dnd-handle',
+                                draggable: '.ar-draggable',
+                                ghostClass: 'ar-dnd-ghost',
+                                direction: 'vertical',
+                                onEnd: function(evt){ if (evt.oldIndex !== evt.newIndex) commitReorder(); }
                             });
-                            item.addEventListener('dragend', function(){ dragging = null; item.classList.remove('ar-dnd-ghost'); placeholder.style.opacity = '0'; if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); });
-                            item.addEventListener('dragover', function(e){ e.preventDefault(); var rect = item.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height/2); if (dragging && dragging !== item){ item.classList.add('ar-dnd-over'); if (before) placeholderBefore(item); else placeholderAfter(item); }});
-                            item.addEventListener('dragenter', function(){ if (dragging && dragging !== item){ item.classList.add('ar-dnd-over'); setPhHeight(item); }});
-                            item.addEventListener('dragleave', function(){ item.classList.remove('ar-dnd-over'); });
-                            item.addEventListener('drop', function(e){ e.preventDefault(); if (!dragging) return; if (placeholder.parentNode) placeholder.parentNode.insertBefore(dragging, placeholder); commitReorder(); });
                         });
-                        // Support dropping after the last item
-                        list.addEventListener('dragover', function(e){
-                            if (!dragging) return; e.preventDefault();
-                            var last = Array.from(list.querySelectorAll('.ar-draggable')).pop();
-                            if (!last) return; var rect = last.getBoundingClientRect();
-                            if (e.clientY >= rect.top + rect.height/2) { placeholderAfter(last); }
-                        });
-                        list.addEventListener('drop', function(e){ if (!dragging) return; e.preventDefault(); if (placeholder.parentNode) { placeholder.parentNode.insertBefore(dragging, placeholder); } list.querySelectorAll('.ar-dnd-over').forEach(function(el){ el.classList.remove('ar-dnd-over'); }); placeholder.style.opacity='0'; commitReorder(); });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
                         
                         // Bulk selection helpers
