@@ -705,6 +705,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 <div style="display:flex;gap:1rem;align-items:flex-start;">\
                     <div id="arFormSide" style="flex:1;">\
                         <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش فرم</div>\
+                        <div id="arBulkToolbar" style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem;">\
+                            <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;">\
+                                <input id="arSelectAll" type="checkbox" />\
+                                <span class="hint">انتخاب همه</span>\
+                            </label>\
+                            <button id="arBulkDelete" class="ar-btn" disabled>حذف انتخاب‌شده‌ها</button>\
+                        </div>\
                         <div id="arFormFieldsList" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
                     </div>\
                     <div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">\
@@ -757,8 +764,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (p.numbered !== false) { qCounter += 1; n = qCounter + '. '; }
                             return '<div class="card ar-draggable" draggable="true" data-vid="'+vIdx+'" data-oid="'+visibleMap[vIdx]+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
                                 <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
-                                    <span class="ar-dnd-handle" title="جابجایی">≡</span>\
-                                    <div class="hint">'+n+q+'</div>\
+                                    <div style="display:flex;align-items:center;gap:.5rem;">\
+                                        <input type="checkbox" class="arSelectItem" title="انتخاب" />\
+                                        <span class="ar-dnd-handle" title="جابجایی">≡</span>\
+                                        <div class="hint">'+n+q+'</div>\
+                                    </div>\
                                     <div style="display:flex;gap:.6rem;align-items:center;">\
                                         <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
                                         <a href="#" class="arDeleteField" title="حذف سؤال" style="color:#d32f2f;">حذف</a>\
@@ -822,6 +832,27 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         });
                         list.addEventListener('drop', function(e){ if (!dragging) return; e.preventDefault(); if (placeholder.parentNode) { placeholder.parentNode.insertBefore(dragging, placeholder); } list.querySelectorAll('.ar-dnd-over').forEach(function(el){ el.classList.remove('ar-dnd-over'); }); placeholder.style.opacity='0'; commitReorder(); });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
+                        
+                        // Bulk selection helpers
+                        function selectedCards(){ return Array.from(list.querySelectorAll('.ar-draggable')).filter(function(card){ var cb = card.querySelector('.arSelectItem'); return cb && cb.checked; }); }
+                        var selAll = document.getElementById('arSelectAll');
+                        var bulkBtn = document.getElementById('arBulkDelete');
+                        function updateBulkUI(){ var count = selectedCards().length; if (bulkBtn){ bulkBtn.disabled = (count===0); bulkBtn.textContent = count? ('حذف انتخاب‌شده‌ها ('+count+')') : 'حذف انتخاب‌شده‌ها'; } if (selAll){ var all = list.querySelectorAll('.arSelectItem'); selAll.checked = (all.length>0 && count===all.length); } }
+                        list.querySelectorAll('.arSelectItem').forEach(function(cb){ cb.addEventListener('change', updateBulkUI); });
+                        if (selAll){ selAll.onchange = function(){ var all = list.querySelectorAll('.arSelectItem'); all.forEach(function(cb){ cb.checked = selAll.checked; }); updateBulkUI(); }; }
+                        // Animate removal helper
+                        function animateRemove(el){ try { var h = el.offsetHeight; el.style.height = h+'px'; el.style.transition = 'height .22s ease, opacity .22s ease, margin .22s ease'; el.style.overflow = 'hidden'; requestAnimationFrame(function(){ el.style.opacity = '0'; el.style.margin = '0'; el.style.height = '0px'; }); el.addEventListener('transitionend', function onEnd(ev){ if (ev.propertyName==='height'){ el.removeEventListener('transitionend', onEnd); if (el.parentNode) el.parentNode.removeChild(el); } }); } catch(_){} }
+                        if (bulkBtn){ bulkBtn.addEventListener('click', function(){ var cards = selectedCards(); if (!cards.length) return; var oids = new Set(cards.map(function(c){ return parseInt(c.getAttribute('data-oid')||''); }).filter(function(x){ return !isNaN(x); })); if (!oids.size) return; // start animation
+                                cards.forEach(function(c){ animateRemove(c); });
+                                bulkBtn.disabled = true;
+                                // Build new fields by filtering out selected original indices
+                                var newFields = fields.filter(function(_f, idx){ return !oids.has(idx); });
+                                fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) })
+                                    .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                                    .then(function(){ notify('سؤالات انتخاب‌شده حذف شد', 'success'); renderFormBuilder(id); })
+                                    .catch(function(){ notify('حذف گروهی ناموفق بود', 'error'); renderFormBuilder(id); });
+                        }); }
+                        updateBulkUI();
                         list.querySelectorAll('.arDeleteField').forEach(function(a){ a.addEventListener('click', function(e){
                             e.preventDefault();
                             var card = a.closest('.card');
