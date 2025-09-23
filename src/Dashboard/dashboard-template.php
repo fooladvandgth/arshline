@@ -632,6 +632,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
                         // External tool drag-in insertion
                         var toolPh = placeholder; // reuse same placeholder style
+                        var draggingTool = false;
                         function ensureToolPlaceholder(heightRef){
                             if (!toolPh) { toolPh = document.createElement('div'); toolPh.className = 'ar-dnd-placeholder'; }
                             if (!toolPh.parentNode) list.appendChild(toolPh);
@@ -664,15 +665,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             return (found === -1) ? idx : found;
                         }
                         list.addEventListener('dragover', function(e){
-                            var dt = e.dataTransfer; if (!dt) return; var types = Array.from(dt.types||[]);
-                            if (types.includes('text/plain')){
-                                try { var t = dt.getData('text/plain')||''; } catch(_){ var t=''; }
-                                if (t === 'short_text'){ e.preventDefault(); positionToolPlaceholder(e); }
+                            var dt = e.dataTransfer; if (!dt) return;
+                            var ok = false;
+                            if (draggingTool) ok = true; else {
+                                var types = Array.from(dt.types||[]);
+                                ok = types.includes('application/arshline-tool') || types.includes('text/plain');
+                            }
+                            if (ok){
+                                e.preventDefault();
+                                try { dt.dropEffect = 'copy'; } catch(_){ }
+                                positionToolPlaceholder(e);
                             }
                         });
                         list.addEventListener('drop', function(e){
-                            var dt = e.dataTransfer; if (!dt) return; var t=''; try{ t = dt.getData('text/plain')||''; } catch(_){ t=''; }
-                            if (t === 'short_text'){
+                            var dt = e.dataTransfer; if (!dt) return; var t='';
+                            try{ t = dt.getData('application/arshline-tool') || dt.getData('text/plain') || ''; } catch(_){ t=''; }
+                            if (t === 'short_text' || draggingTool){
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
                                 fetch(ARSHLINE_REST + 'forms/'+id)
@@ -701,8 +709,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 }).catch(function(){ list.textContent='خطا در بارگذاری فیلدها'; });
             var addBtn = document.getElementById('arAddShortText');
             if (addBtn){
+                addBtn.setAttribute('draggable','true');
                 addBtn.addEventListener('click', function(){ addNewField(id); });
-                addBtn.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain','short_text'); try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'سؤال با پاسخ کوتاه'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ } });
+                addBtn.addEventListener('dragstart', function(e){
+                    draggingTool = true;
+                    try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
+                    try { e.dataTransfer.setData('application/arshline-tool','short_text'); } catch(_){ }
+                    try { e.dataTransfer.setData('text/plain','short_text'); } catch(_){ }
+                    try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'سؤال با پاسخ کوتاه'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
+                });
+                addBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
             }
             // allow drop to add
             var formSide = document.getElementById('arFormSide');
