@@ -139,9 +139,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
     .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
     .ar-dnd-ghost { opacity:.6; transform: scale(.98); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
-    .ar-dnd-over { outline: 2px dashed var(--primary); outline-offset: 4px; background: rgba(30,64,175,.05); }
+    .ar-dnd-over { outline: none; background: transparent; }
     .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
-    .ar-dnd-placeholder { border:1px dashed var(--border); border-radius:10px; margin:.4rem 0; background: transparent; opacity:.6; padding:.5rem .8rem; pointer-events:none; transition: height .15s ease, margin .15s ease, opacity .15s ease; }
+    .ar-dnd-placeholder { border:none; border-radius:10px; margin:.35rem 0; background: transparent; opacity:.0; padding:0; pointer-events:none; transition: height .16s ease, margin .16s ease, opacity .16s ease; }
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
@@ -759,7 +759,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
                                     <span class="ar-dnd-handle" title="جابجایی">≡</span>\
                                     <div class="hint">'+n+q+'</div>\
-                                    <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
+                                    <div style="display:flex;gap:.6rem;align-items:center;">\
+                                        <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
+                                        <a href="#" class="arDeleteField" title="حذف سؤال" style="color:#d32f2f;">حذف</a>\
+                                    </div>\
                                 </div>\
                             </div>';
                         }).join('');
@@ -782,12 +785,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         function placeholderBefore(el){ if (el && el.parentNode){ setPhHeight(el); el.parentNode.insertBefore(placeholder, el); } }
                         function commitReorder(){
                             var orderEls = Array.from(list.children).filter(function(el){ return el.classList && (el.classList.contains('ar-draggable') || el.classList.contains('ar-dnd-placeholder')); });
-                            var newOrder = [];
-                            orderEls.forEach(function(el){ if (el === placeholder) return; var vi = parseInt(el.getAttribute('data-vid')||''); if (!isNaN(vi)) newOrder.push(vi); });
+                            var newOrderOids = [];
+                            orderEls.forEach(function(el){ if (el === placeholder) return; var oid = parseInt(el.getAttribute('data-oid')||''); if (!isNaN(oid)) newOrderOids.push(oid); });
                             // Preserve fixed blocks at ends
                             var welcomeItem = (visible.length && (visible[0].props||visible[0]).type === 'welcome') ? visible[0] : null;
                             var thankItem = (visible.length && (visible[visible.length-1].props||visible[visible.length-1]).type === 'thank_you') ? visible[visible.length-1] : null;
-                            var reorderedRegulars = newOrder.map(function(vi){ return visible[vi]; });
+                            var reorderedRegulars = newOrderOids.map(function(oid){ return fields[oid]; });
                             var finalArr = [];
                             if (welcomeItem) finalArr.push(welcomeItem);
                             finalArr = finalArr.concat(reorderedRegulars);
@@ -802,8 +805,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 dragging = item; e.dataTransfer.effectAllowed = 'move';
                                 setDragImage(e, (item.querySelector('.hint') && item.querySelector('.hint').textContent) || '');
                                 item.classList.add('ar-dnd-ghost');
+                                placeholder.style.opacity = '.15';
                             });
-                            item.addEventListener('dragend', function(){ dragging = null; item.classList.remove('ar-dnd-ghost'); if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); });
+                            item.addEventListener('dragend', function(){ dragging = null; item.classList.remove('ar-dnd-ghost'); placeholder.style.opacity = '0'; if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); });
                             item.addEventListener('dragover', function(e){ e.preventDefault(); var rect = item.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height/2); if (dragging && dragging !== item){ item.classList.add('ar-dnd-over'); if (before) placeholderBefore(item); else placeholderAfter(item); }});
                             item.addEventListener('dragenter', function(){ if (dragging && dragging !== item){ item.classList.add('ar-dnd-over'); setPhHeight(item); }});
                             item.addEventListener('dragleave', function(){ item.classList.remove('ar-dnd-over'); });
@@ -816,8 +820,26 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (!last) return; var rect = last.getBoundingClientRect();
                             if (e.clientY >= rect.top + rect.height/2) { placeholderAfter(last); }
                         });
-                        list.addEventListener('drop', function(e){ if (!dragging) return; e.preventDefault(); if (placeholder.parentNode) { placeholder.parentNode.insertBefore(dragging, placeholder); } list.querySelectorAll('.ar-dnd-over').forEach(function(el){ el.classList.remove('ar-dnd-over'); }); commitReorder(); });
+                        list.addEventListener('drop', function(e){ if (!dragging) return; e.preventDefault(); if (placeholder.parentNode) { placeholder.parentNode.insertBefore(dragging, placeholder); } list.querySelectorAll('.ar-dnd-over').forEach(function(el){ el.classList.remove('ar-dnd-over'); }); placeholder.style.opacity='0'; commitReorder(); });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
+                        list.querySelectorAll('.arDeleteField').forEach(function(a){ a.addEventListener('click', function(e){
+                            e.preventDefault();
+                            var card = a.closest('.card');
+                            if (!card) return;
+                            var oid = parseInt(card.getAttribute('data-oid')||'');
+                            if (isNaN(oid)) return;
+                            var p = fields[oid] && (fields[oid].props || fields[oid]);
+                            var ty = p && (p.type || fields[oid].type);
+                            if (ty === 'welcome' || ty === 'thank_you') return; // safety guard
+                            var ok = window.confirm('از حذف این سؤال مطمئن هستید؟');
+                            if (!ok) return;
+                            var newFields = fields.slice();
+                            newFields.splice(oid, 1);
+                            fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) })
+                                .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                                .then(function(){ notify('سؤال حذف شد', 'success'); renderFormBuilder(id); })
+                                .catch(function(){ notify('حذف سؤال ناموفق بود', 'error'); });
+                        }); });
                         // External tool drag-in insertion
                         var toolPh = placeholder; // reuse same placeholder style
                         var draggingTool = false;
