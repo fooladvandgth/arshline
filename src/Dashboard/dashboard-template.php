@@ -142,6 +142,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-dnd-over { outline: none; background: transparent; }
     .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
     .ar-dnd-placeholder { border:none; border-radius:10px; margin:.35rem 0; background: transparent; opacity:.0; padding:0; pointer-events:none; transition: height .16s ease, margin .16s ease, opacity .16s ease; }
+    .ar-dnd-placeholder--dashed { opacity:1; border:2px dashed var(--border); background: transparent; }
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
@@ -820,13 +821,20 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         function ensureSortable(cb){ if (window.Sortable) { cb(); return; } var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js'; s.onload = function(){ cb(); }; document.head.appendChild(s); }
                         ensureSortable(function(){
                             try { if (window._arSortableInst) { window._arSortableInst.destroy(); } } catch(_){}
+                            var reorderPh = document.createElement('div'); reorderPh.className = 'ar-dnd-placeholder ar-dnd-placeholder--dashed'; reorderPh.style.height = '48px';
                             window._arSortableInst = Sortable.create(list, {
                                 animation: 160,
                                 handle: '.ar-dnd-handle',
                                 draggable: '.ar-draggable',
                                 ghostClass: 'ar-dnd-ghost',
                                 direction: 'vertical',
-                                onEnd: function(evt){ if (evt.oldIndex !== evt.newIndex) commitReorder(); }
+                                onStart: function(evt){ try { var it = evt.item; if (it){ var h = it.offsetHeight || 48; reorderPh.style.height = Math.max(44,h)+'px'; } } catch(_){ }
+                                    try { if (reorderPh && !reorderPh.parentNode){ var sib = evt.item.nextSibling; list.insertBefore(reorderPh, sib); } } catch(_){ }
+                                },
+                                onEnd: function(evt){ try { if (reorderPh && reorderPh.parentNode) reorderPh.parentNode.removeChild(reorderPh); } catch(_){ }
+                                    if (evt.oldIndex !== evt.newIndex) commitReorder();
+                                },
+                                onMove: function(){ try { if (reorderPh && reorderPh.parentNode) reorderPh.parentNode.remove(); } catch(_){ } return true; }
                             });
                         });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
@@ -905,6 +913,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         }
                         list.addEventListener('dragover', function(e){
                             var dt = e.dataTransfer; if (!dt) return;
+                            // Do not show tool placeholder while Sortable is active drag
+                            if (window._arSortableInst && window._arSortableInst.dragged) return;
                             var ok = false;
                             if (draggingTool) ok = true; else {
                                 var types = Array.from(dt.types||[]);
