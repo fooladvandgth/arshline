@@ -216,6 +216,28 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     var content = document.getElementById('arshlineDashboardContent');
         var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
 
+        // Simple hash-based router so browser Back works correctly
+        var _arNavSilence = 0;
+        function setHash(h){
+            var target = '#' + h;
+            if (location.hash !== target){
+                _arNavSilence++;
+                location.hash = h;
+                setTimeout(function(){ _arNavSilence = Math.max(0, _arNavSilence - 1); }, 0);
+            }
+        }
+        function routeFromHash(){
+            var raw = (location.hash||'').replace('#','').trim();
+            if (!raw){ renderTab('dashboard'); return; }
+            var parts = raw.split('/');
+            if (['dashboard','forms','submissions','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
+            if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormBuilder(id); return; } }
+            if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
+            if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
+            renderTab('dashboard');
+        }
+        window.addEventListener('hashchange', function(){ if (_arNavSilence>0) return; routeFromHash(); });
+
         // theme switch (sun/moon)
         var themeToggle = document.getElementById('arThemeToggle');
         try { if (localStorage.getItem('arshDark') === '1') document.body.classList.add('dark'); } catch(_){ }
@@ -297,6 +319,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function renderFormPreview(id){
+            try { setHash('preview/'+id); } catch(_){ }
             document.body.classList.add('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
             content.innerHTML = '<div class="card glass" style="padding:1.2rem;max-width:720px;margin:0 auto;">\
@@ -369,6 +392,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderFormEditor(id, opts){
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
+            try { var idxHash = (opts && typeof opts.index!=='undefined') ? parseInt(opts.index) : 0; setHash('editor/'+id+'/'+(isNaN(idxHash)?0:idxHash)); } catch(_){ }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
             var hiddenCanvas = '<div id="arCanvas" style="display:none"><div class="ar-item" data-props="{}"></div></div>';
@@ -465,6 +489,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             fetch(ARSHLINE_REST + 'forms/' + id)
                 .then(r=>r.json())
                 .then(function(data){
+                    function setDirty(d){
+                        try {
+                            window._arDirty = !!d;
+                            if (window._arDirty) {
+                                window.onbeforeunload = function(){ return 'تغییرات ذخیره‌نشده دارید.'; };
+                            } else {
+                                window.onbeforeunload = null;
+                            }
+                        } catch(_){ }
+                    }
                     var titleEl = document.getElementById('arEditorTitle');
                     var formTitle = (data && data.meta && data.meta.title) ? String(data.meta.title) : '';
                     var creating = !!(opts && opts.creating);
@@ -538,9 +572,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         function updateHiddenProps(p){ var el = document.querySelector('#arCanvas .ar-item'); if (el) el.setAttribute('data-props', JSON.stringify(p)); }
                         var hIn = document.getElementById('wHeading'); var mIn = document.getElementById('wMessage'); var uIn = document.getElementById('wImageUrl');
                         var fIn = document.getElementById('wImageFile'); var uBtn = document.getElementById('wUploadBtn'); var uStat = document.getElementById('wUploadStat');
-                        if (hIn) { hIn.value = field.heading || ''; hIn.addEventListener('input', function(){ field.heading = hIn.value; updateHiddenProps(field); applyMsgPreview(field); }); }
-                        if (mIn) { mIn.value = field.message || ''; mIn.addEventListener('input', function(){ field.message = mIn.value; updateHiddenProps(field); applyMsgPreview(field); }); }
-                        if (uIn) { uIn.value = field.image_url || ''; uIn.addEventListener('input', function(){ field.image_url = uIn.value; updateHiddenProps(field); applyMsgPreview(field); }); }
+                        if (hIn) { hIn.value = field.heading || ''; hIn.addEventListener('input', function(){ field.heading = hIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
+                        if (mIn) { mIn.value = field.message || ''; mIn.addEventListener('input', function(){ field.message = mIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
+                        if (uIn) { uIn.value = field.image_url || ''; uIn.addEventListener('input', function(){ field.image_url = uIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
                         if (uBtn && fIn) {
                             uBtn.addEventListener('click', function(){ fIn.click(); });
                             fIn.addEventListener('change', function(){
@@ -549,13 +583,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 if (uStat) uStat.textContent = 'در حال آپلود...'; if (uBtn) uBtn.disabled = true;
                                 fetch(ARSHLINE_REST + 'upload', { method:'POST', credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE }, body: fd })
                                     .then(async function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                                    .then(function(obj){ if (obj && obj.url){ uIn.value = obj.url; field.image_url = obj.url; updateHiddenProps(field); applyMsgPreview(field); notify('آپلود شد', 'success'); } })
+                                    .then(function(obj){ if (obj && obj.url){ uIn.value = obj.url; field.image_url = obj.url; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); notify('آپلود شد', 'success'); } })
                                     .catch(function(){ notify('آپلود تصویر ناموفق بود', 'error'); })
                                     .finally(function(){ if (uStat) uStat.textContent=''; if (uBtn) uBtn.disabled=false; fIn.value=''; });
                             });
                         }
                         applyMsgPreview(field);
-                        var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok) renderFormBuilder(id); };
+                        var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
                         return; // stop short_text editor init
                     }
                     // short_text editor
@@ -626,16 +660,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     }
                     function sync(){ field.label = 'پاسخ کوتاه'; field.type = 'short_text'; updateHiddenProps(field); applyPreviewFrom(field); }
 
-                    if (sel){ sel.value = field.format || 'free_text'; sel.addEventListener('change', function(){ field.format = sel.value || 'free_text'; var i=document.getElementById('pvInput'); if(i) i.value=''; sync(); }); }
-                    if (req){ req.checked = !!field.required; req.addEventListener('change', function(){ field.required = !!req.checked; sync(); }); }
-                    if (dTg){ dTg.checked = !!field.show_description; if (dWrap) dWrap.style.display = field.show_description ? 'block':'none'; dTg.addEventListener('change', function(){ field.show_description = !!dTg.checked; if(dWrap){ dWrap.style.display = field.show_description ? 'block':'none'; } sync(); }); }
-                    if (dTx){ dTx.value = field.description || ''; dTx.addEventListener('input', function(){ field.description = dTx.value; sync(); }); }
-                    if (help){ help.value = field.placeholder || ''; help.addEventListener('input', function(){ field.placeholder = help.value; sync(); }); }
-                    if (qEl){ qEl.value = field.question || ''; qEl.addEventListener('input', function(){ field.question = qEl.value; sync(); }); }
-                    if (numEl){ numEl.checked = field.numbered !== false; field.numbered = numEl.checked; numEl.addEventListener('change', function(){ field.numbered = !!numEl.checked; sync(); }); }
+                    if (sel){ sel.value = field.format || 'free_text'; sel.addEventListener('change', function(){ field.format = sel.value || 'free_text'; var i=document.getElementById('pvInput'); if(i) i.value=''; sync(); setDirty(true); }); }
+                    if (req){ req.checked = !!field.required; req.addEventListener('change', function(){ field.required = !!req.checked; sync(); setDirty(true); }); }
+                    if (dTg){ dTg.checked = !!field.show_description; if (dWrap) dWrap.style.display = field.show_description ? 'block':'none'; dTg.addEventListener('change', function(){ field.show_description = !!dTg.checked; if(dWrap){ dWrap.style.display = field.show_description ? 'block':'none'; } sync(); setDirty(true); }); }
+                    if (dTx){ dTx.value = field.description || ''; dTx.addEventListener('input', function(){ field.description = dTx.value; sync(); setDirty(true); }); }
+                    if (help){ help.value = field.placeholder || ''; help.addEventListener('input', function(){ field.placeholder = help.value; sync(); setDirty(true); }); }
+                    if (qEl){ qEl.value = field.question || ''; qEl.addEventListener('input', function(){ field.question = qEl.value; sync(); setDirty(true); }); }
+                    if (numEl){ numEl.checked = field.numbered !== false; field.numbered = numEl.checked; numEl.addEventListener('change', function(){ field.numbered = !!numEl.checked; sync(); setDirty(true); }); }
 
                     applyPreviewFrom(field);
-                    var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok) renderFormBuilder(id); };
+                    var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
                 });
         }
 
@@ -658,6 +692,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         function renderFormBuilder(id){
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             document.body.classList.remove('preview-only');
+            try { setHash('builder/'+id); } catch(_){ }
             var content = document.getElementById('arshlineDashboardContent');
             content.innerHTML = '<div class="card glass" style="padding:1rem;max-width:1080px;margin:0 auto;">\
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">\
@@ -923,6 +958,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
+            try { if (['dashboard','forms','submissions','reports','users'].includes(tab)) setHash(tab); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
             var headerActions = document.getElementById('arHeaderActions');
@@ -1073,9 +1109,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         });
 
         // default tab
-        var initial = (location.hash || '').replace('#','') || (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
-        if (![ 'dashboard','forms','submissions','reports','users' ].includes(initial)) initial = 'dashboard';
-        renderTab(initial);
+        if (location.hash){ routeFromHash(); }
+        else {
+            var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
+            if (![ 'dashboard','forms','submissions','reports','users' ].includes(initial)) initial = 'dashboard';
+            setHash(initial);
+            renderTab(initial);
+        }
     });
     </script>
     </head>
