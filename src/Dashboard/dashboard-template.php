@@ -238,6 +238,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
         var sidebar = document.querySelector('.arshline-sidebar');
         var sidebarToggle = document.getElementById('arSidebarToggle');
+        // Debug helpers
+        var AR_DEBUG = false;
+        try { AR_DEBUG = (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+        function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+        function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+        function cerror(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+        try { window.arshSetDebug = function(v){ try { localStorage.setItem('arshDebug', v ? '1' : '0'); } catch(_){ } }; } catch(_){ }
 
         function setSidebarClosed(closed, persist){
             if (!sidebar) return;
@@ -853,6 +860,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             fetch(ARSHLINE_REST + 'forms/'+id)
                 .then(r=>r.json())
                 .then(function(data){
+                    try { if (AR_DEBUG) { var dbgList = (data.fields||[]).map(function(f){ return { id:f.id, sort:f.sort, type:(f.props&&f.props.type)||f.type }; }); clog('Builder:load fields', dbgList); } } catch(_){ }
                     var fields = data.fields || [];
                     // Build visible order: welcome (if any), then regulars, then thank_you (if any)
                     var wIdx = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
@@ -879,9 +887,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                         <div style="display:flex;gap:.6rem;align-items:center;">\
                                             <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
                                             <a href="#" class="arDeleteMsg" title="حذف '+ttl+'" style="color:#d32f2f;">حذف</a>\
-                                        </div>\
+                                        function commitReorder(){
                                     </div>\
-                                </div>';
+                                            Array.from(list.querySelectorAll('.ar-draggable')).forEach(function(el){ var oid = parseInt(el.getAttribute('data-oid')||''); if (!isNaN(oid)) newOrderOids.push(oid); });
                             }
                             var q = (p.question&&p.question.trim()) || '';
                             var qHtml = q ? sanitizeQuestionHtml(q) : 'پرسش بدون عنوان';
@@ -891,14 +899,24 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
                                     <div style="display:flex;align-items:center;gap:.5rem;">\
                                         <input type="checkbox" class="arSelectItem" title="انتخاب" />\
-                                        <span class="ar-dnd-handle" title="جابجایی">≡</span>\
-                                        <div class="hint">'+n+qHtml+'</div>\
-                                    </div>\
-                                    <div style="display:flex;gap:.6rem;align-items:center;">\
-                                        <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
-                                        <a href="#" class="arDeleteField" title="حذف سؤال" style="color:#d32f2f;">حذف</a>\
-                                    </div>\
-                                </div>\
+                                            try { if (AR_DEBUG) { var finalIds = finalArr.map(function(f){ return f && f.id; }); clog('Reorder: final ids order ->', finalIds, 'from oids:', newOrderOids); } } catch(_){ }
+                                            clog('Reorder: PUT start', { url: ARSHLINE_REST + 'forms/'+id+'/fields', count: finalArr.length });
+                                            fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: finalArr }) })
+                                                .then(function(r){ clog('Reorder: PUT response', r && r.status); if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                                                .then(function(){
+                                                    notify('چیدمان به‌روزرسانی شد', 'success');
+                                                    // In debug mode, verify order from server before rerender
+                                                    if (AR_DEBUG){
+                                                        fetch(ARSHLINE_REST + 'forms/'+id).then(function(rr){ return rr.json(); }).then(function(data2){
+                                                            var srv = (data2.fields||[]).map(function(f){ return { id:f.id, sort:f.sort, type:(f.props&&f.props.type)||f.type }; });
+                                                            clog('Reorder: server order after PUT', srv);
+                                                            renderFormBuilder(id);
+                                                        }).catch(function(e){ cerror('Reorder: verify GET failed', e); renderFormBuilder(id); });
+                                                    } else {
+                                                        renderFormBuilder(id);
+                                                    }
+                                                })
+                                                .catch(function(e){ cerror('Reorder: PUT failed', e); notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
                             </div>';
                         }).join('');
                         // Helper: refresh data-oid and editor indices without full rerender
@@ -910,18 +928,19 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 fields.forEach(function(x,i){ var p=x.props||x; var ty=p.type||x.type; if (ty!=='welcome' && ty!=='thank_you') regularIdxsN.push(i); });
                                 var rPtr = 0;
                                 Array.from(list.children).forEach(function(card){
-                                    var edit = card.querySelector && card.querySelector('.arEditField');
+                                                onStart: function(evt){
                                     if (card.classList && card.classList.contains('ar-draggable')){
                                         var noid = regularIdxsN[rPtr++];
                                         if (typeof noid === 'number'){
-                                            card.setAttribute('data-oid', String(noid)); if (edit) edit.setAttribute('data-index', String(noid));
+                                                        dragStartOrder = Array.from(list.querySelectorAll('.ar-draggable')).map(function(el){ return parseInt(el.getAttribute('data-oid')||''); }).filter(function(n){ return !isNaN(n); });
+                                                        clog('DnD:onStart', { oldIndex: evt.oldIndex, dragStartOrder: dragStartOrder.slice() });
                                         }
                                     } else {
                                         var hint = card.querySelector && card.querySelector('.hint');
                                         var txt = hint && hint.textContent || '';
                                         if (txt.indexOf('پیام خوش‌آمد') !== -1 && wIdxN !== -1){ card.setAttribute('data-oid', String(wIdxN)); if (edit) edit.setAttribute('data-index', String(wIdxN)); }
                                         else if (txt.indexOf('پیام تشکر') !== -1 && tIdxN !== -1){ card.setAttribute('data-oid', String(tIdxN)); if (edit) edit.setAttribute('data-index', String(tIdxN)); }
-                                    }
+                                                onEnd: function(evt){
                                 });
                                 try { updateBulkUI(); } catch(_){ }
                             } catch(_){ }
@@ -929,10 +948,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         // DnD sorting via SortableJS
                         var isReordering = false;
                         var dragStartOrder = [];
-                        function commitReorder(){
+                                                        clog('DnD:onEnd', { oldIndex: evt.oldIndex, newIndex: evt.newIndex, changed: changed, endOrder: endOrder.slice() });
+                                                        if (changed) commitReorder();
                             var newOrderOids = [];
                             Array.from(list.querySelectorAll('.ar-draggable')).forEach(function(el){ var oid = parseInt(el.getAttribute('data-oid')||''); if (!isNaN(oid)) newOrderOids.push(oid); });
-                            var wIdxNow = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
+                                                onMove: function(evt){
                             var tIdxNow = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; });
                             var welcomeItem = (wIdxNow !== -1) ? fields[wIdxNow] : null;
                             var thankItem = (tIdxNow !== -1) ? fields[tIdxNow] : null;
@@ -940,6 +960,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var finalArr = [];
                             if (welcomeItem) finalArr.push(welcomeItem);
                             finalArr = finalArr.concat(reorderedRegulars);
+                                                        if (AR_DEBUG) { try {
+                                                            var idx = Array.from(list.querySelectorAll('.ar-draggable')).indexOf(related);
+                                                            clog('DnD:onMove', { relatedIndex: idx, willAfter: willAfter });
+                                                        } catch(_){ } }
                             if (thankItem) finalArr.push(thankItem);
                             fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: finalArr }) })
                                 .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
