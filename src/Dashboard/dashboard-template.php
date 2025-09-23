@@ -7,6 +7,12 @@
 // جلوگیری از بارگذاری مستقیم
 if (!defined('ABSPATH')) exit;
 
+// Block access for non-logged-in users or users without required capability
+if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_can('manage_options') )) {
+    wp_redirect( wp_login_url( get_permalink() ) );
+    exit;
+}
+
 ?><!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -200,6 +206,7 @@ if (!defined('ABSPATH')) exit;
     const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
     const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
     const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
+    const ARSHLINE_LOGIN_URL = '<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>';
     </script>
     <script>
     // Tabs: render content per menu item
@@ -272,15 +279,16 @@ if (!defined('ABSPATH')) exit;
             var edited = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); })[0] || {};
             var btn = document.getElementById('arSaveFields');
             if (btn){ btn.disabled = true; btn.textContent = 'در حال ذخیره...'; }
+            if (!ARSHLINE_CAN_MANAGE){ notify('برای ویرایش فرم باید وارد شوید یا دسترسی داشته باشید', 'error'); if (btn){ btn.disabled=false; btn.textContent='ذخیره'; } return Promise.resolve(false); }
             return fetch(ARSHLINE_REST + 'forms/'+id)
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
                     var arr = (data && data.fields) ? data.fields.slice() : [];
                     if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
                     else { arr.push(edited); }
-                    return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) });
+                    return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) });
                 })
-                .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                .then(async r=>{ if(!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); else notify('اجازهٔ انجام این عملیات را ندارید. لطفاً وارد شوید یا با مدیر تماس بگیرید.', 'error'); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(){ notify('ذخیره شد', 'success'); return true; })
                 .catch(function(e){ console.error(e); notify('ذخیره تغییرات ناموفق بود', 'error'); return false; })
                 .finally(function(){ if (btn){ btn.disabled = false; btn.textContent = 'ذخیره'; }});
@@ -342,13 +350,14 @@ if (!defined('ABSPATH')) exit;
         }
 
         function renderFormEditor(id, opts){
+            if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
             var hiddenCanvas = '<div id="arCanvas" style="display:none"><div class="ar-item" data-props="{}"></div></div>';
             var fieldIndex = (opts && typeof opts.index !== 'undefined') ? parseInt(opts.index) : -1;
             content.innerHTML = '<div id="arBuilder" class="card glass" data-form-id="'+id+'" data-field-index="'+fieldIndex+'" style="padding:1rem;max-width:980px;margin:0 auto;">\
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">\
-                    <div class="title">ویرایش فرم #'+id+'</div>\
+                    <div class="title" id="arEditorTitle">...</div>\
                     <button id="arEditorBack" class="ar-btn ar-btn--muted">بازگشت</button>\
                 </div>\
                 <div style="display:flex;gap:1rem;align-items:flex-start;">\
@@ -434,6 +443,10 @@ if (!defined('ABSPATH')) exit;
             fetch(ARSHLINE_REST + 'forms/' + id)
                 .then(r=>r.json())
                 .then(function(data){
+                    var titleEl = document.getElementById('arEditorTitle');
+                    var formTitle = (data && data.meta && data.meta.title) ? String(data.meta.title) : '';
+                    var creating = !!(opts && opts.creating);
+                    if (titleEl) titleEl.textContent = creating ? ('ایجاد فرم — ' + (formTitle||(' #' + id))) : ('ویرایش فرم #' + id + (formTitle?(' — ' + formTitle):''));
                     var fields = data.fields || [];
                     var idx = fieldIndex;
                     if (idx < 0 || idx >= fields.length) idx = 0;
@@ -526,13 +539,14 @@ if (!defined('ABSPATH')) exit;
                 .then(function(data){
                     var arr = (data && data.fields) ? data.fields.slice() : [];
                     arr.push(defaultProps);
-                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return arr.length-1; });
+                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return arr.length-1; });
                 })
                 .then(function(newIndex){ renderFormEditor(formId, { index: newIndex }); })
                 .catch(function(){ notify('افزودن فیلد ناموفق بود', 'error'); });
         }
 
         function renderFormBuilder(id){
+            if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
             content.innerHTML = '<div class="card glass" style="padding:1rem;max-width:1080px;margin:0 auto;">\
@@ -575,16 +589,46 @@ if (!defined('ABSPATH')) exit;
                         var dragging = null;
                         var placeholder = document.createElement('div');
                         placeholder.className = 'ar-dnd-placeholder';
+                        function setDragImage(e, text){
+                            try {
+                                var img = document.createElement('div');
+                                img.className = 'ar-dnd-ghost-proxy';
+                                img.textContent = text || 'در حال جابجایی';
+                                document.body.appendChild(img);
+                                e.dataTransfer.setDragImage(img, 0, 0);
+                                setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0);
+                            } catch(_){ }
+                        }
+                        function placeholderAfter(el){ if (el && el.parentNode){ el.parentNode.insertBefore(placeholder, el.nextSibling); } }
+                        function placeholderBefore(el){ if (el && el.parentNode){ el.parentNode.insertBefore(placeholder, el); } }
+                        function commitReorder(){
+                            var orderEls = Array.from(list.children).filter(function(el){ return el.classList && (el.classList.contains('ar-draggable') || el.classList.contains('ar-dnd-placeholder')); });
+                            var newOrder = [];
+                            orderEls.forEach(function(el){ if (el === placeholder) return; var idx = parseInt(el.getAttribute('data-index')||''); if (!isNaN(idx)) newOrder.push(idx); });
+                            var reordered = newOrder.map(function(i){ return fields[i]; });
+                            fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: reordered }) })
+                                .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                                .then(function(){ notify('چیدمان به‌روزرسانی شد', 'success'); renderFormBuilder(id); })
+                                .catch(function(){ notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
+                        }
                         list.querySelectorAll('.ar-draggable').forEach(function(item){
-                            item.addEventListener('dragstart', function(e){ dragging = item; e.dataTransfer.effectAllowed = 'move'; item.classList.add('ar-dnd-ghost'); });
-                            item.addEventListener('dragend', function(){ dragging = null; item.classList.remove('ar-dnd-ghost'); if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); });
-                            item.addEventListener('dragover', function(e){ e.preventDefault(); var rect = item.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height/2); if (dragging && dragging !== item){ if (before) item.parentNode.insertBefore(placeholder, item); else item.parentNode.insertBefore(placeholder, item.nextSibling); }});
-                            item.addEventListener('drop', function(e){ e.preventDefault(); if (!dragging) return; if (placeholder.parentNode) placeholder.parentNode.insertBefore(dragging, placeholder); var newOrder = Array.from(list.children).map(function(el){ return parseInt(el.getAttribute('data-index')||'0'); }).filter(function(v){ return !isNaN(v); });
-                                // apply new order to fields
-                                var reordered = newOrder.map(function(i){ return fields[i]; });
-                                fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: reordered }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('چیدمان به‌روزرسانی شد', 'success'); renderFormBuilder(id); }).catch(function(){ notify('به‌روزرسانی چیدمان ناموفق بود', 'error'); });
+                            item.addEventListener('dragstart', function(e){
+                                dragging = item; e.dataTransfer.effectAllowed = 'move';
+                                setDragImage(e, (item.querySelector('.hint') && item.querySelector('.hint').textContent) || '');
+                                item.classList.add('ar-dnd-ghost');
                             });
+                            item.addEventListener('dragend', function(){ dragging = null; item.classList.remove('ar-dnd-ghost'); if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); });
+                            item.addEventListener('dragover', function(e){ e.preventDefault(); var rect = item.getBoundingClientRect(); var before = (e.clientY - rect.top) < (rect.height/2); if (dragging && dragging !== item){ if (before) placeholderBefore(item); else placeholderAfter(item); }});
+                            item.addEventListener('drop', function(e){ e.preventDefault(); if (!dragging) return; if (placeholder.parentNode) placeholder.parentNode.insertBefore(dragging, placeholder); commitReorder(); });
                         });
+                        // Support dropping after the last item
+                        list.addEventListener('dragover', function(e){
+                            if (!dragging) return; e.preventDefault();
+                            var last = Array.from(list.querySelectorAll('.ar-draggable')).pop();
+                            if (!last) return; var rect = last.getBoundingClientRect();
+                            if (e.clientY >= rect.top + rect.height/2) { placeholderAfter(last); }
+                        });
+                        list.addEventListener('drop', function(e){ if (!dragging) return; e.preventDefault(); if (placeholder.parentNode) placeholder.parentNode.insertBefore(dragging, placeholder); commitReorder(); });
                         list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
                         // External tool drag-in insertion
                         var toolPh = placeholder; // reuse same placeholder style
@@ -638,9 +682,9 @@ if (!defined('ABSPATH')) exit;
                                         var newField = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
                                         if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
                                         arr.splice(insertAt, 0, newField);
-                                        return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) });
+                                        return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) });
                                     })
-                                    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                                    .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
                                     .then(function(){ notify('فیلد جدید درج شد', 'success'); renderFormBuilder(id); })
                                     .catch(function(){ notify('درج فیلد ناموفق بود', 'error'); })
                                     .finally(function(){ if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
@@ -658,7 +702,7 @@ if (!defined('ABSPATH')) exit;
             var addBtn = document.getElementById('arAddShortText');
             if (addBtn){
                 addBtn.addEventListener('click', function(){ addNewField(id); });
-                addBtn.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain','short_text'); });
+                addBtn.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain','short_text'); try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'سؤال با پاسخ کوتاه'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ } });
             }
             // allow drop to add
             var formSide = document.getElementById('arFormSide');
@@ -674,7 +718,7 @@ if (!defined('ABSPATH')) exit;
             var content = document.getElementById('arshlineDashboardContent');
             var headerActions = document.getElementById('arHeaderActions');
             if (headerActions) {
-                headerActions.innerHTML = ARSHLINE_CAN_MANAGE ? '<button id="arHeaderCreateForm" class="ar-btn">+ فرم جدید</button>' : '';
+                headerActions.innerHTML = '<button id="arHeaderCreateForm" class="ar-btn">+ فرم جدید</button>';
             }
             // Header create: always available, routes to forms and opens inline create
             var globalHeaderCreateBtn = document.getElementById('arHeaderCreateForm');
@@ -736,9 +780,9 @@ if (!defined('ABSPATH')) exit;
                 if (submitBtn) submitBtn.addEventListener('click', function(){
                     var titleEl = document.getElementById('arNewFormTitle');
                     var title = (titleEl && titleEl.value.trim()) || 'فرم جدید';
-                    fetch(ARSHLINE_REST + 'forms', { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) })
-                        .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                        .then(function(obj){ notify('فرم ایجاد شد', 'success'); if (obj && obj.id){ renderFormEditor(parseInt(obj.id)); } else { renderTab('forms'); } })
+                    fetch(ARSHLINE_REST + 'forms', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) })
+                        .then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+            .then(function(obj){ notify('فرم ایجاد شد', 'success'); if (obj && obj.id){ renderFormBuilder(parseInt(obj.id)); } else { renderTab('forms'); } })
                         .catch(function(){ notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); });
                 });
                 // load forms list
@@ -757,11 +801,11 @@ if (!defined('ABSPATH')) exit;
                         </div>';
                     }).join('');
                     box.innerHTML = html;
-                    box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormBuilder(id); }); });
+                    box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); });
                     box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
                     box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; window._pendingFormSelectId = id; renderTab('submissions'); }); });
                     if (ARSHLINE_CAN_MANAGE) {
-                        box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
+                        box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
                     }
                     // If header create was requested before arriving here, open inline create now
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
@@ -895,6 +939,12 @@ function notify(message, opts){
     var duration = (opts && opts.duration) || 2800;
     setTimeout(function(){ el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; }, Math.max(200, duration - 500));
     setTimeout(function(){ el.remove(); }, duration);
+}
+// Centralized 401 handler
+function handle401(){
+    try {
+        notify('نشست شما منقضی شده یا دسترسی کافی ندارید.', { type:'error', duration: 5000, actionLabel: 'ورود', onAction: function(){ if (ARSHLINE_LOGIN_URL) location.href = ARSHLINE_LOGIN_URL; }});
+    } catch(_){ alert('401 Unauthorized: لطفاً وارد شوید.'); }
 }
 </script>
 <script>
