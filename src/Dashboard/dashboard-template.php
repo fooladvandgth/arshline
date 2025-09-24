@@ -407,7 +407,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var btn = document.getElementById('arSaveFields');
             if (btn){ btn.disabled = true; btn.textContent = 'در حال ذخیره...'; }
             if (!ARSHLINE_CAN_MANAGE){ notify('برای ویرایش فرم باید وارد شوید یا دسترسی داشته باشید', 'error'); if (btn){ btn.disabled=false; btn.textContent='ذخیره'; } return Promise.resolve(false); }
-            return fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin' })
+            return fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
                     var arr = (data && data.fields) ? data.fields.slice() : [];
@@ -434,7 +434,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
                 <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
             </div>';
-            fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin' })
+            fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(r=>r.json())
                 .then(function(data){
                     var fwrap = document.getElementById('arFormPreviewFields');
@@ -599,7 +599,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
 
             var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
-            fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin' })
+            fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(r=>r.json())
                 .then(function(data){
                     function setDirty(d){
@@ -802,7 +802,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function addNewField(formId){
             var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
-            fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin' })
+            fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
                     var arr = (data && data.fields) ? data.fields.slice() : [];
@@ -857,7 +857,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
             var list = document.getElementById('arFormFieldsList');
             list.textContent = 'در حال بارگذاری...';
-            fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin' })
+            fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(r=>r.json())
                 .then(function(data){
                     try { if (AR_DEBUG) { var dbgList = (data.fields||[]).map(function(f){ return { id:f.id, sort:f.sort, type:(f.props&&f.props.type)||f.type }; }); clog('Builder:load fields', dbgList); } } catch(_){ }
@@ -959,7 +959,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                     .then(function(){
                                         notify('چیدمان به‌روزرسانی شد', 'success');
                                         if (AR_DEBUG){
-                                            fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin' }).then(function(rr){ return rr.json(); }).then(function(data2){
+                                            fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(rr){ return rr.json(); }).then(function(data2){
                                                 var srv = (data2.fields||[]).map(function(f){ return { id:f.id, sort:f.sort, type:(f.props&&f.props.type)||f.type }; });
                                                 clog('Reorder: server order after PUT', srv);
                                                 renderFormBuilder(id);
@@ -1132,7 +1132,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (t === 'short_text' || draggingTool){
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
-                                fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin' })
+                                fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                                     .then(r=>r.json())
                                     .then(function(data){
                                         var arr = (data && data.fields) ? data.fields.slice() : [];
@@ -1178,7 +1178,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var addWelcomeBtn = document.getElementById('arAddWelcome');
             if (addWelcomeBtn){
                 addWelcomeBtn.addEventListener('click', function(){
-                    fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin' })
+                    fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                         .then(r=>r.json())
                         .then(function(data){
                             var arr = (data && data.fields) ? data.fields.slice() : [];
@@ -1195,7 +1195,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var addThankBtn = document.getElementById('arAddThank');
             if (addThankBtn){
                 addThankBtn.addEventListener('click', function(){
-                    fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin' })
+                    fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                         .then(r=>r.json())
                         .then(function(data){
                             var arr = (data && data.fields) ? data.fields.slice() : [];
@@ -1293,7 +1293,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         .catch(function(){ notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); });
                 });
                 // load forms list
-                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin' }).then(r=>r.json()).then(function(forms){
+                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
                     var box = document.getElementById('arFormsList'); if (!box) return;
                     if (!forms || forms.length===0){ box.textContent = 'هنوز فرمی ندارید.'; return; }
                     var html = (forms||[]).map(function(f){
@@ -1325,7 +1325,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     </div>\
                     <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
                 </div>';
-                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin' }).then(r=>r.json()).then(function(forms){
+                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
                     var sel = document.getElementById('arFormSelect');
                     if (!sel) return;
                     sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
