@@ -846,6 +846,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
                         <button id="arAddShortText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ کوتاه</button>\
                         <div style="height:.5rem"></div>\
+                        <button id="arAddLongText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ طولانی</button>\
+                        <div style="height:.5rem"></div>\
                         <button id="arAddWelcome" class="ar-btn ar-btn--soft" style="width:100%">افزودن پیام خوش‌آمد</button>\
                         <div style="height:.4rem"></div>\
                         <button id="arAddThank" class="ar-btn ar-btn--soft" style="width:100%">افزودن پیام تشکر</button>\
@@ -1129,14 +1131,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         list.addEventListener('drop', function(e){
                             var dt = e.dataTransfer; if (!dt) return; var t='';
                             try{ t = dt.getData('application/arshline-tool') || dt.getData('text/plain') || ''; } catch(_){ t=''; }
-                            if (t === 'short_text' || draggingTool){
+                            if (t === 'short_text' || t === 'long_text' || draggingTool){
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
                                 fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                                     .then(r=>r.json())
                                     .then(function(data){
                                         var arr = (data && data.fields) ? data.fields.slice() : [];
-                                        var newField = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
+                                        var newField = t === 'long_text' ? { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:true } : { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
                                         var hasWelcome = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; }) !== -1;
                                         var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
                                         var baseOffset = hasWelcome ? 1 : 0;
@@ -1174,6 +1176,19 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'سؤال با پاسخ کوتاه'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
                 });
                 addBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+            }
+            var addLongBtn = document.getElementById('arAddLongText');
+            if (addLongBtn){
+                addLongBtn.setAttribute('draggable','true');
+                addLongBtn.addEventListener('click', function(){ addNewField(id, 'long_text'); });
+                addLongBtn.addEventListener('dragstart', function(e){
+                    draggingTool = true;
+                    try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
+                    try { e.dataTransfer.setData('application/arshline-tool','long_text'); } catch(_){ }
+                    try { e.dataTransfer.setData('text/plain','long_text'); } catch(_){ }
+                    try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'سؤال با پاسخ طولانی'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
+                });
+                addLongBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
             }
             var addWelcomeBtn = document.getElementById('arAddWelcome');
             if (addWelcomeBtn){
