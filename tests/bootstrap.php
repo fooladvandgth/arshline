@@ -11,13 +11,17 @@ if (!function_exists('add_action')) {
 
 // Minimal REST classes
 if (!class_exists('WP_REST_Request')) {
-    class WP_REST_Request {
+    class WP_REST_Request implements \ArrayAccess {
         private array $params = [];
         public function __construct($method = 'GET', $route = '') {}
         public function set_param($name, $value) { $this->params[$name] = $value; }
         public function get_param($name) { return $this->params[$name] ?? null; }
-        public function __get($name) { return null; }
-        public function __set($name, $value) {}
+        public function __get($name) { return $this->params[$name] ?? null; }
+        public function __set($name, $value) { $this->params[$name] = $value; }
+        public function offsetExists($offset): bool { return isset($this->params[$offset]); }
+        public function offsetGet($offset): mixed { return $this->params[$offset] ?? null; }
+        public function offsetSet($offset, $value): void { $this->params[$offset] = $value; }
+        public function offsetUnset($offset): void { unset($this->params[$offset]); }
     }
 }
 if (!class_exists('WP_REST_Response')) {
