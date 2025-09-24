@@ -33,3 +33,7 @@
 - [ ] توسعه API داینامیک و مستند (REST نسخه‌دار، Webhook، Hook System، SDK سبک، مستند Swagger/OpenAPI)
 - [ ] تست واحد، یکپارچه و امنیتی، Security Review در هر ماژول، مستندسازی کامل
 - [ ] بسته‌بندی و انتشار افزونه (ZIP امضا شده، صفحه What’s New، Telemetry اختیاری)
+- [x] تفکیک دارایی‌های داشبورد به `assets/` و بارگذاری با `wp_enqueue_script`
+- [x] محدودسازی دسترسی GET فرم‌ها به نقش‌های دارای `edit_posts`
+- [x] ایمن‌سازی هوک‌های دیباگ با nonce و قابلیت مدیریتی
+- [x] پوشش تستی برای FormRepository، FormValidator و سناریوهای REST

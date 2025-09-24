@@ -5,6 +5,7 @@ use PHPUnit\Framework\TestCase;
 use Brain\Monkey\Functions;
 use Arshline\Core\Api;
 use WP_REST_Request;
+use ReflectionMethod;
 
 class ApiTest extends TestCase
 {
@@ -27,13 +28,14 @@ class ApiTest extends TestCase
             $calls[] = [$ns, $route, $args];
         });
         Functions::when('current_user_can')->justReturn(true);
-        Functions::when('__return_true')->justReturn(true);
 
         Api::register_routes();
 
         $this->assertNotEmpty($calls);
-        $paths = array_map(fn($c) => $c[1], $calls);
-        $this->assertContains('/forms', $paths[0]);
+        $first = $calls[0];
+        $this->assertSame('arshline/v1', $first[0]);
+        $this->assertSame('/forms', $first[1]);
+        $this->assertSame([Api::class, 'user_can_manage_forms'], $first[2]['permission_callback']);
     }
 
     public function testPermissionsCallbacks()
@@ -47,14 +49,61 @@ class ApiTest extends TestCase
                 $perms[] = $args[1]['permission_callback'];
             }
         });
-        // simulate caps
-        Functions::when('current_user_can')->alias(function($cap){ return in_array($cap, ['manage_options','edit_posts','list_users']); });
+        Functions::when('current_user_can')->alias(function($cap){
+            return in_array($cap, ['manage_options','edit_posts'], true);
+        });
+        Functions::when('__return_true')->justReturn(true);
 
         Api::register_routes();
         $this->assertNotEmpty($perms);
         foreach ($perms as $cb) {
             $this->assertTrue((bool) call_user_func($cb));
         }
+    }
+
+    public function testUserCanManageFormsRequiresCapability()
+    {
+        $method = new ReflectionMethod(Api::class, 'user_can_manage_forms');
+        $method->setAccessible(true);
+
+        Functions::when('current_user_can')->justReturn(false);
+        $this->assertFalse($method->invoke(null));
+
+        Functions::when('current_user_can')->alias(function($cap){
+            return $cap === 'edit_posts';
+        });
+        $this->assertTrue($method->invoke(null));
+    }
+
+    public function testCreateSubmissionRejectsInvalidFormId()
+    {
+        $request = new WP_REST_Request('POST', '/');
+        $request['form_id'] = 0;
+        $response = Api::create_submission($request);
+        $this->assertEquals(400, $response->get_status());
+    }
+
+    public function testCreateFormPersistsData()
+    {
+        global $wpdb;
+        $wpdb = new class {
+            public $prefix = 'wp_';
+            public $insert_data;
+            public $insert_id = 42;
+            public function insert($table, $data) {
+                $this->insert_data = [$table, $data];
+                return true;
+            }
+        };
+
+        $request = new WP_REST_Request('POST', '/');
+        $request->set_param('title', 'نمونه');
+        $response = Api::create_form($request);
+
+        $this->assertEquals(201, $response->get_status());
+        $payload = $response->get_data();
+        $this->assertSame(42, $payload['id']);
+        $this->assertSame('نمونه', $payload['title']);
     }
 
     public function testGetFormsReturnsArray()
@@ -75,6 +124,6 @@ class ApiTest extends TestCase
         $data = $res->get_data();
         $this->assertCount(2, $data);
         $this->assertEquals('T1', $data[0]['title']);
-        $this->assertEquals('بدون عنوان', $data[1]['title']);
+        $this->assertEquals('فرم بدون عنوان', $data[1]['title']);
     }
 }
