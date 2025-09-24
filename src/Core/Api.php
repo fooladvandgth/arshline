@@ -19,27 +19,32 @@ class Api
         add_action('rest_api_init', [self::class, 'register_routes']);
     }
 
+    public static function user_can_manage_forms(): bool
+    {
+        return current_user_can('manage_options') || current_user_can('edit_posts');
+    }
+
     public static function register_routes()
     {
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_forms'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_form'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/fields', [
             'methods' => 'PUT',
             'callback' => [self::class, 'update_fields'],
-            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'POST',
             'callback' => [self::class, 'create_form'],
-            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
             'args' => [
                 'title' => [ 'type' => 'string', 'required' => false ],
             ],
@@ -47,13 +52,13 @@ class Api
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'DELETE',
             'callback' => [self::class, 'delete_form'],
-            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/submissions', [
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'get_submissions'],
-                'permission_callback' => '__return_true',
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
             ],
             [
                 'methods' => 'POST',
@@ -65,7 +70,7 @@ class Api
         register_rest_route('arshline/v1', '/upload', [
             'methods' => 'POST',
             'callback' => [self::class, 'upload_image'],
-            'permission_callback' => function() { return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
             'args' => [
                 'file' => [ 'required' => false ],
             ],

@@ -21,4 +21,4 @@ jobs:
           composer install --no-interaction --prefer-dist
       - name: Run tests
         run: |
-          ./vendor/bin/phpunit --configuration phpunit.xml.dist --colors=always
+          composer test
