@@ -6,30 +6,31 @@ use Arshline\Database\Migrations;
 
 class FormsModule
 {
-    private const OPTION_SCHEMA_VERSION = 'arshline_forms_schema_version';
-    private const SCHEMA_VERSION = '2025-09-23';
-
-    public static function boot(): void
+    public static function boot()
     {
-        add_action('init', [self::class, 'ensure_schema'], 5);
+        // اجرای مهاجرت دیتابیس هنگام فعال‌سازی افزونه
+        register_activation_hook(__FILE__, [self::class, 'migrate']);
+        add_action('init', [self::class, 'maybe_migrate']);
     }
 
-    public static function migrate(): void
+    public static function migrate()
     {
         global $wpdb;
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-        foreach (Migrations::up() as $key => $sql) {
+        $migrations = Migrations::up();
+        foreach ($migrations as $key => $sql) {
             $table = Helpers::tableName($key);
-            $prepared = str_replace('{prefix}', $wpdb->prefix, $sql);
-            dbDelta($prepared);
+            $sql = str_replace('{prefix}', $wpdb->prefix, $sql);
+            require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+            dbDelta($sql);
         }
-        update_option(self::OPTION_SCHEMA_VERSION, self::SCHEMA_VERSION);
     }
 
-    public static function ensure_schema(): void
+    public static function maybe_migrate(): void
     {
-        $current = (string) get_option(self::OPTION_SCHEMA_VERSION, '');
-        if ($current !== self::SCHEMA_VERSION) {
+        global $wpdb;
+        $table = Helpers::tableName('forms');
+        $exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table));
+        if ($exists !== $table) {
             self::migrate();
         }
     }
