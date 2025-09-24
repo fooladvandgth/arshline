@@ -101,8 +101,6 @@ add_action('wp_enqueue_scripts', static function () {
     wp_enqueue_script('arshline-persian-date', 'https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js', ['jquery'], null, true);
     wp_enqueue_script('arshline-persian-datepicker', 'https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js', ['arshline-persian-date'], null, true);
 
-    wp_enqueue_script('arshline-dashboard', plugins_url('assets/js/dashboard.js', __FILE__), [], $version, true);
-
     $strings = [
         'loading' => __('در حال بارگذاری...', 'arshline'),
         'form_delete_confirm' => __('حذف فرم #{id}؟ این عمل بازگشت‌ناپذیر است.', 'arshline'),
