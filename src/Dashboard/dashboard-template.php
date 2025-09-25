@@ -240,6 +240,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     }
     </script>
     <script>
+    // Lightweight debug logger (toggle via window.ARSHDBG = 0/1 in DevTools)
+    window.ARSHDBG = (typeof window.ARSHDBG === 'undefined') ? 1 : window.ARSHDBG; // default ON
+    function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
+    </script>
+    <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
@@ -411,8 +416,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             if (!raw){ renderTab('dashboard'); return; }
             var parts = raw.split('/');
             if (['dashboard','forms','submissions','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
-            if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormBuilder(id); return; } }
-            if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
+            if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
+            if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
             if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
             renderTab('dashboard');
         }
@@ -484,19 +489,30 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var builder = document.getElementById('arBuilder');
             var id = parseInt(builder.dataset.formId||'0');
             var idx = parseInt(builder.dataset.fieldIndex||'-1');
+            dlog('saveFields:start', { id: id, idx: idx });
             var canvas = document.getElementById('arCanvas');
             var edited = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); })[0] || {};
+            dlog('saveFields:edited', edited);
             var btn = document.getElementById('arSaveFields');
             if (btn){ btn.disabled = true; btn.textContent = 'در حال ذخیره...'; }
+            // Safety guard: if index is invalid, abort to prevent inadvertent array growth
+            if (isNaN(idx) || idx < 0){
+                dlog('saveFields:invalid-idx-abort', idx);
+                notify('مکان فیلد نامعتبر است. لطفاً صفحه را نوسازی کنید و دوباره تلاش کنید.', 'error');
+                if (btn){ btn.disabled = false; btn.textContent = 'ذخیره'; }
+                return Promise.resolve(false);
+            }
             if (!ARSHLINE_CAN_MANAGE){ notify('برای ویرایش فرم باید وارد شوید یا دسترسی داشته باشید', 'error'); if (btn){ btn.disabled=false; btn.textContent='ذخیره'; } return Promise.resolve(false); }
             return fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
+                    dlog('saveFields:loaded-current-fields', (data&&data.fields)?data.fields.length:0);
                     var arr = (data && data.fields) ? data.fields.slice() : [];
                     if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
                     else { arr.push(edited); }
                     try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - sending field.question (sample):', String(edited.question||'').slice(0,200)); } catch(_){ }
                     try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - full payload fields count:', arr.length); } catch(_){ }
+                    dlog('saveFields:payload', arr);
                     return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
                         .then(async function(r){ try { var txt = await r.clone().text(); try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - server response text:', txt); } catch(_){ } } catch(_){ }
                             return r; });
@@ -603,9 +619,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function renderFormEditor(id, opts){
+            dlog('renderFormEditor:start', { id: id, opts: opts });
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             try { setSidebarClosed(true, false); } catch(_){ }
-            try { var idxHash = (opts && typeof opts.index!=='undefined') ? parseInt(opts.index) : 0; setHash('editor/'+id+'/'+(isNaN(idxHash)?0:idxHash)); } catch(_){ }
+            try {
+                var idxHashRaw = (opts && typeof opts.index!=='undefined') ? opts.index : 0;
+                var idxHash = parseInt(idxHashRaw);
+                if (isNaN(idxHash)) idxHash = 0;
+                setHash('editor/'+id+'/'+idxHash);
+            } catch(_){ }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
             var hiddenCanvas = '<div id="arCanvas" style="display:none"><div class="ar-item" data-props="{}"></div></div>';
@@ -700,7 +722,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 </div>\
             </div>' + hiddenCanvas;
 
-            document.getElementById('arEditorBack').onclick = function(){ renderFormBuilder(id); };
+            document.getElementById('arEditorBack').onclick = function(){ dlog('arEditorBack:click'); renderFormBuilder(id); };
             var prevBtnE = document.getElementById('arEditorPreview'); if (prevBtnE) prevBtnE.onclick = function(){ renderFormPreview(id); };
             content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
 
@@ -724,6 +746,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(r=>r.json())
                 .then(function(data){
+                    dlog('renderFormEditor:data-loaded', data && data.fields ? data.fields.length : 0);
                     // Data loaded, reveal editor UI
                     try { if (builderEl) builderEl.classList.remove('editor-loading'); } catch(_){ }
                     function setDirty(d){
@@ -742,10 +765,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (titleEl) titleEl.textContent = creating ? ('ایجاد فرم — ' + (formTitle||(' #' + id))) : ('ویرایش فرم #' + id + (formTitle?(' — ' + formTitle):''));
                     var fields = data.fields || [];
                     var idx = fieldIndex;
-                    if (idx < 0 || idx >= fields.length) idx = 0;
+                    if (isNaN(idx) || idx < 0 || idx >= fields.length) idx = 0;
+                    // Keep builder dataset in sync so saveFields updates proper index
+                    try { var b = document.getElementById('arBuilder'); if (b) b.setAttribute('data-field-index', String(idx)); } catch(_){ }
+                    dlog('renderFormEditor:resolved-index', idx);
                     var base = fields[idx] || defaultProps;
                     var field = base.props || base || defaultProps;
                     var fType = field.type || base.type || 'short_text';
+                    dlog('renderFormEditor:field-type', fType);
                     // ensure defaults by type
                     if (fType === 'short_text'){
                         field.type = 'short_text';
@@ -807,9 +834,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 <div style="margin-top:.6rem;margin-bottom:.6rem;">
                                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;">
                                         <div class="hint">گزینه‌ها</div>
-                                        <div>
-                                            <button id="mcAddOption" class="ar-btn ar-btn--soft" style="font-size:.85rem">افزودن گزینه</button>
-                                        </div>
+                                        <button id="mcAddOption" class="ar-btn" aria-label="افزودن گزینه" title="افزودن گزینه" style="width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;padding:0;font-size:1.2rem;line-height:1;">+</button>
                                     </div>
                                     <div id="mcOptionsList" style="display:flex;flex-direction:column;gap:.5rem;"></div>
                                 </div>
@@ -820,7 +845,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         if (pWrap){
                             pWrap.innerHTML = `
                                 <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>
-                                <div id="mcPreview" style="margin-bottom:.6rem"></div>`;
+                                <div id="mcPreview" style="margin-bottom:.6rem;max-width:100%;overflow:hidden"></div>`;
                         }
 
                         // Helper functions for multiple choice
@@ -848,11 +873,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (!mcList) return;
                             mcList.innerHTML = '';
                             opts.forEach(function(o, i){
-                                var html = '<div class="card" data-idx="'+i+'" style="padding:.5rem;display:flex;gap:.5rem;align-items:center;">'
-                                    + '<span class="ar-dnd-handle" title="جابجایی">≡</span>'
-                                    + '<input type="text" class="ar-input" data-role="mc-label" placeholder="متن گزینه" value="'+escapeHtml(o.label||'')+'" style="flex:1" />'
-                                    + '<input type="text" class="ar-input" data-role="mc-second" placeholder="برچسب دوم (اختیاری)" value="'+escapeHtml(o.second_label||'')+'" style="width:180px" />'
-                                    + '<button class="ar-btn ar-btn--soft mcRemove" data-idx="'+i+'" style="font-size:1.2em;width:2em;height:2em;line-height:1.2em;padding:0;margin-right:.4rem">−</button>'
+                                var html = '<div class="card" data-idx="'+i+'" style="padding:.35rem;display:grid;grid-template-columns:auto 1fr auto;grid-auto-rows:auto;gap:.4rem;align-items:center;">'
+                                    // first line: + / −  |  label input  |  drag handle
+                                    + '<div class="mc-row-tools" style="display:flex;gap:.35rem;align-items:center;">'
+                                        + '<button class="ar-btn mcAddHere" data-idx="'+i+'" aria-label="افزودن گزینه بعد از این" title="افزودن" style="width:28px;height:28px;border-radius:8px;padding:0;line-height:1;font-size:1.1rem;display:inline-flex;align-items:center;justify-content:center;">+</button>'
+                                        + '<button class="ar-btn ar-btn--soft mcRemove" data-idx="'+i+'" aria-label="حذف این گزینه" title="حذف" style="width:28px;height:28px;border-radius:8px;padding:0;line-height:1;font-size:1.1rem;display:inline-flex;align-items:center;justify-content:center;">−</button>'
+                                    + '</div>'
+                                    + '<input type="text" class="ar-input" data-role="mc-label" placeholder="متن گزینه" value="'+escapeHtml(o.label||'')+'" style="min-width:120px;max-width:100%;" />'
+                                    + '<span class="ar-dnd-handle" title="جابجایی" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;">≡</span>'
+                                    // second line spans all columns: second label input (optional)
+                                    + '<input type="text" class="ar-input" data-role="mc-second" placeholder="برچسب دوم (اختیاری)" value="'+escapeHtml(o.second_label||'')+'" style="grid-column:1 / -1;min-width:120px;max-width:100%;" />'
                                     + '</div>';
                                 var div = document.createElement('div'); div.innerHTML = html;
                                 mcList.appendChild(div.firstChild);
@@ -860,27 +890,74 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             // Bind input events
                             Array.from(mcList.querySelectorAll('[data-role="mc-label"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
                             Array.from(mcList.querySelectorAll('[data-role="mc-second"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].second_label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
-                            Array.from(mcList.querySelectorAll('.mcRemove')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); opts.splice(ii,1);
+                            Array.from(mcList.querySelectorAll('.mcAddHere')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); var n = opts.length + 1; var newOpt = { label:'گزینه '+n, value:'opt_'+(Date.now()%100000), media_url:'', second_label:'' }; opts.splice(isNaN(ii)?opts.length:(ii+1), 0, newOpt); field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); });
+                            Array.from(mcList.querySelectorAll('.mcRemove')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); if (!isNaN(ii)) opts.splice(ii,1);
                                 if (!opts.length) opts.push({ label:'گزینه 1', value:'opt_1', media_url:'', second_label:'' });
                                 field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); });
+                            // Enable drag sort for options
+                            function ensureSortableMC(cb){ if (window.Sortable) { cb(); return; } var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js'; s.onload = function(){ cb(); }; document.head.appendChild(s); }
+                            ensureSortableMC(function(){
+                                try { if (window._mcSortable) window._mcSortable.destroy(); } catch(_){ }
+                                window._mcSortable = Sortable.create(mcList, {
+                                    animation: 150,
+                                    handle: '.ar-dnd-handle',
+                                    draggable: '[data-idx]',
+                                    onEnd: function(){
+                                        try {
+                                            var order = Array.from(mcList.children).map(function(el){ return parseInt(el.getAttribute('data-idx')||''); }).filter(function(n){ return !isNaN(n); });
+                                            if (order.length){
+                                                var newOpts = order.map(function(i){ return opts[i]; });
+                                                opts.splice(0, opts.length); Array.prototype.push.apply(opts, newOpts);
+                                                field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true);
+                                            }
+                                        } catch(_){ }
+                                    }
+                                });
+                            });
                         }
 
                         function renderMCPreview(p){
                             var out = document.getElementById('mcPreview'); if (!out) return;
+                            var parts = [];
+                            // Question (with numbering like short_text)
+                            try {
+                                var showQ = p.question && String(p.question).trim();
+                                if (showQ){
+                                    var qIndex = 1;
+                                    try {
+                                        var beforeCount = 0;
+                                        (fields||[]).forEach(function(ff, i3){ if (i3 < idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
+                                        qIndex = beforeCount + 1;
+                                    } catch(_){ qIndex = (idx+1); }
+                                    var numPrefix = (p.numbered !== false ? (qIndex + '. ') : '');
+                                    var sanitized = sanitizeQuestionHtml(showQ || '');
+                                    parts.push('<div class="hint" style="margin-bottom:.25rem">'+numPrefix+sanitized+'</div>');
+                                }
+                            } catch(_){ }
+                            // Options
                             if (!p.options || !Array.isArray(p.options) || !p.options.length) {
-                                out.innerHTML = '<div class="hint">هنوز گزینه‌ای اضافه نشده است.</div>';
+                                parts.push('<div class="hint">هنوز گزینه‌ای اضافه نشده است.</div>');
+                                out.innerHTML = parts.join('');
                                 return;
                             }
                             var localOpts = (p.options || []).slice();
-                            if (p.randomize){ 
+                            if (p.randomize){
                                 for (var z=localOpts.length-1; z>0; z--){ var j = Math.floor(Math.random()*(z+1)); var tmp=localOpts[z]; localOpts[z]=localOpts[j]; localOpts[j]=tmp; }
                             }
                             var type = p.multiple ? 'checkbox' : 'radio';
                             var vertical = (p.vertical !== false);
-                            var html = '<div style="display:flex;flex-direction:'+(vertical?'column':'row')+';gap:.5rem;flex-wrap:wrap">';
-                            localOpts.forEach(function(o, i){ var lbl = sanitizeQuestionHtml(o.label||''); var sec = o.second_label?('<div class="hint" style="font-size:.8rem">'+escapeHtml(o.second_label)+'</div>') : ''; html += '<label style="display:flex;align-items:center;gap:.5rem;"><input type="'+type+'" disabled /> <span>'+lbl+'</span> '+sec+'</label>'; });
+                            var html = '<div style="display:flex;flex-direction:'+(vertical?'column':'row')+';gap:.6rem;flex-wrap:wrap;align-items:flex-start;">';
+                            localOpts.forEach(function(o){
+                                var lbl = sanitizeQuestionHtml(o.label||'');
+                                var sec = o.second_label ? ('<div class="hint" style="font-size:.8rem;margin-'+(document.dir==='rtl'?'right':'left')+':1.9rem;">'+escapeHtml(o.second_label)+'</div>') : '';
+                                html += '<div class="mc-opt" style="display:flex;flex-direction:column;gap:.25rem;max-width:100%;">'
+                                        + '<label style="display:flex;align-items:center;gap:.5rem;max-width:100%;"><input type="'+type+'" disabled /> <span>'+lbl+'</span></label>'
+                                        + sec
+                                    + '</div>';
+                            });
                             html += '</div>';
-                            out.innerHTML = html;
+                            parts.push(html);
+                            out.innerHTML = parts.join('');
                         }
 
                         // Initial render
@@ -1305,6 +1382,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function addNewField(formId, fieldType){
+            dlog('addNewField:start', { formId: formId, fieldType: fieldType });
             var ft = fieldType || 'short_text';
             var defaultProps;
             if (ft === 'long_text'){
@@ -1317,19 +1395,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
+                    dlog('addNewField:loaded-existing-fields', (data&&data.fields)?data.fields.length:0);
                     var arr = (data && data.fields) ? data.fields.slice() : [];
                     var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
                     var insertAt = hasThank ? (arr.length - 1) : arr.length;
                     if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
                     arr.splice(insertAt, 0, defaultProps);
-                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); });
+                    dlog('addNewField:inserting-at', insertAt, 'payload-size', arr.length);
+                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
+                        .then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return { ok: true, index: insertAt }; });
                 })
-                .then(function(newIndex){ renderFormEditor(formId, { index: newIndex }); })
+                .then(function(obj){ renderFormEditor(formId, { index: obj.index }); })
                 .catch(function(){ notify('افزودن فیلد ناموفق بود', 'error'); });
         }
 
         function renderFormBuilder(id){
-            console.log('[DEBUG] renderFormBuilder called with id:', id);
+            console.log('[DEBUG] renderFormBuilder called with id:', id); dlog('renderFormBuilder:start', id);
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             try { setSidebarClosed(true, false); } catch(_){ }
             document.body.classList.remove('preview-only');
@@ -1372,7 +1453,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(r=>r.json())
                 .then(function(data){
+                    dlog('renderFormBuilder:loaded-fields', (data&&data.fields)?data.fields.length:0);
                     var list = document.getElementById('arFormFieldsList');
+                    // Guard to prevent duplicate add when both click and drag/drop occur nearly simultaneously
+                    var lastAddClickTs = 0;
                     var fields = data.fields || [];
                     var qCounter = 0;
                     var visibleMap = [];
@@ -1633,19 +1717,31 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         list.addEventListener('drop', function(e) {
                             var dt = e.dataTransfer;
                             if (!dt) return;
+                            // If a click-based add just happened, ignore this drop to avoid duplicates
+                            try {
+                                if (Date.now() - lastAddClickTs < 500) {
+                                    e.preventDefault();
+                                    if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh);
+                                    dlog('drop:ignored-due-to-recent-click');
+                                    return;
+                                }
+                            } catch(_){}
                             var t = '';
                             try {
                                 t = dt.getData('application/arshline-tool') || dt.getData('text/plain') || '';
                             } catch (_) {
                                 t = '';
                             }
+                            dlog('drop:tool', t);
                             if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || draggingTool) {
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
+                                dlog('drop:insertAt', insertAt);
                                 fetch(ARSHLINE_REST + 'forms/' + id, { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
                                     .then(function(r){ return r.json(); })
                                     .then(function (data) {
                                         var arr = (data && data.fields) ? data.fields.slice() : [];
+                                        dlog('drop:loaded-fields', arr.length);
                                         var newField;
                                         if (t === 'long_text') {
                                             newField = { type: 'long_text', label: 'پاسخ طولانی', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true, min_length: 0, max_length: 5000, media_upload: true };
@@ -1661,7 +1757,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                         var realAt = baseOffset + insertAt;
                                         if (realAt < baseOffset) realAt = baseOffset;
                                         if (realAt > maxPos) realAt = maxPos;
+                                        dlog('drop:realAt', realAt, 'baseOffset', baseOffset, 'maxPos', maxPos);
                                         arr.splice(realAt, 0, newField);
+                                        dlog('drop:payload-size', arr.length);
                                         return fetch(ARSHLINE_REST + 'forms/' + id + '/fields', {
                                             method: 'PUT',
                                             credentials: 'same-origin',
@@ -1679,6 +1777,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                     })
                                     .then(function (obj) {
                                         return obj.res.json().then(function () {
+                                            dlog('drop:saved-index', obj.index);
                                             return obj.index;
                                         });
                                     })
@@ -1709,7 +1808,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var newAddBtn = addBtn.cloneNode(true);
                 addBtn.parentNode.replaceChild(newAddBtn, addBtn);
                 addBtn = newAddBtn;
-                addBtn.addEventListener('click', function(){ addNewField(id); });
+                addBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id); });
                 addBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
                     try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
@@ -1726,7 +1825,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var newAddLongBtn = addLongBtn.cloneNode(true);
                 addLongBtn.parentNode.replaceChild(newAddLongBtn, addLongBtn);
                 addLongBtn = newAddLongBtn;
-                addLongBtn.addEventListener('click', function(){ addNewField(id, 'long_text'); });
+                addLongBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'long_text'); });
                 addLongBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
                     try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
@@ -1743,7 +1842,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var newAddMcBtn = addMcBtn.cloneNode(true);
                 addMcBtn.parentNode.replaceChild(newAddMcBtn, addMcBtn);
                 addMcBtn = newAddMcBtn;
-                addMcBtn.addEventListener('click', function(){ addNewField(id, 'multiple_choice'); });
+                addMcBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'multiple_choice'); });
                 addMcBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
                     try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
