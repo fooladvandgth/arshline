@@ -747,7 +747,18 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var field = base.props || base || defaultProps;
                     var fType = field.type || base.type || 'short_text';
                     // ensure defaults by type
-                    if (fType === 'short_text'){
+                    if (fType === 'multiple_choice' || fType === 'multiple-choice') {
+                        field.type = 'multiple_choice';
+                        field.label = 'سوال چندگزینه‌ای';
+                        if (!field.options || !Array.isArray(field.options)) {
+                            field.options = [{ label: 'گزینه 1', value: 'opt_1', second_label: '', media_url: '' }];
+                        }
+                        if (typeof field.multiple === 'undefined') field.multiple = false;
+                        if (typeof field.required === 'undefined') field.required = false;
+                        if (typeof field.vertical === 'undefined') field.vertical = true;
+                        if (typeof field.randomize === 'undefined') field.randomize = false;
+                        if (typeof field.numbered === 'undefined') field.numbered = true;
+                    } else if (fType === 'short_text'){
                         field.type = 'short_text';
                         field.label = 'پاسخ کوتاه';
                     } else if (fType === 'welcome'){
@@ -766,11 +777,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     // inject hidden props
                     var canvasEl = document.querySelector('#arCanvas .ar-item');
                     if (canvasEl) canvasEl.setAttribute('data-props', JSON.stringify(field));
-                    // Only render the correct field type UI (fix double-render)  
+                    
+                    // Debug log to check field type
+                    console.log('[DEBUG] renderFormEditor field type:', field.type, 'original fType:', fType);
+                    
+                    // Only render the correct field type UI (fix double-render)
                     if (field.type === 'multiple_choice' || field.type === 'multiple-choice') {
-                        console.log('[DEBUG] Rendering multiple choice UI');
-                        
-                        // Multiple choice editor panel
+                        console.log('[DEBUG] Rendering multiple choice editor');
+                        // Move multiple choice block here to make sure it runs first
                         var sWrap = document.querySelector('.ar-settings');
                         var pWrap = document.querySelector('.ar-preview');
                         if (sWrap) {
@@ -823,14 +837,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 <div id="mcPreview" style="margin-bottom:.6rem"></div>`;
                         }
 
-                        // Helper functions for multiple choice
+                        // helpers
                         function updateHiddenProps(p){ var el = document.querySelector('#arCanvas .ar-item'); if (el) el.setAttribute('data-props', JSON.stringify(p)); }
 
-                        // Initialize options
+                        // option rendering
                         var opts = field.options || field.choices || [{ label: 'گزینه 1', value: 'opt_1', media_url: '', second_label: '' }];
                         field.options = opts;
 
-                        // Set up event handlers
                         var qEl = document.getElementById('fQuestionRich'); if (qEl){ qEl.innerHTML = sanitizeQuestionHtml(field.question || ''); qEl.addEventListener('input', function(){
                             field.question = sanitizeQuestionHtml(qEl.innerHTML);
                             updateHiddenProps(field);
@@ -848,6 +861,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (!mcList) return;
                             mcList.innerHTML = '';
                             opts.forEach(function(o, i){
+                                var id = 'mc_opt_'+i;
                                 var html = '<div class="card" data-idx="'+i+'" style="padding:.5rem;display:flex;gap:.5rem;align-items:center;">'
                                     + '<span class="ar-dnd-handle" title="جابجایی">≡</span>'
                                     + '<input type="text" class="ar-input" data-role="mc-label" placeholder="متن گزینه" value="'+escapeHtml(o.label||'')+'" style="flex:1" />'
@@ -857,12 +871,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 var div = document.createElement('div'); div.innerHTML = html;
                                 mcList.appendChild(div.firstChild);
                             });
-                            // Bind input events
+                            // bind inputs
                             Array.from(mcList.querySelectorAll('[data-role="mc-label"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
                             Array.from(mcList.querySelectorAll('[data-role="mc-second"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].second_label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
-                            Array.from(mcList.querySelectorAll('.mcRemove')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); opts.splice(ii,1);
+                            Array.from(mcList.querySelectorAll('.mcRemove')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); opts.splice(ii,1); // reindex
+                                // ensure at least one option remains
                                 if (!opts.length) opts.push({ label:'گزینه 1', value:'opt_1', media_url:'', second_label:'' });
                                 field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); });
+                            // init Sortable for options
+                            try {
+                                if (window._mcSortable) { window._mcSortable.destroy(); window._mcSortable = null; }
+                                var s = window.Sortable || null;
+                                if (!s){ var sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js'; sc.onload = function(){ window._mcSortable = Sortable.create(mcList, { handle: '.ar-dnd-handle', animation:120, onEnd:function(){ var newOrder = Array.from(mcList.querySelectorAll('.card')).map(function(c){ return parseInt(c.getAttribute('data-idx')||''); }); // remap
+                                                var newOpts = []; Array.from(mcList.querySelectorAll('.card')).forEach(function(c){ var idx = parseInt(c.getAttribute('data-idx')||''); newOpts.push(opts[idx]); }); opts = newOpts; // reindex
+                                                field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); } }); }; document.head.appendChild(sc); }
+                                else { window._mcSortable = Sortable.create(mcList, { handle: '.ar-dnd-handle', animation:120, onEnd:function(){ var newOpts = []; Array.from(mcList.querySelectorAll('.card')).forEach(function(c){ var idx = parseInt(c.getAttribute('data-idx')||''); newOpts.push(opts[idx]); }); opts = newOpts; field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); } }); }
+                            } catch(e){ /* ignore */ }
                         }
 
                         function renderMCPreview(p){
@@ -872,7 +896,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 return;
                             }
                             var localOpts = (p.options || []).slice();
-                            if (p.randomize){ 
+                            if (p.randomize){ // shuffle copy
                                 for (var z=localOpts.length-1; z>0; z--){ var j = Math.floor(Math.random()*(z+1)); var tmp=localOpts[z]; localOpts[z]=localOpts[j]; localOpts[j]=tmp; }
                             }
                             var type = p.multiple ? 'checkbox' : 'radio';
@@ -883,14 +907,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             out.innerHTML = html;
                         }
 
-                        // Initial render
+                        // initial render
                         renderOptionsList(); renderMCPreview(field);
 
                         var addBtn = document.getElementById('mcAddOption'); if (addBtn){ addBtn.addEventListener('click', function(e){ e.preventDefault(); var n = opts.length+1; opts.push({ label:'گزینه '+n, value:'opt_'+(Date.now()%100000), media_url:'', second_label:'' }); field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); }
 
-                        var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
+                        var saveBtn2 = document.getElementById('arSaveFields'); if (saveBtn2) saveBtn2.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
                         return;
-                        
                     } else if (field.type === 'long_text' || field.type === 'longtext' || field.type === 'long-text') {
                         var sWrap = document.querySelector('.ar-settings');
                         var pWrap = document.querySelector('.ar-preview');
@@ -1177,7 +1200,128 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
                         return;
                     }
+                    // short_text editor
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">اجباری</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcRequired" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">چندانتخابی</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcMultiple" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">نمایش به‌صورت عمودی</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcVertical" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">همگن‌سازی گزینه‌ها (تصادفی‌سازی)</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcRandomize" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div style="margin-top:.6rem;margin-bottom:.6rem;">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;">
+                                        <div class="hint">گزینه‌ها</div>
+                                        <div>
+                                            <button id="mcAddOption" class="ar-btn ar-btn--soft" style="font-size:.85rem">افزودن گزینه</button>
+                                        </div>
+                                    </div>
+                                    <div id="mcOptionsList" style="display:flex;flex-direction:column;gap:.5rem;"></div>
+                                </div>
+                                <div style="margin-top:12px">
+                                    <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>
+                                </div>`;
+                        }
+                        if (pWrap){
+                            pWrap.innerHTML = `
+                                <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>
+                                <div id="mcPreview" style="margin-bottom:.6rem"></div>`;
+                        }
 
+                        // helpers
+                        function updateHiddenProps(p){ var el = document.querySelector('#arCanvas .ar-item'); if (el) el.setAttribute('data-props', JSON.stringify(p)); }
+
+                        // option rendering
+                        var opts = field.options || field.choices || [{ label: 'گزینه 1', value: 'opt_1', media_url: '', second_label: '' }];
+                        field.options = opts;
+
+                        var qEl = document.getElementById('fQuestionRich'); if (qEl){ qEl.innerHTML = sanitizeQuestionHtml(field.question || ''); qEl.addEventListener('input', function(){
+                            field.question = sanitizeQuestionHtml(qEl.innerHTML);
+                            updateHiddenProps(field);
+                            renderMCPreview(field);
+                            setDirty(true);
+                        }); }
+
+                        var mcRequired = document.getElementById('mcRequired'); if (mcRequired){ mcRequired.checked = !!field.required; mcRequired.addEventListener('change', function(){ field.required = !!mcRequired.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+                        var mcMultiple = document.getElementById('mcMultiple'); if (mcMultiple){ mcMultiple.checked = !!field.multiple; mcMultiple.addEventListener('change', function(){ field.multiple = !!mcMultiple.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+                        var mcVertical = document.getElementById('mcVertical'); if (mcVertical){ mcVertical.checked = (field.vertical !== false); mcVertical.addEventListener('change', function(){ field.vertical = !!mcVertical.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+                        var mcRandomize = document.getElementById('mcRandomize'); if (mcRandomize){ mcRandomize.checked = !!field.randomize; mcRandomize.addEventListener('change', function(){ field.randomize = !!mcRandomize.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+
+                        var mcList = document.getElementById('mcOptionsList');
+                        function renderOptionsList(){
+                            if (!mcList) return;
+                            mcList.innerHTML = '';
+                            opts.forEach(function(o, i){
+                                var id = 'mc_opt_'+i;
+                                var html = '<div class="card" data-idx="'+i+'" style="padding:.5rem;display:flex;gap:.5rem;align-items:center;">'
+                                    + '<span class="ar-dnd-handle" title="جابجایی">≡</span>'
+                                    + '<input type="text" class="ar-input" data-role="mc-label" placeholder="متن گزینه" value="'+escapeHtml(o.label||'')+'" style="flex:1" />'
+                                    + '<input type="text" class="ar-input" data-role="mc-second" placeholder="برچسب دوم (اختیاری)" value="'+escapeHtml(o.second_label||'')+'" style="width:180px" />'
+                                    + '<button class="ar-btn ar-btn--soft mcRemove" data-idx="'+i+'" style="font-size:1.2em;width:2em;height:2em;line-height:1.2em;padding:0;margin-right:.4rem">−</button>'
+                                    + '</div>';
+                                var div = document.createElement('div'); div.innerHTML = html;
+                                mcList.appendChild(div.firstChild);
+                            });
+                            // bind inputs
+                            Array.from(mcList.querySelectorAll('[data-role="mc-label"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
+                            Array.from(mcList.querySelectorAll('[data-role="mc-second"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].second_label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
+                            Array.from(mcList.querySelectorAll('.mcRemove')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); opts.splice(ii,1); // reindex
+                                // ensure at least one option remains
+                                if (!opts.length) opts.push({ label:'گزینه 1', value:'opt_1', media_url:'', second_label:'' });
+                                field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); });
+                            // init Sortable for options
+                            try {
+                                if (window._mcSortable) { window._mcSortable.destroy(); window._mcSortable = null; }
+                                var s = window.Sortable || null;
+                                if (!s){ var sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js'; sc.onload = function(){ window._mcSortable = Sortable.create(mcList, { handle: '.ar-dnd-handle', animation:120, onEnd:function(){ var newOrder = Array.from(mcList.querySelectorAll('.card')).map(function(c){ return parseInt(c.getAttribute('data-idx')||''); }); // remap
+                                                var newOpts = []; Array.from(mcList.querySelectorAll('.card')).forEach(function(c){ var idx = parseInt(c.getAttribute('data-idx')||''); newOpts.push(opts[idx]); }); opts = newOpts; // reindex
+                                                field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); } }); }; document.head.appendChild(sc); }
+                                else { window._mcSortable = Sortable.create(mcList, { handle: '.ar-dnd-handle', animation:120, onEnd:function(){ var newOpts = []; Array.from(mcList.querySelectorAll('.card')).forEach(function(c){ var idx = parseInt(c.getAttribute('data-idx')||''); newOpts.push(opts[idx]); }); opts = newOpts; field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); } }); }
+                            } catch(e){ /* ignore */ }
+                        }
+
+                        function renderMCPreview(p){
+                            var out = document.getElementById('mcPreview'); if (!out) return;
+                            if (!p.options || !Array.isArray(p.options) || !p.options.length) {
+                                out.innerHTML = '<div class="hint">هنوز گزینه‌ای اضافه نشده است.</div>';
+                                return;
+                            }
+                            var localOpts = (p.options || []).slice();
+                            if (p.randomize){ // shuffle copy
+                                for (var z=localOpts.length-1; z>0; z--){ var j = Math.floor(Math.random()*(z+1)); var tmp=localOpts[z]; localOpts[z]=localOpts[j]; localOpts[j]=tmp; }
+                            }
+                            var type = p.multiple ? 'checkbox' : 'radio';
+                            var vertical = (p.vertical !== false);
+                            var html = '<div style="display:flex;flex-direction:'+(vertical?'column':'row')+';gap:.5rem;flex-wrap:wrap">';
+                            localOpts.forEach(function(o, i){ var lbl = sanitizeQuestionHtml(o.label||''); var sec = o.second_label?('<div class="hint" style="font-size:.8rem">'+escapeHtml(o.second_label)+'</div>') : ''; html += '<label style="display:flex;align-items:center;gap:.5rem;"><input type="'+type+'" disabled /> <span>'+lbl+'</span> '+sec+'</label>'; });
+                            html += '</div>';
+                            out.innerHTML = html;
+                        }
+
+                        // initial render
+                        renderOptionsList(); renderMCPreview(field);
+
+                        var addBtn = document.getElementById('mcAddOption'); if (addBtn){ addBtn.addEventListener('click', function(e){ e.preventDefault(); var n = opts.length+1; opts.push({ label:'گزینه '+n, value:'opt_'+(Date.now()%100000), media_url:'', second_label:'' }); field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); }
+
+                        var saveBtn2 = document.getElementById('arSaveFields'); if (saveBtn2) saveBtn2.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
+                        return;
+                    }
                     // short_text editor
                     var sel = document.getElementById('fType');
                     var req = document.getElementById('fRequired');
@@ -1244,8 +1388,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var qIndex = 1;
                             try {
                                 var beforeCount = 0;
-                                (fields||[]).forEach(function(ff, i3){ if (i3 < idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
-                                qIndex = beforeCount + 1;
+                                (fields||[]).forEach(function(ff, i3){ if (i3 <= idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
+                                qIndex = beforeCount;
                             } catch(_){ qIndex = (idx+1); }
                             var numPrefix = (p.numbered ? (qIndex + '. ') : '');
                             var sanitized = sanitizeQuestionHtml(showQ || '');
@@ -1705,10 +1849,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var addBtn = document.getElementById('arAddShortText');
             if (addBtn){
                 addBtn.setAttribute('draggable','true');
-                // Remove any existing event listeners by cloning the node
-                var newAddBtn = addBtn.cloneNode(true);
-                addBtn.parentNode.replaceChild(newAddBtn, addBtn);
-                addBtn = newAddBtn;
                 addBtn.addEventListener('click', function(){ addNewField(id); });
                 addBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
@@ -1722,10 +1862,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var addLongBtn = document.getElementById('arAddLongText');
             if (addLongBtn){
                 addLongBtn.setAttribute('draggable','true');
-                // Remove any existing event listeners by cloning the node
-                var newAddLongBtn = addLongBtn.cloneNode(true);
-                addLongBtn.parentNode.replaceChild(newAddLongBtn, addLongBtn);
-                addLongBtn = newAddLongBtn;
                 addLongBtn.addEventListener('click', function(){ addNewField(id, 'long_text'); });
                 addLongBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
@@ -1739,10 +1875,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var addMcBtn = document.getElementById('arAddMultipleChoice');
             if (addMcBtn){
                 addMcBtn.setAttribute('draggable','true');
-                // Remove any existing event listeners by cloning the node
-                var newAddMcBtn = addMcBtn.cloneNode(true);
-                addMcBtn.parentNode.replaceChild(newAddMcBtn, addMcBtn);
-                addMcBtn = newAddMcBtn;
                 addMcBtn.addEventListener('click', function(){ addNewField(id, 'multiple_choice'); });
                 addMcBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
@@ -1755,10 +1887,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             }
             var addWelcomeBtn = document.getElementById('arAddWelcome');
             if (addWelcomeBtn){
-                // Remove any existing event listeners by cloning the node
-                var newAddWelcomeBtn = addWelcomeBtn.cloneNode(true);
-                addWelcomeBtn.parentNode.replaceChild(newAddWelcomeBtn, addWelcomeBtn);
-                addWelcomeBtn = newAddWelcomeBtn;
                 addWelcomeBtn.addEventListener('click', function(){
                     fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                         .then(r=>r.json())
@@ -1776,10 +1904,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             }
             var addThankBtn = document.getElementById('arAddThank');
             if (addThankBtn){
-                // Remove any existing event listeners by cloning the node
-                var newAddThankBtn = addThankBtn.cloneNode(true);
-                addThankBtn.parentNode.replaceChild(newAddThankBtn, addThankBtn);
-                addThankBtn = newAddThankBtn;
                 addThankBtn.addEventListener('click', function(){
                     fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                         .then(r=>r.json())
