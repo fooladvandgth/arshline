@@ -3,8 +3,8 @@
  * Plugin Name: آرش‌لاین — سازندهٔ فرم (Arshline)
  * Plugin URI: https://example.com/
  * Description: افزونهٔ سازندهٔ فرم با پشتیبانی از فیلدهای متن بلند، گزینه‌های چندگزینه‌ای، و قابلیت کشیدن و رها کردن (Drag & Drop).
- * Version: 1.5
- * Release: نسخه ی بازگشت به متن طولانی
+ * Version: 1.5.1
+ * Release: نسخهٔ پایدار بدون ایراد برای متن طولانی
  * Author: طرح نو
  * Author URI: https://example.com/
  * License: GPL2
