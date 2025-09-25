@@ -1,3 +1,14 @@
+سیستم خودت:
+
+برگشت به نسخه: git checkout v1.5.2
+یا ساخت شاخه از روی تگ: git checkout -b hotfix/from-v1.5.2 v1.5.2
+نقاط بازگشت اضافی:
+
+قبل از هم‌سوسازی با ریموت: backup/pre-origin-sync-20250925
+قبل از مرج چندگزینه‌ای: backup/pre-mc-merge-20250925
+
+
+
 بله" data-off="خیر"></span>\
                                                                 <span class="vc-switch-handle"></span>\
                                                             </label>\

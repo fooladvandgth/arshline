@@ -1039,7 +1039,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                         </label>
                                     </div>
                                 </div>
-                                <!-- media upload controls (image + optional video) -->
+                                <!-- media upload controls (image only) -->
                                 <div id="fMediaWrap" style="display:none;margin-top:8px;">
                                     <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
                                         <label class="hint">آپلود تصویر سؤال (JPG/PNG تا 300KB)</label>
@@ -1049,12 +1049,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                             </div>
                                         <span id="fImageError" class="hint" style="color:#b91c1c;display:none"></span>
                                     </div>
-                                    <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
-                                        <label class="hint">آپلود ویدئو (اختیاری)</label>
-                                        <input id="fVideoFile" type="file" accept="video/*" style="margin-bottom:4px" />
-                                        <div id="fVideoPreview" style="display:none;margin-bottom:6px"></div>
-                                        <span id="fVideoError" class="hint" style="color:#b91c1c;display:none"></span>
-                                    </div>
                                 </div>
                                 <div style="margin-top:12px">
                                     <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>
@@ -1063,7 +1057,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         if (pWrap) {
                             pWrap.innerHTML = `
                                 <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>
-                                <div id="pvMedia" style="margin-bottom:6px">${field.video_url?('<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><video controls src="'+(field.video_url||'')+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px"></video></div>') : (field.image_url?('<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><img id="pvImage" src="'+(field.image_url||'')+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px" /></div>') : '')}</div>
+                                <div id="pvMedia" style="margin-bottom:6px">${field.image_url?('<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><img id="pvImage" src="'+(field.image_url||'')+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px" /></div>') : ''}</div>
                                 <div id="pvQuestion" class="hint" style="display:none;margin-bottom:.25rem"></div>
                                 <div id="pvDesc" class="hint" style="display:none;margin-bottom:.35rem"></div>
                                 <textarea id="pvInput" class="ar-input" style="width:100%" rows="4"></textarea>
@@ -1103,8 +1097,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var mediaWrap = document.getElementById('pvMedia');
                             if (mediaWrap){
                                 try {
-                                    if (p.video_url){ mediaWrap.innerHTML = '<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><video controls src="'+p.video_url+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px"></video></div>'; mediaWrap.style.display = 'block'; }
-                                    else if (p.image_url){ mediaWrap.innerHTML = '<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><img src="'+p.image_url+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px" /></div>'; mediaWrap.style.display = 'block'; }
+                                    if (p.image_url){ mediaWrap.innerHTML = '<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><img src="'+p.image_url+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px" /></div>'; mediaWrap.style.display = 'block'; }
                                     else { mediaWrap.innerHTML = ''; mediaWrap.style.display = 'none'; }
                                
                                 } catch(_){ /* ignore */ }
@@ -1208,7 +1201,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 field.media_upload = !!mediaUp.checked; 
                                 if (mediaWrap) mediaWrap.style.display = mediaUp.checked ? 'block' : 'none';
                                 // when disabling, clear previews
-                                if (!mediaUp.checked){ try { if (imgPrev){ imgPrev.src=''; imgPrev.style.display='none'; } if (videoPrev){ videoPrev.innerHTML=''; videoPrev.style.display='none'; } } catch(_){ }
+                                if (!mediaUp.checked){ try { if (imgPrev){ imgPrev.src=''; imgPrev.style.display='none'; } } catch(_){ }
                                 }
                                 updateHiddenProps(field); setDirty(true); 
                             }); 
@@ -1231,25 +1224,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             });
                         }
 
-                        // Video upload basic handling (placeholder): accept small videos but server may reject if too large
-                        if (videoFile && videoPrev && videoErr){
-                            videoFile.addEventListener('change', function(){
-                                var file = videoFile.files[0];
-                                if (!file) return;
-                                // Basic client-side type check
-                                if (!file.type.startsWith('video/')) { videoErr.textContent = 'فایل ویدئویی معتبر نیست.'; videoErr.style.display = 'block'; return; }
-                                // optional client-side size limit (e.g., 5MB) to prevent accidental huge uploads
-                                if (file.size > 5 * 1024 * 1024) { videoErr.textContent = 'حداکثر حجم ویدئو 5MB است.'; videoErr.style.display = 'block'; return; }
-                                videoErr.style.display = 'none';
-                                var fd = new FormData(); fd.append('file', file);
-                                videoFile.disabled = true;
-                                fetch(ARSHLINE_REST + 'upload', { method:'POST', credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE }, body: fd })
-                                    .then(async function(r){ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                                    .then(function(obj){ if (obj && obj.url){ try { field.video_url = obj.url; if (videoPrev){ videoPrev.innerHTML = '<video controls src="'+obj.url+'" style="max-width:100%;border-radius:8px"></video>'; videoPrev.style.display = 'block'; } updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); } catch(_){ } } })
-                                    .catch(function(){ videoErr.textContent = 'آپلود ویدئو ناموفق بود.'; videoErr.style.display = 'block'; })
-                                    .finally(function(){ videoFile.disabled = false; videoFile.value = ''; });
-                            });
-                        }
+                        // Video upload removed (image-only policy)
                         applyPreviewFrom(field);
                         var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
                         return;
@@ -1386,7 +1361,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var ft = fieldType || 'short_text';
             var defaultProps;
             if (ft === 'long_text'){
-                defaultProps = { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:true };
+                defaultProps = { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:false };
             } else if (ft === 'multiple_choice' || ft === 'multiple-choice'){
                 defaultProps = { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true };
             } else {
@@ -1744,7 +1719,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                         dlog('drop:loaded-fields', arr.length);
                                         var newField;
                                         if (t === 'long_text') {
-                                            newField = { type: 'long_text', label: 'پاسخ طولانی', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true, min_length: 0, max_length: 5000, media_upload: true };
+                                            newField = { type: 'long_text', label: 'پاسخ طولانی', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true, min_length: 0, max_length: 5000, media_upload: false };
                                         } else if (t === 'multiple_choice' || t === 'multiple-choice') {
                                             newField = { type: 'multiple_choice', label: 'سوال چندگزینه‌ای', options: [{ label: 'گزینه 1', value: 'opt_1', second_label: '', media_url: '' }], multiple: false, required: false, vertical: true, randomize: false, numbered: true };
                                         } else {
