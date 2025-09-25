@@ -310,12 +310,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         type: 'dropdown',
         defaults: { type:'dropdown', label:'لیست کشویی', question:'', required:false, numbered:true, show_description:false, description:'', placeholder:'', options:[{ label:'گزینه 1', value:'opt_1' }], randomize:false, alpha_sort:false }
     });
+    ARSH.Tools.register({
+        type: 'rating',
+        defaults: { type:'rating', label:'امتیازدهی', question:'', required:false, numbered:true, show_description:false, description:'', max:5, icon:'star', media_upload:false }
+    });
     </script>
     <!-- Load external tool modules (must come after Tools registry) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/long_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/multiple_choice.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
@@ -559,7 +564,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 case 'mobile_intl': return '+14155552671';
                 case 'tel': return '021-12345678';
                 case 'numeric': return '123456';
-                case 'national_id_ir': return '0012345678';
+                case 'rating': return 'star-outline'; // Added case for rating
                 case 'postal_code_ir': return '1234567890';
                 case 'fa_letters': return 'مثال فارسی';
                 case 'en_letters': return 'Sample text';
@@ -707,6 +712,29 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             dOpts.forEach(function(o){ selHtml += '<option value="'+escapeAttr(o.value||'')+'">'+escapeHtml(o.label||'')+'</option>'; });
                             selHtml += '</select>';
                             row.innerHTML = questionBlock + selHtml + (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
+                        } else if (type === 'rating') {
+                            var count = parseInt(p.max||5); if (isNaN(count) || count<1) count=1; if (count>20) count=20;
+                            var key = String(p.icon||'star');
+                            function mapIcon(k){
+                                switch(k){
+                                    case 'heart': return { solid:'heart', outline:'heart-outline' };
+                                    case 'thumb': return { solid:'thumbs-up', outline:'thumbs-up-outline' };
+                                    case 'medal': return { solid:'ribbon', outline:'ribbon-outline' };
+                                    case 'smile': return { solid:'happy', outline:'happy-outline' };
+                                    case 'sad': return { solid:'sad', outline:'sad-outline' };
+                                    default: return { solid:'star', outline:'star-outline' };
+                                }
+                            }
+                            var names = mapIcon(key);
+                            var icons = '';
+                            for (var ri=1; ri<=count; ri++){
+                                icons += '<span class="ar-rating-icon" data-value="'+ri+'" style="cursor:pointer;font-size:1.5rem;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;margin-inline-start:.15rem;">'
+                                    + '<ion-icon name="'+names.outline+'"></ion-icon>'
+                                    + '</span>';
+                            }
+                            var ratingHtml = '<div class="ar-rating-wrap" data-icon-solid="'+names.solid+'" data-icon-outline="'+names.outline+'" data-field-id="'+f.id+'" role="radiogroup" aria-label="امتیاز" style="display:flex;align-items:center;gap:.1rem;">'+icons+'</div>'
+                                + '<input type="hidden" id="'+inputId+'" data-field-id="'+f.id+'" value="" />';
+                            row.innerHTML = questionBlock + ratingHtml + (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
                         } else {
                             row.innerHTML = questionBlock +
                                 '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'" />' +
@@ -723,6 +751,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             try { jQuery(inp).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
                         }
                     });
+                    // Wire up rating interactions: click to set value and update icons
+                    try {
+                        Array.from(fwrap.querySelectorAll('.ar-rating-wrap')).forEach(function(wrap){
+                            var solid = wrap.getAttribute('data-icon-solid') || 'star';
+                            var outline = wrap.getAttribute('data-icon-outline') || 'star-outline';
+                            var hidden = wrap.nextElementSibling;
+                            var items = Array.from(wrap.querySelectorAll('.ar-rating-icon'));
+                            function update(v){ items.forEach(function(el, idx){ var ion = el.querySelector('ion-icon'); if (ion){ ion.setAttribute('name', idx < v ? solid : outline); } el.style.color = idx < v ? 'var(--primary)' : 'var(--muted)'; }); if (hidden) hidden.value = String(v||''); }
+                            items.forEach(function(el){
+                                el.addEventListener('click', function(){ var v = parseInt(el.getAttribute('data-value')||'0')||0; update(v); });
+                                el.setAttribute('tabindex','0');
+                                el.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' '){ e.preventDefault(); var v = parseInt(el.getAttribute('data-value')||'0')||0; update(v); } });
+                            });
+                            update(0);
+                        });
+                    } catch(_){ }
                     document.getElementById('arPreviewSubmit').onclick = function(){
                         var vals = [];
                         // include both inputs and textareas
@@ -1653,6 +1697,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '  <span>افزودن سؤال چندگزینه‌ای</span>'
                 + '</button>'
                 + '<div style="height:.5rem"></div>'
+                + '<button id="arAddRating" class="ar-btn ar-toolbtn" draggable="true">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('rating')+'"></ion-icon></span>'
+                + '  <span>افزودن امتیازدهی</span>'
+                + '</button>'
+                + '<div style="height:.5rem"></div>'
                 + '<button id="arAddDropdown" class="ar-btn ar-toolbtn" draggable="true">'
                 + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('dropdown')+'"></ion-icon></span>'
                 + '  <span>افزودن لیست کشویی</span>'
@@ -1963,7 +2012,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 t = '';
                             }
                             dlog('drop:tool', t);
-                            if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || t === 'dropdown' || draggingTool) {
+                            if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || t === 'dropdown' || t === 'rating' || draggingTool) {
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
                                 dlog('drop:insertAt', insertAt);
@@ -2095,6 +2144,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
                 addDdBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
             }
+            var addRatingBtn = document.getElementById('arAddRating');
+            if (addRatingBtn){
+                addRatingBtn.setAttribute('draggable','true');
+                var newAddRatingBtn = addRatingBtn.cloneNode(true);
+                addRatingBtn.parentNode.replaceChild(newAddRatingBtn, addRatingBtn);
+                addRatingBtn = newAddRatingBtn;
+                addRatingBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'rating'); });
+                addRatingBtn.addEventListener('dragstart', function(e){
+                    draggingTool = true;
+                    try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
+                    try { e.dataTransfer.setData('application/arshline-tool','rating'); } catch(_){ }
+                    try { e.dataTransfer.setData('text/plain','rating'); } catch(_){ }
+                    try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'امتیازدهی'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
+                });
+                addRatingBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+            }
             var addWelcomeBtn = document.getElementById('arAddWelcome');
             if (addWelcomeBtn){
                 // Remove any existing event listeners by cloning the node
@@ -2147,6 +2212,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     else if (t === 'long_text') addNewField(id, 'long_text');
                     else if (t === 'multiple_choice' || t === 'multiple-choice') addNewField(id, 'multiple_choice');
                     else if (t === 'dropdown') addNewField(id, 'dropdown');
+                    else if (t === 'rating') addNewField(id, 'rating');
                 });
             }
         }
@@ -2426,7 +2492,7 @@ function applyInputMask(inp, props){
             case 'mobile_intl': inp.value = inp.value.replace(/(?!^)[^\d]/g,'').replace(/^([^+\d])+/,''); if (!inp.value.startsWith('+')) inp.value = '+'+inp.value.replace(/\+/g,''); inp.value = inp.value.replace(/(.*\d{15}).*$/, '$1'); break;
             case 'tel': inp.value = inp.value.replace(/[^0-9\-\+\s\(\)]/g,''); break;
             case 'ip': inp.value = inp.value.replace(/[^0-9\.]/g,'').replace(/\.\.+/g,'.'); break;
-            case 'time': inp.value = inp.value.replace(/[^0-9]/g,''); if (inp.value.length>2) inp.value = inp.value.slice(0,2)+":"+inp.value.slice(2,4); if (inp.value.length>5) inp.value = inp.value.slice(0,5); break;
+                case 'rating': return 'امتیازدهی'; // Added label for rating
             case 'fa_letters': allowChars(/[\u0600-\u06FF\s]/g); break;
             case 'en_letters': allowChars(/[A-Za-z\s]/g); break;
             case 'date_jalali': inp.value = inp.value.replace(/[^0-9/]/g,'').slice(0,10); break;
