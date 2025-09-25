@@ -162,6 +162,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
+    /* Standard toggle switch */
+    .toggle-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+    .toggle-switch input { display:none; }
+    .toggle-switch-background { position:absolute; inset:0; background: #cbd5e1; border-radius: 999px; transition: background .18s ease; }
+    .toggle-switch-handle { position:absolute; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform .18s ease; }
+    /* RTL and LTR handle placement */
+    [dir='rtl'] .toggle-switch-handle { left: 3px; }
+    [dir='rtl'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(22px); }
+    [dir='ltr'] .toggle-switch-handle { right: 3px; }
+    [dir='ltr'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(-22px); }
+    .toggle-switch input:checked ~ .toggle-switch-background { background: #22c55e; }
     /* Small type icon next to tools/questions */
     .ar-type-ic { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; color: var(--muted); }
     .ar-toolbtn { position: relative; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; width:100%; padding-inline-start: 40px; }
@@ -295,11 +306,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         type: 'multiple_choice',
         defaults: { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true }
     });
+    ARSH.Tools.register({
+        type: 'dropdown',
+        defaults: { type:'dropdown', label:'لیست کشویی', question:'', required:false, numbered:true, show_description:false, description:'', placeholder:'', options:[{ label:'گزینه 1', value:'opt_1' }], randomize:false, alpha_sort:false }
+    });
     </script>
     <!-- Load external tool modules (must come after Tools registry) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/long_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/multiple_choice.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
@@ -507,6 +523,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 case 'long_text': return 'newspaper-outline'; // document-like
                 case 'multiple_choice':
                 case 'multiple-choice': return 'list-outline';
+                case 'dropdown': return 'chevron-down-outline';
                 case 'welcome': return 'happy-outline';
                 case 'thank_you': return 'checkmark-done-outline';
                 default: return 'help-circle-outline';
@@ -518,6 +535,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 case 'long_text': return 'پاسخ طولانی';
                 case 'multiple_choice':
                 case 'multiple-choice': return 'چندگزینه‌ای';
+                case 'dropdown': return 'لیست کشویی';
                 case 'welcome': return 'پیام خوش‌آمد';
                 case 'thank_you': return 'پیام تشکر';
                 default: return 'نامشخص';
@@ -680,6 +698,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             html += '</div>';
                             row.innerHTML = questionBlock + html +
                                 (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
+                        } else if (type === 'dropdown') {
+                            var dOpts = (p.options || []).slice();
+                            if (p.alpha_sort){ dOpts.sort(function(a,b){ return String(a.label||'').localeCompare(String(b.label||''), 'fa'); }); }
+                            if (p.randomize){ for (var z=dOpts.length-1; z>0; z--){ var j=Math.floor(Math.random()*(z+1)); var tmp=dOpts[z]; dOpts[z]=dOpts[j]; dOpts[j]=tmp; } }
+                            var selHtml = '<select id="'+inputId+'" class="ar-input" style="width:100%" data-field-id="'+f.id+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'">';
+                            selHtml += '<option value="">'+escapeHtml(p.placeholder || 'انتخاب کنید')+'</option>';
+                            dOpts.forEach(function(o){ selHtml += '<option value="'+escapeAttr(o.value||'')+'">'+escapeHtml(o.label||'')+'</option>'; });
+                            selHtml += '</select>';
+                            row.innerHTML = questionBlock + selHtml + (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
                         } else {
                             row.innerHTML = questionBlock +
                                 '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'" />' +
@@ -1626,6 +1653,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '  <span>افزودن سؤال چندگزینه‌ای</span>'
                 + '</button>'
                 + '<div style="height:.5rem"></div>'
+                + '<button id="arAddDropdown" class="ar-btn ar-toolbtn" draggable="true">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('dropdown')+'"></ion-icon></span>'
+                + '  <span>افزودن لیست کشویی</span>'
+                + '</button>'
+                + '<div style="height:.5rem"></div>'
                 + '<button id="arAddWelcome" class="ar-btn ar-toolbtn">'
                 + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('welcome')+'"></ion-icon></span>'
                 + '  <span>افزودن پیام خوش‌آمد</span>'
@@ -1931,7 +1963,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 t = '';
                             }
                             dlog('drop:tool', t);
-                            if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || draggingTool) {
+                            if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || t === 'dropdown' || draggingTool) {
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
                                 dlog('drop:insertAt', insertAt);
@@ -2047,6 +2079,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
                 addMcBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
             }
+            var addDdBtn = document.getElementById('arAddDropdown');
+            if (addDdBtn){
+                addDdBtn.setAttribute('draggable','true');
+                var newAddDdBtn = addDdBtn.cloneNode(true);
+                addDdBtn.parentNode.replaceChild(newAddDdBtn, addDdBtn);
+                addDdBtn = newAddDdBtn;
+                addDdBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'dropdown'); });
+                addDdBtn.addEventListener('dragstart', function(e){
+                    draggingTool = true;
+                    try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
+                    try { e.dataTransfer.setData('application/arshline-tool','dropdown'); } catch(_){ }
+                    try { e.dataTransfer.setData('text/plain','dropdown'); } catch(_){ }
+                    try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'لیست کشویی'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
+                });
+                addDdBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+            }
             var addWelcomeBtn = document.getElementById('arAddWelcome');
             if (addWelcomeBtn){
                 // Remove any existing event listeners by cloning the node
@@ -2098,6 +2146,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (t === 'short_text') addNewField(id);
                     else if (t === 'long_text') addNewField(id, 'long_text');
                     else if (t === 'multiple_choice' || t === 'multiple-choice') addNewField(id, 'multiple_choice');
+                    else if (t === 'dropdown') addNewField(id, 'dropdown');
                 });
             }
         }
