@@ -569,7 +569,20 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             return r; });
                 })
                 .then(async r=>{ if(!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); else notify('اجازهٔ انجام این عملیات را ندارید. لطفاً وارد شوید یا با مدیر تماس بگیرید.', 'error'); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                .then(function(){ notify('ذخیره شد', 'success'); return true; })
+                .then(function(){
+                    notify('ذخیره شد', 'success');
+                    // Ensure we navigate back to the form builder after a successful save
+                    try {
+                        var b = document.getElementById('arBuilder');
+                        var idStr = b ? (b.getAttribute('data-form-id') || '0') : '0';
+                        var idNum = parseInt(idStr);
+                        if (!isNaN(idNum) && idNum > 0){
+                            try { renderFormBuilder(idNum); }
+                            catch(_){ if (typeof window.renderFormBuilder === 'function') window.renderFormBuilder(idNum); }
+                        }
+                    } catch(_) { /* no-op */ }
+                    return true;
+                })
                 .catch(function(e){ console.error(e); notify('ذخیره تغییرات ناموفق بود', 'error'); return false; })
                 .finally(function(){ if (btn){ btn.disabled = false; btn.textContent = 'ذخیره'; }});
         }
@@ -2192,6 +2205,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             a.addEventListener('click', function(e){ e.preventDefault(); renderTab(a.getAttribute('data-tab')); });
             a.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); renderTab(a.getAttribute('data-tab')); }});
         });
+
+        // Expose navigators globally for external modules (editors) to call after save
+        try {
+            window.renderFormBuilder = renderFormBuilder;
+            window.renderFormEditor = renderFormEditor;
+            window.renderFormPreview = renderFormPreview;
+        } catch(_){}
 
         // default tab
         if (location.hash){ routeFromHash(); }
