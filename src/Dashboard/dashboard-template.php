@@ -747,18 +747,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var field = base.props || base || defaultProps;
                     var fType = field.type || base.type || 'short_text';
                     // ensure defaults by type
-                    if (fType === 'multiple_choice' || fType === 'multiple-choice') {
-                        field.type = 'multiple_choice';
-                        field.label = 'سوال چندگزینه‌ای';
-                        if (!field.options || !Array.isArray(field.options)) {
-                            field.options = [{ label: 'گزینه 1', value: 'opt_1', second_label: '', media_url: '' }];
-                        }
-                        if (typeof field.multiple === 'undefined') field.multiple = false;
-                        if (typeof field.required === 'undefined') field.required = false;
-                        if (typeof field.vertical === 'undefined') field.vertical = true;
-                        if (typeof field.randomize === 'undefined') field.randomize = false;
-                        if (typeof field.numbered === 'undefined') field.numbered = true;
-                    } else if (fType === 'short_text'){
+                    if (fType === 'short_text'){
                         field.type = 'short_text';
                         field.label = 'پاسخ کوتاه';
                     } else if (fType === 'welcome'){
@@ -777,8 +766,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     // inject hidden props
                     var canvasEl = document.querySelector('#arCanvas .ar-item');
                     if (canvasEl) canvasEl.setAttribute('data-props', JSON.stringify(field));
-                    // Only render the correct field type UI (fix double-render)
-                    if (field.type === 'long_text' || field.type === 'longtext' || field.type === 'long-text') {
+                    // Only render the correct field type UI (fix double-render)  
+                    if (field.type === 'multiple_choice' || field.type === 'multiple-choice') {
+                        console.log('[DEBUG] Rendering multiple choice UI');
+                        // Skip to the existing multiple choice block below
+                        // This is handled by the existing code at line ~1056
+                    } else if (field.type === 'long_text' || field.type === 'longtext' || field.type === 'long-text') {
                         var sWrap = document.querySelector('.ar-settings');
                         var pWrap = document.querySelector('.ar-preview');
                         if (sWrap) {
@@ -1262,8 +1255,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var qIndex = 1;
                             try {
                                 var beforeCount = 0;
-                                (fields||[]).forEach(function(ff, i3){ if (i3 <= idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
-                                qIndex = beforeCount;
+                                (fields||[]).forEach(function(ff, i3){ if (i3 < idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
+                                qIndex = beforeCount + 1;
                             } catch(_){ qIndex = (idx+1); }
                             var numPrefix = (p.numbered ? (qIndex + '. ') : '');
                             var sanitized = sanitizeQuestionHtml(showQ || '');
