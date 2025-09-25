@@ -245,6 +245,34 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
     </script>
     <script>
+    // Lightweight Tools Registry (foundation for modular tools)
+    // Usage: ARSH.Tools.register({ type, defaults, /* later: renderEditor, renderPreview */ })
+    //        const d = ARSH.Tools.getDefaults('long_text')
+    window.ARSH = window.ARSH || {};
+    (function(ns){
+        var _defs = Object.create(null);
+        function register(def){ if (!def || !def.type) return; _defs[def.type] = def; }
+        function get(type){ return _defs[type] || null; }
+        function clone(obj){ try { return JSON.parse(JSON.stringify(obj)); } catch(_) { return obj; } }
+        function getDefaults(type){ var d = get(type); return d && d.defaults ? clone(d.defaults) : null; }
+        ns.Tools = { register: register, get: get, getDefaults: getDefaults };
+    })(window.ARSH);
+
+    // Register core tools with centralized defaults
+    ARSH.Tools.register({
+        type: 'short_text',
+        defaults: { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true }
+    });
+    ARSH.Tools.register({
+        type: 'long_text',
+        defaults: { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:false }
+    });
+    ARSH.Tools.register({
+        type: 'multiple_choice',
+        defaults: { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true }
+    });
+    </script>
+    <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
@@ -1359,14 +1387,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         function addNewField(formId, fieldType){
             dlog('addNewField:start', { formId: formId, fieldType: fieldType });
             var ft = fieldType || 'short_text';
-            var defaultProps;
-            if (ft === 'long_text'){
-                defaultProps = { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:false };
-            } else if (ft === 'multiple_choice' || ft === 'multiple-choice'){
-                defaultProps = { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true };
-            } else {
-                defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
-            }
+            var defaultProps = (ARSH && ARSH.Tools && ARSH.Tools.getDefaults(ft))
+                || (ARSH && ARSH.Tools && ARSH.Tools.getDefaults('short_text'))
+                || { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
             fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
@@ -1718,13 +1741,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                         var arr = (data && data.fields) ? data.fields.slice() : [];
                                         dlog('drop:loaded-fields', arr.length);
                                         var newField;
-                                        if (t === 'long_text') {
-                                            newField = { type: 'long_text', label: 'پاسخ طولانی', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true, min_length: 0, max_length: 5000, media_upload: false };
-                                        } else if (t === 'multiple_choice' || t === 'multiple-choice') {
-                                            newField = { type: 'multiple_choice', label: 'سوال چندگزینه‌ای', options: [{ label: 'گزینه 1', value: 'opt_1', second_label: '', media_url: '' }], multiple: false, required: false, vertical: true, randomize: false, numbered: true };
-                                        } else {
-                                            newField = { type: 'short_text', label: 'پاسخ کوتاه', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true };
-                                        }
+                                        var wantType = (t === 'multiple-choice') ? 'multiple_choice' : t;
+                                        newField = (ARSH && ARSH.Tools && ARSH.Tools.getDefaults(wantType))
+                                            || (ARSH && ARSH.Tools && ARSH.Tools.getDefaults('short_text'))
+                                            || { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
                                         var hasWelcome = arr.findIndex(function (x) { var p = x.props || x; return (p.type || x.type) === 'welcome'; }) !== -1;
                                         var hasThank = arr.findIndex(function (x) { var p = x.props || x; return (p.type || x.type) === 'thank_you'; }) !== -1;
                                         var baseOffset = hasWelcome ? 1 : 0;
