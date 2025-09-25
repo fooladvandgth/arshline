@@ -224,12 +224,25 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-input--invalid { border-color: #b91c1c !important; box-shadow: 0 0 0 3px rgba(185,28,28,.12); }
     .ar-required { color:#b91c1c; margin: 0 .2rem; font-weight: 700; }
     .ar-field-error { color:#b91c1c; margin-top:.3rem; display:none; }
+    /* Hide editor panels while initial data is loading to prevent UI flash */
+    #arBuilder.editor-loading .ar-settings, #arBuilder.editor-loading .ar-preview { visibility: hidden; opacity: 0; height: 0; overflow: hidden; }
      </style>
     <script>
     const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
     const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
     const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
     const ARSHLINE_LOGIN_URL = '<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>';
+    
+    // Regression guard: validate critical constants are properly escaped
+    if (typeof ARSHLINE_REST !== 'string' || typeof ARSHLINE_NONCE !== 'string' || 
+        typeof ARSHLINE_CAN_MANAGE !== 'boolean' || typeof ARSHLINE_LOGIN_URL !== 'string') {
+        console.error('ARSHLINE: Invalid configuration constants detected. Check PHP output escaping.');
+    }
+    </script>
+    <script>
+    // Lightweight debug logger (toggle via window.ARSHDBG = 0/1 in DevTools)
+    window.ARSHDBG = (typeof window.ARSHDBG === 'undefined') ? 1 : window.ARSHDBG; // default ON
+    function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
     </script>
     <script>
     // Tabs: render content per menu item
@@ -241,6 +254,51 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         // Debug helpers
         var AR_DEBUG = false;
         try { AR_DEBUG = (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+    // Optional capture mode: set localStorage.arshDebugCapture = '1' to enable
+    try {
+        if (localStorage.getItem('arshDebugCapture') === '1') {
+            window._arConsoleLog = [];
+            (function(){
+                var methods = ['log','warn','error','info'];
+                methods.forEach(function(m){
+                    var orig = console[m] ? console[m].bind(console) : function(){};
+                    console[m] = function(){
+                        try {
+                            window._arConsoleLog.push({ level: m, args: Array.from(arguments), ts: Date.now() });
+                        } catch(_){ }
+                        try {
+                            orig.apply(console, arguments);
+                        } catch(_){ }
+                    };
+                });
+                // small overlay
+                var ov = document.createElement('div');
+                ov.id = 'arsh-console-capture';
+                ov.style.cssText = 'position:fixed;left:8px;bottom:8px;max-width:420px;max-height:220px;overflow:auto;background:rgba(0,0,0,.8);color:#fff;padding:8px;border-radius:8px;font-size:12px;z-index:99999;';
+                ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>';
+                ov.addEventListener('click', function(){
+                    try {
+                        ov.style.display = 'none';
+                    } catch(_){ }
+                });
+                document.body.appendChild(ov);
+                window._arLogDump = function(){
+                    try {
+                        if (!window._arConsoleLog) return;
+                        ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>' + window._arConsoleLog.slice(-200).map(function(r){
+                            return '<div style="margin-bottom:4px;color:' + (r.level === 'error' ? '#ff8080' : (r.level === 'warn' ? '#ffd080' : '#d0d0ff')) + '">[' + new Date(r.ts).toLocaleTimeString() + '] <b>' + r.level + '</b> ' + r.args.map(function(a){
+                                try {
+                                    return (typeof a === 'string') ? a : JSON.stringify(a);
+                                } catch(_){
+                                    return String(a);
+                                }
+                            }).join(' ') + '</div>';
+                        }).join('');
+                    } catch(_){ }
+                };
+            })();
+        }
+    } catch(_){ }
         function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
         function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
         function cerror(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
@@ -272,6 +330,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     .replace(/>/g,'&gt;');
             } catch(_){ return String(s||''); }
         }
+
+        function escapeHtml(s){
+            try {
+                return String(s||'')
+                    .replace(/&/g,'&amp;')
+                    .replace(/</g,'&lt;')
+                    .replace(/>/g,'&gt;')
+                    .replace(/"/g,'&quot;')
+                    .replace(/'/g,'&#39;');
+            } catch(_){ return String(s||''); }
+        }
         function sanitizeQuestionHtml(html){
             try {
                 var wrapper = document.createElement('div');
@@ -281,7 +350,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var child = node.firstChild;
                     while(child){
                         var next = child.nextSibling;
-                        if (child.nodeType === 1){
+                            if (child.nodeType === 1){
                             var tag = child.tagName;
                             // Convert <font color> to <span style="color:...">
                             if (tag === 'FONT'){
@@ -293,17 +362,35 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                     node.replaceChild(span, child);
                                     child = span;
                                     tag = 'SPAN';
-                                } catch(_){}
+                                } catch(_){ }
                             }
                             if (!allowed[tag]){
                                 while(child.firstChild){ node.insertBefore(child.firstChild, child); }
                                 node.removeChild(child);
                             } else {
-                                for (var i = child.attributes.length - 1; i >= 0; i--) { child.removeAttribute(child.attributes[i].name); }
-                                if (tag === 'SPAN'){
-                                    var color = child.style && child.style.color ? child.style.color : '';
-                                    if (color){ child.setAttribute('style','color:'+color); } else { child.removeAttribute('style'); }
-                                }
+                                                // Preserve inline color on <span> before stripping attributes.
+                                                // We allow a minimal style attribute that only contains a color declaration (e.g. "color:#ff0000" or "color: rgb(...)").
+                                                var savedColor = '';
+                                                try {
+                                                    if (tag === 'SPAN') {
+                                                        // prefer inline style color first, fall back to color attribute (from converted <font>)
+                                                        savedColor = '';
+                                                        try { if (child.style && child.style.color) savedColor = child.style.color; } catch(_){}
+                                                        try { if (!savedColor && child.getAttribute && child.getAttribute('color')) savedColor = child.getAttribute('color'); } catch(_){}
+                                                        if (savedColor) {
+                                                            // normalize common hex shorthand and spaces
+                                                            savedColor = String(savedColor).trim();
+                                                        }
+                                                    }
+                                                } catch(_){ savedColor = ''; }
+                                                // Remove all attributes then reapply only a safe style if color exists
+                                                for (var i = child.attributes.length - 1; i >= 0; i--) { try { child.removeAttribute(child.attributes[i].name); } catch(_){} }
+                                                if (tag === 'SPAN'){
+                                                    if (savedColor){
+                                                        // very small whitelist: only set color in the style attribute
+                                                        try { child.setAttribute('style', 'color:' + savedColor); } catch(_) { }
+                                                    } else { try { child.removeAttribute('style'); } catch(_){} }
+                                                }
                                 walk(child);
                             }
                         }
@@ -329,8 +416,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             if (!raw){ renderTab('dashboard'); return; }
             var parts = raw.split('/');
             if (['dashboard','forms','submissions','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
-            if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormBuilder(id); return; } }
-            if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
+            if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
+            if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
             if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
             renderTab('dashboard');
         }
@@ -402,18 +489,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var builder = document.getElementById('arBuilder');
             var id = parseInt(builder.dataset.formId||'0');
             var idx = parseInt(builder.dataset.fieldIndex||'-1');
+            dlog('saveFields:start', { id: id, idx: idx });
             var canvas = document.getElementById('arCanvas');
             var edited = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); })[0] || {};
+            dlog('saveFields:edited', edited);
             var btn = document.getElementById('arSaveFields');
             if (btn){ btn.disabled = true; btn.textContent = 'در حال ذخیره...'; }
+            // Safety guard: if index is invalid, abort to prevent inadvertent array growth
+            if (isNaN(idx) || idx < 0){
+                dlog('saveFields:invalid-idx-abort', idx);
+                notify('مکان فیلد نامعتبر است. لطفاً صفحه را نوسازی کنید و دوباره تلاش کنید.', 'error');
+                if (btn){ btn.disabled = false; btn.textContent = 'ذخیره'; }
+                return Promise.resolve(false);
+            }
             if (!ARSHLINE_CAN_MANAGE){ notify('برای ویرایش فرم باید وارد شوید یا دسترسی داشته باشید', 'error'); if (btn){ btn.disabled=false; btn.textContent='ذخیره'; } return Promise.resolve(false); }
             return fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
+                    dlog('saveFields:loaded-current-fields', (data&&data.fields)?data.fields.length:0);
                     var arr = (data && data.fields) ? data.fields.slice() : [];
                     if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
                     else { arr.push(edited); }
-                    return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) });
+                    try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - sending field.question (sample):', String(edited.question||'').slice(0,200)); } catch(_){ }
+                    try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - full payload fields count:', arr.length); } catch(_){ }
+                    dlog('saveFields:payload', arr);
+                    return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
+                        .then(async function(r){ try { var txt = await r.clone().text(); try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - server response text:', txt); } catch(_){ } } catch(_){ }
+                            return r; });
                 })
                 .then(async r=>{ if(!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); else notify('اجازهٔ انجام این عملیات را ندارید. لطفاً وارد شوید یا با مدیر تماس بگیرید.', 'error'); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(){ notify('ذخیره شد', 'success'); return true; })
@@ -440,7 +542,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var fwrap = document.getElementById('arFormPreviewFields');
                     var qNum = 0;
                     var questionProps = [];
-                    (data.fields||[]).forEach(function(f){
+                        (data.fields||[]).forEach(function(f){
                         var p = f.props || f;
                         var type = p.type || f.type || 'short_text';
                         if (type === 'welcome' || type === 'thank_you'){
@@ -450,7 +552,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var heading = (p.heading && String(p.heading).trim()) || (type==='welcome'?'پیام خوش‌آمد':'پیام تشکر');
                             var message = (p.message && String(p.message).trim()) || '';
                             var img = (p.image_url && String(p.image_url).trim()) ? ('<div style="margin-bottom:.4rem"><img src="'+String(p.image_url).trim()+'" alt="" style="max-width:100%;border-radius:10px"/></div>') : '';
-                            block.innerHTML = (heading ? ('<div class="title" style="margin-bottom:.35rem;">'+heading+'</div>') : '') + img + (message ? ('<div class="hint">'+message+'</div>') : '');
+                            block.innerHTML = (heading ? ('<div class="title" style="margin-bottom:.35rem;">'+heading+'</div>') : '') + img + (message ? ('<div class="hint">'+escapeHtml(message)+'</div>') : '');
                             fwrap.appendChild(block);
                             return; // no input for message blocks
                         }
@@ -467,14 +569,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         var numberStr = numbered ? (qNum + '. ') : '';
                         var sanitizedQ = sanitizeQuestionHtml(showQ || '');
                         var ariaQ = htmlToText(sanitizedQ);
-                        row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '')+
-                            '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+escapeAttr(numberStr+ariaQ)+'"'):'') + ' />' +
-                            (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ (p.description||'') +'</div>') : '');
+                        if (type === 'long_text'){
+                            row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '')+
+                                '<textarea id="'+inputId+'" class="ar-input" style="width:100%" rows="4" placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+escapeAttr(numberStr+ariaQ)+'"'):'') + '></textarea>' +
+                                (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
+                        } else if (type === 'multiple_choice' || type === 'multiple-choice') {
+                            var opts = p.options || [];
+                            var vertical = (p.vertical !== false);
+                            var multiple = !!p.multiple;
+                            var html = '<div style="display:flex;flex-direction:'+(vertical?'column':'row')+';gap:.5rem;flex-wrap:wrap">';
+                            opts.forEach(function(o, i){
+                                var lbl = sanitizeQuestionHtml(o.label||'');
+                                var sec = o.second_label?('<div class="hint" style="font-size:.8rem">'+escapeHtml(o.second_label)+'</div>') : '';
+                                html += '<label style="display:flex;align-items:center;gap:.5rem;"><input type="'+(multiple?'checkbox':'radio')+'" name="mc_'+(f.id||i)+'" value="'+escapeAttr(o.value||'')+'" /> <span>'+lbl+'</span> '+sec+'</label>';
+                            });
+                            html += '</div>';
+                            row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '') + html +
+                                (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
+                        } else {
+                            row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '')+
+                                '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+escapeAttr(numberStr+ariaQ)+'"'):'') + ' />' +
+                                (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
+                        }
                         fwrap.appendChild(row);
                         questionProps.push(p);
                     });
-                    // apply masks
-                    fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
+                    // apply masks (include textarea for long_text)
+                    fwrap.querySelectorAll('input[data-field-id], textarea[data-field-id]').forEach(function(inp, idx){
                         var props = questionProps[idx] || {};
                         applyInputMask(inp, props);
                         if ((props.format||'') === 'date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){
@@ -483,7 +604,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     });
                     document.getElementById('arPreviewSubmit').onclick = function(){
                         var vals = [];
-                        fwrap.querySelectorAll('input[data-field-id]').forEach(function(inp, idx){
+                        // include both inputs and textareas
+                        Array.from(fwrap.querySelectorAll('input[data-field-id], textarea[data-field-id]')).forEach(function(inp, idx){
                             var fid = parseInt(inp.getAttribute('data-field-id')||'0');
                             vals.push({ field_id: fid, value: inp.value||'' });
                         });
@@ -497,9 +619,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function renderFormEditor(id, opts){
+            dlog('renderFormEditor:start', { id: id, opts: opts });
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             try { setSidebarClosed(true, false); } catch(_){ }
-            try { var idxHash = (opts && typeof opts.index!=='undefined') ? parseInt(opts.index) : 0; setHash('editor/'+id+'/'+(isNaN(idxHash)?0:idxHash)); } catch(_){ }
+            try {
+                var idxHashRaw = (opts && typeof opts.index!=='undefined') ? opts.index : 0;
+                var idxHash = parseInt(idxHashRaw);
+                if (isNaN(idxHash)) idxHash = 0;
+                setHash('editor/'+id+'/'+idxHash);
+            } catch(_){ }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
             var hiddenCanvas = '<div id="arCanvas" style="display:none"><div class="ar-item" data-props="{}"></div></div>';
@@ -594,14 +722,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 </div>\
             </div>' + hiddenCanvas;
 
-            document.getElementById('arEditorBack').onclick = function(){ renderFormBuilder(id); };
+            document.getElementById('arEditorBack').onclick = function(){ dlog('arEditorBack:click'); renderFormBuilder(id); };
             var prevBtnE = document.getElementById('arEditorPreview'); if (prevBtnE) prevBtnE.onclick = function(){ renderFormPreview(id); };
             content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
 
-            var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
+                    var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
+                    // Prevent UI flash: hide settings/preview until data fetch finishes
+                    try { var builderEl = document.getElementById('arBuilder'); if (builderEl){ builderEl.classList.add('editor-loading'); } } catch(_){ }
+                    var longTextDefaults = {
+                        type: 'long_text',
+                        label: 'پاسخ طولانی',
+                        format: 'free_text',
+                        required: false,
+                        show_description: false,
+                        description: '',
+                        placeholder: '',
+                        question: '',
+                        numbered: true,
+                        min_length: 0,
+                        max_length: 1000,
+                        media_upload: false
+                    };
             fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(r=>r.json())
                 .then(function(data){
+                    dlog('renderFormEditor:data-loaded', data && data.fields ? data.fields.length : 0);
+                    // Data loaded, reveal editor UI
+                    try { if (builderEl) builderEl.classList.remove('editor-loading'); } catch(_){ }
                     function setDirty(d){
                         try {
                             window._arDirty = !!d;
@@ -618,10 +765,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (titleEl) titleEl.textContent = creating ? ('ایجاد فرم — ' + (formTitle||(' #' + id))) : ('ویرایش فرم #' + id + (formTitle?(' — ' + formTitle):''));
                     var fields = data.fields || [];
                     var idx = fieldIndex;
-                    if (idx < 0 || idx >= fields.length) idx = 0;
+                    if (isNaN(idx) || idx < 0 || idx >= fields.length) idx = 0;
+                    // Keep builder dataset in sync so saveFields updates proper index
+                    try { var b = document.getElementById('arBuilder'); if (b) b.setAttribute('data-field-index', String(idx)); } catch(_){ }
+                    dlog('renderFormEditor:resolved-index', idx);
                     var base = fields[idx] || defaultProps;
                     var field = base.props || base || defaultProps;
                     var fType = field.type || base.type || 'short_text';
+                    dlog('renderFormEditor:field-type', fType);
                     // ensure defaults by type
                     if (fType === 'short_text'){
                         field.type = 'short_text';
@@ -642,73 +793,468 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     // inject hidden props
                     var canvasEl = document.querySelector('#arCanvas .ar-item');
                     if (canvasEl) canvasEl.setAttribute('data-props', JSON.stringify(field));
-                    // setup controls based on type
-                    if (field.type === 'welcome' || field.type === 'thank_you'){
+                    // Only render the correct field type UI (fix double-render)  
+                    if (field.type === 'multiple_choice' || field.type === 'multiple-choice') {
+                        console.log('[DEBUG] Rendering multiple choice UI');
+                        
+                        // Multiple choice editor panel
                         var sWrap = document.querySelector('.ar-settings');
                         var pWrap = document.querySelector('.ar-preview');
-                        if (sWrap){
-                            sWrap.innerHTML = '\
-                                <div class="title" style="margin-bottom:.6rem;">تنظیمات پیام</div>\
-                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
-                                    <label class="hint">عنوان</label>\
-                                    <input id="wHeading" class="ar-input" placeholder="'+(field.type==='welcome'?'مثال: خوش آمدید':'مثال: با تشکر')+'" />\
-                                </div>\
-                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
-                                    <label class="hint">متن پیام</label>\
-                                    <textarea id="wMessage" class="ar-input" rows="3" placeholder="متن پیام"></textarea>\
-                                </div>\
-                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
-                                    <label class="hint">آدرس تصویر (اختیاری)</label>\
-                                    <input id="wImageUrl" class="ar-input" placeholder="https://..." />\
-                                    <div style="display:flex;gap:.5rem;align-items:center;">\
-                                        <input id="wImageFile" type="file" accept="image/*" style="display:none" />\
-                                        <button id="wUploadBtn" class="ar-btn ar-btn--outline" type="button">انتخاب و آپلود تصویر</button>\
-                                        <span id="wUploadStat" class="hint"></span>\
-                                    </div>\
-                                </div>\
-                                <div style="margin-top:12px">\
-                                    <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>\
-                                </div>';
+                        if (sWrap) {
+                            sWrap.innerHTML = `
+                                <div class="title" style="margin-bottom:.6rem;">سوال چندگزینه‌ای</div>
+                                <div class="field" style="margin-bottom:.6rem;">
+                                    <label class="hint">متن سؤال</label>
+                                    <div id="fQuestionRich" contenteditable="true" style="min-height:44px;padding:.5rem;border:1px solid var(--border);border-radius:8px;background:var(--surface)"></div>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">اجباری</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcRequired" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">چندانتخابی</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcMultiple" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">نمایش به‌صورت عمودی</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcVertical" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-bottom:.6rem;">
+                                    <label class="hint">همگن‌سازی گزینه‌ها (تصادفی‌سازی)</label>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl"><input type="checkbox" id="mcRandomize" class="vc-switch-input" /><span class="vc-switch-label" data-on="بله" data-off="خیر"></span><span class="vc-switch-handle"></span></label>
+                                    </div>
+                                </div>
+                                <div style="margin-top:.6rem;margin-bottom:.6rem;">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;">
+                                        <div class="hint">گزینه‌ها</div>
+                                        <button id="mcAddOption" class="ar-btn" aria-label="افزودن گزینه" title="افزودن گزینه" style="width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;padding:0;font-size:1.2rem;line-height:1;">+</button>
+                                    </div>
+                                    <div id="mcOptionsList" style="display:flex;flex-direction:column;gap:.5rem;"></div>
+                                </div>
+                                <div style="margin-top:12px">
+                                    <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>
+                                </div>`;
                         }
                         if (pWrap){
-                            pWrap.innerHTML = '\
-                                <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>\
-                                <div id="wPreview" class="card glass" style="padding:.8rem;"></div>';
+                            pWrap.innerHTML = `
+                                <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>
+                                <div id="mcPreview" style="margin-bottom:.6rem;max-width:100%;overflow:hidden"></div>`;
                         }
-                        function applyMsgPreview(p){
-                            var pv = document.getElementById('wPreview'); if (!pv) return;
-                            var heading = (p.heading && String(p.heading).trim()) || (p.type==='welcome'?'پیام خوش‌آمد':'پیام تشکر');
-                            var message = (p.message && String(p.message).trim()) || '';
-                            var img = (p.image_url && String(p.image_url).trim()) ? ('<div style="margin-bottom:.4rem"><img src="'+String(p.image_url).trim()+'" alt="" style="max-width:100%;border-radius:10px"/></div>') : '';
-                            pv.innerHTML = (heading ? ('<div class="title" style="margin-bottom:.35rem;">'+heading+'</div>') : '') + img + (message ? ('<div class="hint">'+message+'</div>') : '');
-                        }
-                        // Bind settings inputs for message editor
-                        var hIn = document.getElementById('wHeading');
-                        var mIn = document.getElementById('wMessage');
-                        var uIn = document.getElementById('wImageUrl');
-                        var uBtn = document.getElementById('wUploadBtn');
-                        var fIn = document.getElementById('wImageFile');
-                        var uStat = document.getElementById('wUploadStat');
-                        if (hIn) { hIn.value = field.heading || ''; hIn.addEventListener('input', function(){ field.heading = hIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
-                        if (mIn) { mIn.value = field.message || ''; mIn.addEventListener('input', function(){ field.message = mIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
-                        if (uIn) { uIn.value = field.image_url || ''; uIn.addEventListener('input', function(){ field.image_url = uIn.value; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); }); }
-                        if (uBtn && fIn) {
-                            uBtn.addEventListener('click', function(){ fIn.click(); });
-                            fIn.addEventListener('change', function(){
-                                if (!fIn.files || !fIn.files[0]) return;
-                                var fd = new FormData(); fd.append('file', fIn.files[0]);
-                                if (uStat) uStat.textContent = 'در حال آپلود...'; if (uBtn) uBtn.disabled = true;
-                                fetch(ARSHLINE_REST + 'upload', { method:'POST', credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE }, body: fd })
-                                    .then(async function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-                                    .then(function(obj){ if (obj && obj.url){ uIn.value = obj.url; field.image_url = obj.url; updateHiddenProps(field); applyMsgPreview(field); setDirty(true); notify('آپلود شد', 'success'); } })
-                                    .catch(function(){ notify('آپلود تصویر ناموفق بود', 'error'); })
-                                    .finally(function(){ if (uStat) uStat.textContent=''; if (uBtn) uBtn.disabled=false; fIn.value=''; });
+
+                        // Helper functions for multiple choice
+                        function updateHiddenProps(p){ var el = document.querySelector('#arCanvas .ar-item'); if (el) el.setAttribute('data-props', JSON.stringify(p)); }
+
+                        // Initialize options
+                        var opts = field.options || field.choices || [{ label: 'گزینه 1', value: 'opt_1', media_url: '', second_label: '' }];
+                        field.options = opts;
+
+                        // Set up event handlers
+                        var qEl = document.getElementById('fQuestionRich'); if (qEl){ qEl.innerHTML = sanitizeQuestionHtml(field.question || ''); qEl.addEventListener('input', function(){
+                            field.question = sanitizeQuestionHtml(qEl.innerHTML);
+                            updateHiddenProps(field);
+                            renderMCPreview(field);
+                            setDirty(true);
+                        }); }
+
+                        var mcRequired = document.getElementById('mcRequired'); if (mcRequired){ mcRequired.checked = !!field.required; mcRequired.addEventListener('change', function(){ field.required = !!mcRequired.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+                        var mcMultiple = document.getElementById('mcMultiple'); if (mcMultiple){ mcMultiple.checked = !!field.multiple; mcMultiple.addEventListener('change', function(){ field.multiple = !!mcMultiple.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+                        var mcVertical = document.getElementById('mcVertical'); if (mcVertical){ mcVertical.checked = (field.vertical !== false); mcVertical.addEventListener('change', function(){ field.vertical = !!mcVertical.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+                        var mcRandomize = document.getElementById('mcRandomize'); if (mcRandomize){ mcRandomize.checked = !!field.randomize; mcRandomize.addEventListener('change', function(){ field.randomize = !!mcRandomize.checked; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); }
+
+                        var mcList = document.getElementById('mcOptionsList');
+                        function renderOptionsList(){
+                            if (!mcList) return;
+                            mcList.innerHTML = '';
+                            opts.forEach(function(o, i){
+                                var html = '<div class="card" data-idx="'+i+'" style="padding:.35rem;display:grid;grid-template-columns:auto 1fr auto;grid-auto-rows:auto;gap:.4rem;align-items:center;">'
+                                    // first line: + / −  |  label input  |  drag handle
+                                    + '<div class="mc-row-tools" style="display:flex;gap:.35rem;align-items:center;">'
+                                        + '<button class="ar-btn mcAddHere" data-idx="'+i+'" aria-label="افزودن گزینه بعد از این" title="افزودن" style="width:28px;height:28px;border-radius:8px;padding:0;line-height:1;font-size:1.1rem;display:inline-flex;align-items:center;justify-content:center;">+</button>'
+                                        + '<button class="ar-btn ar-btn--soft mcRemove" data-idx="'+i+'" aria-label="حذف این گزینه" title="حذف" style="width:28px;height:28px;border-radius:8px;padding:0;line-height:1;font-size:1.1rem;display:inline-flex;align-items:center;justify-content:center;">−</button>'
+                                    + '</div>'
+                                    + '<input type="text" class="ar-input" data-role="mc-label" placeholder="متن گزینه" value="'+escapeHtml(o.label||'')+'" style="min-width:120px;max-width:100%;" />'
+                                    + '<span class="ar-dnd-handle" title="جابجایی" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;">≡</span>'
+                                    // second line spans all columns: second label input (optional)
+                                    + '<input type="text" class="ar-input" data-role="mc-second" placeholder="برچسب دوم (اختیاری)" value="'+escapeHtml(o.second_label||'')+'" style="grid-column:1 / -1;min-width:120px;max-width:100%;" />'
+                                    + '</div>';
+                                var div = document.createElement('div'); div.innerHTML = html;
+                                mcList.appendChild(div.firstChild);
+                            });
+                            // Bind input events
+                            Array.from(mcList.querySelectorAll('[data-role="mc-label"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
+                            Array.from(mcList.querySelectorAll('[data-role="mc-second"]')).forEach(function(inp, idx){ inp.addEventListener('input', function(){ opts[idx].second_label = inp.value; updateHiddenProps(field); renderMCPreview(field); setDirty(true); }); });
+                            Array.from(mcList.querySelectorAll('.mcAddHere')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); var n = opts.length + 1; var newOpt = { label:'گزینه '+n, value:'opt_'+(Date.now()%100000), media_url:'', second_label:'' }; opts.splice(isNaN(ii)?opts.length:(ii+1), 0, newOpt); field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); });
+                            Array.from(mcList.querySelectorAll('.mcRemove')).forEach(function(btn){ btn.addEventListener('click', function(e){ e.preventDefault(); var ii = parseInt(btn.getAttribute('data-idx')||'0'); if (!isNaN(ii)) opts.splice(ii,1);
+                                if (!opts.length) opts.push({ label:'گزینه 1', value:'opt_1', media_url:'', second_label:'' });
+                                field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); });
+                            // Enable drag sort for options
+                            function ensureSortableMC(cb){ if (window.Sortable) { cb(); return; } var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js'; s.onload = function(){ cb(); }; document.head.appendChild(s); }
+                            ensureSortableMC(function(){
+                                try { if (window._mcSortable) window._mcSortable.destroy(); } catch(_){ }
+                                window._mcSortable = Sortable.create(mcList, {
+                                    animation: 150,
+                                    handle: '.ar-dnd-handle',
+                                    draggable: '[data-idx]',
+                                    onEnd: function(){
+                                        try {
+                                            var order = Array.from(mcList.children).map(function(el){ return parseInt(el.getAttribute('data-idx')||''); }).filter(function(n){ return !isNaN(n); });
+                                            if (order.length){
+                                                var newOpts = order.map(function(i){ return opts[i]; });
+                                                opts.splice(0, opts.length); Array.prototype.push.apply(opts, newOpts);
+                                                field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true);
+                                            }
+                                        } catch(_){ }
+                                    }
+                                });
                             });
                         }
-                        applyMsgPreview(field);
+
+                        function renderMCPreview(p){
+                            var out = document.getElementById('mcPreview'); if (!out) return;
+                            var parts = [];
+                            // Question (with numbering like short_text)
+                            try {
+                                var showQ = p.question && String(p.question).trim();
+                                if (showQ){
+                                    var qIndex = 1;
+                                    try {
+                                        var beforeCount = 0;
+                                        (fields||[]).forEach(function(ff, i3){ if (i3 < idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
+                                        qIndex = beforeCount + 1;
+                                    } catch(_){ qIndex = (idx+1); }
+                                    var numPrefix = (p.numbered !== false ? (qIndex + '. ') : '');
+                                    var sanitized = sanitizeQuestionHtml(showQ || '');
+                                    parts.push('<div class="hint" style="margin-bottom:.25rem">'+numPrefix+sanitized+'</div>');
+                                }
+                            } catch(_){ }
+                            // Options
+                            if (!p.options || !Array.isArray(p.options) || !p.options.length) {
+                                parts.push('<div class="hint">هنوز گزینه‌ای اضافه نشده است.</div>');
+                                out.innerHTML = parts.join('');
+                                return;
+                            }
+                            var localOpts = (p.options || []).slice();
+                            if (p.randomize){
+                                for (var z=localOpts.length-1; z>0; z--){ var j = Math.floor(Math.random()*(z+1)); var tmp=localOpts[z]; localOpts[z]=localOpts[j]; localOpts[j]=tmp; }
+                            }
+                            var type = p.multiple ? 'checkbox' : 'radio';
+                            var vertical = (p.vertical !== false);
+                            var html = '<div style="display:flex;flex-direction:'+(vertical?'column':'row')+';gap:.6rem;flex-wrap:wrap;align-items:flex-start;">';
+                            localOpts.forEach(function(o){
+                                var lbl = sanitizeQuestionHtml(o.label||'');
+                                var sec = o.second_label ? ('<div class="hint" style="font-size:.8rem;margin-'+(document.dir==='rtl'?'right':'left')+':1.9rem;">'+escapeHtml(o.second_label)+'</div>') : '';
+                                html += '<div class="mc-opt" style="display:flex;flex-direction:column;gap:.25rem;max-width:100%;">'
+                                        + '<label style="display:flex;align-items:center;gap:.5rem;max-width:100%;"><input type="'+type+'" disabled /> <span>'+lbl+'</span></label>'
+                                        + sec
+                                    + '</div>';
+                            });
+                            html += '</div>';
+                            parts.push(html);
+                            out.innerHTML = parts.join('');
+                        }
+
+                        // Initial render
+                        renderOptionsList(); renderMCPreview(field);
+
+                        var addBtn = document.getElementById('mcAddOption'); if (addBtn){ addBtn.addEventListener('click', function(e){ e.preventDefault(); var n = opts.length+1; opts.push({ label:'گزینه '+n, value:'opt_'+(Date.now()%100000), media_url:'', second_label:'' }); field.options = opts; updateHiddenProps(field); renderOptionsList(); renderMCPreview(field); setDirty(true); }); }
+
                         var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
-                        return; // stop short_text editor init
+                        return;
+                        
+                    } else if (field.type === 'long_text' || field.type === 'longtext' || field.type === 'long-text') {
+                        var sWrap = document.querySelector('.ar-settings');
+                        var pWrap = document.querySelector('.ar-preview');
+                        if (sWrap) {
+                            sWrap.innerHTML = `
+                                <div class="title" style="margin-bottom:.6rem;">تنظیمات متن بلند</div>
+                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+                                    <label class="hint">سؤال</label>
+                                    <div style="display:flex;gap:.35rem;align-items:center;margin-bottom:6px;">
+                                        <button id="fQBold" class="ar-btn ar-btn--outline" type="button" title="پررنگ"><b>B</b></button>
+                                        <button id="fQItalic" class="ar-btn ar-btn--outline" type="button" title="مورب"><i>I</i></button>
+                                        <button id="fQUnder" class="ar-btn ar-btn--outline" type="button" title="زیرخط"><u>U</u></button>
+                                        <input id="fQColor" type="color" title="رنگ" style="margin-inline-start:.25rem;width:36px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);" />\
+                                    </div>
+                                    <div id="fQuestionRich" class="ar-input" contenteditable="true" style="min-height:60px;line-height:1.8;" placeholder="متن سؤال"></div>
+                                    <div class="hint" style="font-size:.92em;color:var(--muted);margin-top:2px;">با تایپ <b>@</b> از پاسخ‌ها و متغیرها استفاده کنید.</div>
+                                </div>
+                                <!-- media controls are rendered at the bottom and shown only when media_upload is enabled -->
+                                <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                                    <span class="hint">اجباری</span>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl">
+                                            <input type="checkbox" id="fRequired" class="vc-switch-input" />
+                                            <span class="vc-switch-label" data-on="بله" data-off="خیر"></span>
+                                            <span class="vc-switch-handle"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                                    <span class="hint">عدم نمایش شماره‌ سؤال</span>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl">
+                                            <input type="checkbox" id="fHideNumber" class="vc-switch-input" />
+                                            <span class="vc-switch-label" data-on="بله" data-off="خیر"></span>
+                                            <span class="vc-switch-handle"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                                    <span class="hint">توضیحات</span>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl">
+                                            <input type="checkbox" id="fDescToggle" class="vc-switch-input" />
+                                            <span class="vc-switch-label" data-on="بله" data-off="خیر"></span>
+                                            <span class="vc-switch-handle"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="field" id="fDescWrap" style="display:none">
+                                    <textarea id="fDescText" class="ar-input" rows="2" placeholder="توضیح زیر سؤال"></textarea>
+                                </div>
+                                <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+                                    <label class="hint">متن راهنما (placeholder)</label>
+                                    <input id="fHelp" class="ar-input" placeholder="مثال: پاسخ را وارد کنید"/>\
+                                </div>
+                                <div class="field" style="display:flex;gap:10px;margin-top:8px;align-items:center;">
+                                    <span class="hint">حداقل تعداد حروف</span>
+                                    <input id="fMinLen" class="ar-input" type="number" min="0" max="1000" style="width:80px" value="0" />
+                                    <span class="hint">حداکثر</span>
+                                    <input id="fMaxLen" class="ar-input" type="number" min="1" max="5000" style="width:80px" value="1000" />
+                                </div>
+                                <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                                    <span class="hint">امکان آپلود عکس یا ویدیو</span>
+                                    <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">
+                                        <label class="vc-small-switch vc-rtl">
+                                            <input type="checkbox" id="fMediaUpload" class="vc-switch-input" />
+                                            <span class="vc-switch-label" data-on="بله" data-off="خیر"></span>
+                                            <span class="vc-switch-handle"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <!-- media upload controls (image + optional video) -->
+                                <div id="fMediaWrap" style="display:none;margin-top:8px;">
+                                    <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+                                        <label class="hint">آپلود تصویر سؤال (JPG/PNG تا 300KB)</label>
+                                        <input id="fImageFile" type="file" accept="image/jpeg,image/png" style="margin-bottom:4px" />
+                                            <div id="fImagePreviewWrap" style="width:200px;height:200px;overflow:hidden;display:${field.image_url?'flex':'none'};align-items:center;justify-content:center;margin-bottom:6px;border-radius:10px;background:transparent"> 
+                                                <img id="fImagePreview" src="${field.image_url||''}" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:8px;" />
+                                            </div>
+                                        <span id="fImageError" class="hint" style="color:#b91c1c;display:none"></span>
+                                    </div>
+                                    <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+                                        <label class="hint">آپلود ویدئو (اختیاری)</label>
+                                        <input id="fVideoFile" type="file" accept="video/*" style="margin-bottom:4px" />
+                                        <div id="fVideoPreview" style="display:none;margin-bottom:6px"></div>
+                                        <span id="fVideoError" class="hint" style="color:#b91c1c;display:none"></span>
+                                    </div>
+                                </div>
+                                <div style="margin-top:12px">
+                                    <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>
+                                </div>`;
+                        }
+                        if (pWrap) {
+                            pWrap.innerHTML = `
+                                <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>
+                                <div id="pvMedia" style="margin-bottom:6px">${field.video_url?('<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><video controls src="'+(field.video_url||'')+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px"></video></div>') : (field.image_url?('<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><img id="pvImage" src="'+(field.image_url||'')+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px" /></div>') : '')}</div>
+                                <div id="pvQuestion" class="hint" style="display:none;margin-bottom:.25rem"></div>
+                                <div id="pvDesc" class="hint" style="display:none;margin-bottom:.35rem"></div>
+                                <textarea id="pvInput" class="ar-input" style="width:100%" rows="4"></textarea>
+                                <div id="pvHelp" class="hint" style="display:none"></div>
+                                <div id="pvErr" class="hint" style="color:#b91c1c;margin-top:.3rem"></div>`;
+                        }
+                        // Bind settings inputs for long_text editor
+                        var qEl = document.getElementById('fQuestionRich');
+                        var req = document.getElementById('fRequired');
+                        var hideNum = document.getElementById('fHideNumber');
+                        var dTg = document.getElementById('fDescToggle');
+                        var dTx = document.getElementById('fDescText');
+                        var dWrap = document.getElementById('fDescWrap');
+                        var help = document.getElementById('fHelp');
+                        var minLen = document.getElementById('fMinLen');
+                        var maxLen = document.getElementById('fMaxLen');
+                        var mediaUp = document.getElementById('fMediaUpload');
+                        var mediaWrap = document.getElementById('fMediaWrap');
+                        var imgFile = document.getElementById('fImageFile');
+                        var imgPrev = document.getElementById('fImagePreview');
+                        var imgErr = document.getElementById('fImageError');
+                        var videoFile = document.getElementById('fVideoFile');
+                        var videoPrev = document.getElementById('fVideoPreview');
+                        var videoErr = document.getElementById('fVideoError');
+                        function updateHiddenProps(p){
+                            var el = document.querySelector('#arCanvas .ar-item');
+                            if (el) el.setAttribute('data-props', JSON.stringify(p));
+                        }
+                        function applyPreviewFrom(p){
+                            var inp = document.getElementById('pvInput');
+                            if (!inp) return;
+                            inp.value = '';
+                            inp.setAttribute('placeholder', (p.placeholder && p.placeholder.trim()) ? p.placeholder : 'پاسخ را وارد کنید');
+                            inp.setAttribute('minlength', p.min_length || 0);
+                            inp.setAttribute('maxlength', p.max_length || 1000);
+                            inp.required = !!p.required;
+                            var mediaWrap = document.getElementById('pvMedia');
+                            if (mediaWrap){
+                                try {
+                                    if (p.video_url){ mediaWrap.innerHTML = '<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><video controls src="'+p.video_url+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px"></video></div>'; mediaWrap.style.display = 'block'; }
+                                    else if (p.image_url){ mediaWrap.innerHTML = '<div style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:6px;border-radius:10px"><img src="'+p.image_url+'" style="max-width:200px;max-height:200px;width:auto;height:auto;display:block;border-radius:6px" /></div>'; mediaWrap.style.display = 'block'; }
+                                    else { mediaWrap.innerHTML = ''; mediaWrap.style.display = 'none'; }
+                               
+                                } catch(_){ /* ignore */ }
+                            }
+                            var qNode = document.getElementById('pvQuestion');
+                            if (qNode){
+                                var showQ = (p.question && String(p.question).trim());
+                                qNode.style.display = showQ ? 'block' : 'none';
+                                var numPrefix = (p.numbered !== false ? '1. ' : '');
+                                var sanitized = sanitizeQuestionHtml(showQ || '');
+                                qNode.innerHTML = showQ ? (numPrefix + sanitized) : '';
+                                try { if (typeof console !== 'undefined') console.log('[ARSH] applyPreviewFrom pvQuestion.innerHTML:', qNode.innerHTML); } catch(_){ }
+                            }
+                            var desc = document.getElementById('pvDesc'); if (desc){ desc.textContent = p.description || ''; desc.style.display = p.show_description && p.description ? 'block' : 'none'; }
+                        }
+                        var qBold = document.getElementById('fQBold');
+                        var qItalic = document.getElementById('fQItalic');
+                        var qUnder = document.getElementById('fQUnder');
+                        var qColor = document.getElementById('fQColor');
+                        if (qEl){ qEl.innerHTML = sanitizeQuestionHtml(field.question || ''); qEl.addEventListener('input', function(){
+                            field.question = sanitizeQuestionHtml(qEl.innerHTML);
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        }); }
+                        if (qBold){ qBold.addEventListener('click', function(e){
+                            e.preventDefault();
+                            try { document.execCommand('bold'); } catch(_){ }
+                            if (qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); }
+                        }); }
+                        if (qItalic){ qItalic.addEventListener('click', function(e){
+                            e.preventDefault();
+                            try { document.execCommand('italic'); } catch(_){ }
+                            if (qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); }
+                        }); }
+                        if (qUnder){ qUnder.addEventListener('click', function(e){
+                            e.preventDefault();
+                            try { document.execCommand('underline'); } catch(_){ }
+                            if (qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); }
+                        }); }
+                        if (qColor){ qColor.addEventListener('input', function(e){
+                            try { document.execCommand('foreColor', false, qColor.value); } catch(_){ }
+                            if (qEl){ try { console.log('[ARSH] qColor change (long_text) qEl.innerHTML:', qEl.innerHTML); } catch(_){ } field.question = sanitizeQuestionHtml(qEl.innerHTML); updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); }
+                        }); }
+                        if (req){ req.checked = !!field.required; req.addEventListener('change', function(){
+                            field.required = !!req.checked;
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        }); }
+                        if (hideNum){ hideNum.checked = field.numbered === false; hideNum.addEventListener('change', function(){
+                            field.numbered = !hideNum.checked;
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        }); }
+                        if (dTg){
+                            dTg.checked = !!field.show_description;
+                            if (dWrap) {
+                                dWrap.style.display = field.show_description ? 'block' : 'none';
+                            }
+                            dTg.addEventListener('change', function () {
+                                field.show_description = !!dTg.checked;
+                                if (dWrap) {
+                                    dWrap.style.display = field.show_description ? 'block' : 'none';
+                                }
+                                updateHiddenProps(field);
+                                applyPreviewFrom(field);
+                                setDirty(true);
+                            });
+                        }
+                        if (dTx){ dTx.value = field.description || ''; dTx.addEventListener('input', function(){
+                            field.description = dTx.value;
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        }); }
+                        if (help){ help.value = field.placeholder || ''; help.addEventListener('input', function(){
+                            field.placeholder = help.value;
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        }); }
+                        if (minLen){ minLen.value = field.min_length || 0; minLen.addEventListener('input', function(){
+                            field.min_length = parseInt(minLen.value)||0;
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        }); }
+                        if (maxLen){ maxLen.value = field.max_length || 1000; maxLen.addEventListener('input', function(){
+                            field.max_length = parseInt(maxLen.value)||1000;
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        }); }
+                        if (mediaUp){ 
+                            mediaUp.checked = !!field.media_upload; 
+                            // show/hide the media controls block
+                            if (mediaWrap) mediaWrap.style.display = mediaUp.checked ? 'block' : 'none';
+                            mediaUp.addEventListener('change', function(){ 
+                                field.media_upload = !!mediaUp.checked; 
+                                if (mediaWrap) mediaWrap.style.display = mediaUp.checked ? 'block' : 'none';
+                                // when disabling, clear previews
+                                if (!mediaUp.checked){ try { if (imgPrev){ imgPrev.src=''; imgPrev.style.display='none'; } if (videoPrev){ videoPrev.innerHTML=''; videoPrev.style.display='none'; } } catch(_){ }
+                                }
+                                updateHiddenProps(field); setDirty(true); 
+                            }); 
+                        }
+                        // Image upload logic
+                        if (imgFile && imgPrev && imgErr) {
+                            imgFile.addEventListener('change', function(){
+                                var file = imgFile.files[0];
+                                if (!file) return;
+                                if (!['image/jpeg','image/png'].includes(file.type)) { imgErr.textContent = 'فقط JPG یا PNG مجاز است.'; imgErr.style.display = 'block'; return; }
+                                if (file.size > 307200) { imgErr.textContent = 'حداکثر حجم 300KB.'; imgErr.style.display = 'block'; return; }
+                                imgErr.style.display = 'none';
+                                var fd = new FormData(); fd.append('file', file);
+                                imgFile.disabled = true;
+                                fetch(ARSHLINE_REST + 'upload', { method:'POST', credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE }, body: fd })
+                                    .then(async function(r){ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                                    .then(function(obj){ if (obj && obj.url){ field.image_url = obj.url; imgPrev.src = obj.url; imgPrev.style.display = 'block'; updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); } })
+                                    .catch(function(){ imgErr.textContent = 'آپلود تصویر ناموفق بود.'; imgErr.style.display = 'block'; })
+                                    .finally(function(){ imgFile.disabled = false; imgFile.value = ''; });
+                            });
+                        }
+
+                        // Video upload basic handling (placeholder): accept small videos but server may reject if too large
+                        if (videoFile && videoPrev && videoErr){
+                            videoFile.addEventListener('change', function(){
+                                var file = videoFile.files[0];
+                                if (!file) return;
+                                // Basic client-side type check
+                                if (!file.type.startsWith('video/')) { videoErr.textContent = 'فایل ویدئویی معتبر نیست.'; videoErr.style.display = 'block'; return; }
+                                // optional client-side size limit (e.g., 5MB) to prevent accidental huge uploads
+                                if (file.size > 5 * 1024 * 1024) { videoErr.textContent = 'حداکثر حجم ویدئو 5MB است.'; videoErr.style.display = 'block'; return; }
+                                videoErr.style.display = 'none';
+                                var fd = new FormData(); fd.append('file', file);
+                                videoFile.disabled = true;
+                                fetch(ARSHLINE_REST + 'upload', { method:'POST', credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE }, body: fd })
+                                    .then(async function(r){ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+                                    .then(function(obj){ if (obj && obj.url){ try { field.video_url = obj.url; if (videoPrev){ videoPrev.innerHTML = '<video controls src="'+obj.url+'" style="max-width:100%;border-radius:8px"></video>'; videoPrev.style.display = 'block'; } updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); } catch(_){ } } })
+                                    .catch(function(){ videoErr.textContent = 'آپلود ویدئو ناموفق بود.'; videoErr.style.display = 'block'; })
+                                    .finally(function(){ videoFile.disabled = false; videoFile.value = ''; });
+                            });
+                        }
+                        applyPreviewFrom(field);
+                        var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
+                        return;
                     }
+
                     // short_text editor
                     var sel = document.getElementById('fType');
                     var req = document.getElementById('fRequired');
@@ -742,7 +1288,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         // Replace the input node to ensure no lingering handlers
                         try {
                             var parent = inp.parentNode;
-                            var clone = inp.cloneNode(false);
+                            var useTextarea = (p.type === 'long_text' || p.type === 'longtext' || p.type === 'long-text');
+                            var clone;
+                            if (useTextarea){
+                                clone = document.createElement('textarea');
+                                clone.setAttribute('rows','4');
+                            } else {
+                                clone = document.createElement('input');
+                                clone.setAttribute('type', (attrs && attrs.type) ? attrs.type : 'text');
+                            }
                             clone.id = 'pvInput';
                             clone.className = 'ar-input';
                             parent.replaceChild(clone, inp);
@@ -751,11 +1305,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         // Reset attributes
                         inp.value = '';
                         inp.removeAttribute('placeholder');
-                        inp.setAttribute('type', (attrs && attrs.type) ? attrs.type : 'text');
-                        if (attrs && attrs.inputmode) inp.setAttribute('inputmode', attrs.inputmode); else inp.removeAttribute('inputmode');
-                        if (attrs && attrs.pattern) inp.setAttribute('pattern', attrs.pattern); else inp.removeAttribute('pattern');
+                        // Set attributes depending on element type
+                        if (inp.tagName === 'INPUT'){
+                            inp.setAttribute('type', (attrs && attrs.type) ? attrs.type : 'text');
+                            if (attrs && attrs.inputmode) inp.setAttribute('inputmode', attrs.inputmode); else inp.removeAttribute('inputmode');
+                            if (attrs && attrs.pattern) inp.setAttribute('pattern', attrs.pattern); else inp.removeAttribute('pattern');
+                        }
                         var ph = (p.placeholder && p.placeholder.trim()) ? p.placeholder : (fmt==='free_text' ? 'پاسخ را وارد کنید' : suggestPlaceholder(fmt));
-                        inp.setAttribute('placeholder', ph || '');
+                        try { inp.setAttribute('placeholder', ph || ''); } catch(_){ /* textarea may accept placeholder; safe to ignore */ }
                         var qNode = document.getElementById('pvQuestion');
                         if (qNode){
                             var showQ = (p.question && String(p.question).trim());
@@ -764,8 +1321,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var qIndex = 1;
                             try {
                                 var beforeCount = 0;
-                                (fields||[]).forEach(function(ff, i3){ if (i3 <= idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
-                                qIndex = beforeCount;
+                                (fields||[]).forEach(function(ff, i3){ if (i3 < idx){ var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text'; if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; } } });
+                                qIndex = beforeCount + 1;
                             } catch(_){ qIndex = (idx+1); }
                             var numPrefix = (p.numbered ? (qIndex + '. ') : '');
                             var sanitized = sanitizeQuestionHtml(showQ || '');
@@ -774,25 +1331,49 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         // label removed; question sits above input
                         var desc = document.getElementById('pvDesc'); if (desc){ desc.textContent = p.description || ''; desc.style.display = p.show_description && p.description ? 'block' : 'none'; }
                         var helpEl = document.getElementById('pvHelp'); if (helpEl) { helpEl.textContent=''; helpEl.style.display='none'; }
-                        // Attach Jalali datepicker only for date_jalali
-                        if (fmt==='date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn && jQuery.fn.pDatepicker){
+                        // Attach Jalali datepicker only for date_jalali and only to input elements
+                        if (fmt==='date_jalali' && inp.tagName === 'INPUT' && typeof jQuery !== 'undefined' && jQuery.fn && jQuery.fn.pDatepicker){
                             try { jQuery(inp).pDatepicker({ format:'YYYY/MM/DD', initialValue:false }); } catch(e){}
                         }
-                        // Attach validation/mask to editor preview input
+                        // Attach validation/mask to editor preview input/textarea
                         try { applyInputMask(inp, p); } catch(e){}
                     }
-                    function sync(){ field.label = 'پاسخ کوتاه'; field.type = 'short_text'; updateHiddenProps(field); applyPreviewFrom(field); }
+                    function sync(){
+                        if (field.type === 'long_text'){
+                            field.label = 'پاسخ طولانی';
+                            field.type = 'long_text';
+                        } else {
+                            field.label = 'پاسخ کوتاه';
+                            field.type = 'short_text';
+                        }
+                        updateHiddenProps(field);
+                        applyPreviewFrom(field);
+                    }
 
                     if (sel){ sel.value = field.format || 'free_text'; sel.addEventListener('change', function(){ field.format = sel.value || 'free_text'; var i=document.getElementById('pvInput'); if(i) i.value=''; sync(); setDirty(true); }); }
                     if (req){ req.checked = !!field.required; req.addEventListener('change', function(){ field.required = !!req.checked; sync(); setDirty(true); }); }
-                    if (dTg){ dTg.checked = !!field.show_description; if (dWrap) dWrap.style.display = field.show_description ? 'block':'none'; dTg.addEventListener('change', function(){ field.show_description = !!dTg.checked; if(dWrap){ dWrap.style.display = field.show_description ? 'block':'none'; } sync(); setDirty(true); }); }
+                    if (dTg){ 
+                        dTg.checked = !!field.show_description;
+                        if (dWrap) {
+                            dWrap.style.display = field.show_description ? 'block' : 'none';
+                        }
+                        dTg.addEventListener('change', function () {
+                            field.show_description = !!dTg.checked;
+                            if (dWrap) {
+                                dWrap.style.display = field.show_description ? 'block' : 'none';
+                            }
+                            updateHiddenProps(field);
+                            applyPreviewFrom(field);
+                            setDirty(true);
+                        });
+                    }
                     if (dTx){ dTx.value = field.description || ''; dTx.addEventListener('input', function(){ field.description = dTx.value; sync(); setDirty(true); }); }
                     if (help){ help.value = field.placeholder || ''; help.addEventListener('input', function(){ field.placeholder = help.value; sync(); setDirty(true); }); }
                     if (qEl){ qEl.innerHTML = sanitizeQuestionHtml(field.question || ''); qEl.addEventListener('input', function(){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); }); }
                     if (qBold){ qBold.addEventListener('click', function(e){ e.preventDefault(); document.execCommand('bold'); if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
                     if (qItalic){ qItalic.addEventListener('click', function(e){ e.preventDefault(); document.execCommand('italic'); if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
                     if (qUnder){ qUnder.addEventListener('click', function(e){ e.preventDefault(); document.execCommand('underline'); if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
-                    if (qColor){ qColor.addEventListener('input', function(){ try { document.execCommand('foreColor', false, qColor.value); } catch(_){} if(qEl){ field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
+                    if (qColor){ qColor.addEventListener('input', function(){ try { document.execCommand('foreColor', false, qColor.value); } catch(_){} if(qEl){ try { console.log('[ARSH] qColor change (short_text) qEl.innerHTML:', qEl.innerHTML); } catch(_){ } field.question = sanitizeQuestionHtml(qEl.innerHTML); sync(); setDirty(true); } }); }
                     if (numEl){ numEl.checked = field.numbered !== false; field.numbered = numEl.checked; numEl.addEventListener('change', function(){ field.numbered = !!numEl.checked; sync(); setDirty(true); }); }
 
                     applyPreviewFrom(field);
@@ -800,116 +1381,121 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
         }
 
-        function addNewField(formId){
-            var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
+        function addNewField(formId, fieldType){
+            dlog('addNewField:start', { formId: formId, fieldType: fieldType });
+            var ft = fieldType || 'short_text';
+            var defaultProps;
+            if (ft === 'long_text'){
+                defaultProps = { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:true };
+            } else if (ft === 'multiple_choice' || ft === 'multiple-choice'){
+                defaultProps = { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true };
+            } else {
+                defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
+            }
             fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
+                    dlog('addNewField:loaded-existing-fields', (data&&data.fields)?data.fields.length:0);
                     var arr = (data && data.fields) ? data.fields.slice() : [];
                     var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
                     var insertAt = hasThank ? (arr.length - 1) : arr.length;
                     if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
                     arr.splice(insertAt, 0, defaultProps);
-                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return insertAt; });
+                    dlog('addNewField:inserting-at', insertAt, 'payload-size', arr.length);
+                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
+                        .then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return { ok: true, index: insertAt }; });
                 })
-                .then(function(newIndex){ renderFormEditor(formId, { index: newIndex }); })
+                .then(function(obj){ renderFormEditor(formId, { index: obj.index }); })
                 .catch(function(){ notify('افزودن فیلد ناموفق بود', 'error'); });
         }
 
         function renderFormBuilder(id){
+            console.log('[DEBUG] renderFormBuilder called with id:', id); dlog('renderFormBuilder:start', id);
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             try { setSidebarClosed(true, false); } catch(_){ }
             document.body.classList.remove('preview-only');
             try { setHash('builder/'+id); } catch(_){ }
             var content = document.getElementById('arshlineDashboardContent');
-            content.innerHTML = '<div class="card glass" style="padding:1rem;max-width:1080px;margin:0 auto;">\
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">\
-                    <div class="title">ویرایش فرم #'+id+'</div>\
-                    <div style="display:flex;gap:.5rem;align-items:center;">\
-                        <button id="arBuilderPreview" class="ar-btn ar-btn--outline">پیش‌نمایش</button>\
-                        <button id="arBuilderBack" class="ar-btn ar-btn--muted">بازگشت</button>\
-                    </div>\
-                </div>\
-                <div style="display:flex;gap:1rem;align-items:flex-start;">\
-                    <div id="arFormSide" style="flex:1;">\
-                        <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش فرم</div>\
-                        <div id="arBulkToolbar" style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem;">\
-                            <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;">\
-                                <input id="arSelectAll" type="checkbox" />\
-                                <span class="hint">انتخاب همه</span>\
-                            </label>\
-                            <button id="arBulkDelete" class="ar-btn" disabled>حذف انتخاب‌شده‌ها</button>\
-                        </div>\
-                        <div id="arFormFieldsList" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
-                    </div>\
-                    <div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">\
-                        <div class="title" style="margin-bottom:.6rem;">ابزارها</div>\
-                        <button id="arAddShortText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ کوتاه</button>\
-                        <div style="height:.5rem"></div>\
-                        <button id="arAddLongText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ طولانی</button>\
-                        <div style="height:.5rem"></div>\
-                        <button id="arAddWelcome" class="ar-btn ar-btn--soft" style="width:100%">افزودن پیام خوش‌آمد</button>\
-                        <div style="height:.4rem"></div>\
-                        <button id="arAddThank" class="ar-btn ar-btn--soft" style="width:100%">افزودن پیام تشکر</button>\
-                    </div>\
-                </div>\
-            </div>';
-            document.getElementById('arBuilderBack').onclick = function(){ renderTab('forms'); };
-            var prevBtn = document.getElementById('arBuilderPreview'); if (prevBtn) prevBtn.onclick = function(){ renderFormPreview(id); };
-            content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
-            var list = document.getElementById('arFormFieldsList');
-            list.textContent = 'در حال بارگذاری...';
-            fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+            console.log('[DEBUG] content element found:', !!content);
+            content.innerHTML = '<div class="card glass" style="padding:1rem;max-width:1080px;margin:0 auto;">'
+                + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">'
+                + '<div class="title">ویرایش فرم #'+id+'</div>'
+                + '<div style="display:flex;gap:.5rem;align-items:center;">'
+                + '<button id="arBuilderPreview" class="ar-btn ar-btn--outline">پیش‌نمایش</button>'
+                + '<button id="arBuilderBack" class="ar-btn ar-btn--muted">بازگشت</button>'
+                + '</div>'
+                + '</div>'
+                + '<div style="display:flex;gap:1rem;align-items:flex-start;">'
+                + '<div id="arFormSide" style="flex:1;">'
+                + '<div class="title" style="margin-bottom:.6rem;">پیش‌نمایش فرم</div>'
+                + '<div id="arBulkToolbar" style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem;">'
+                + '<label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;">'
+                + '<input id="arSelectAll" type="checkbox" />'
+                + '<span class="hint">انتخاب همه</span>'
+                + '</label>'
+                + '<button id="arBulkDelete" class="ar-btn" disabled>حذف انتخاب‌شده‌ها</button>'
+                + '</div>'
+                + '<div id="arFormFieldsList" style="display:flex;flex-direction:column;gap:.8rem;"></div>'
+                + '</div>'
+                + '<div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">'
+                + '<div class="title" style="margin-bottom:.6rem;">ابزارها</div>'
+                + '<button id="arAddShortText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ کوتاه</button>'
+                + '<div style="height:.5rem"></div>'
+                + '<button id="arAddLongText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ طولانی</button>'
+                + '<div style="height:.5rem"></div>'
+                + '<button id="arAddMultipleChoice" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال چندگزینه‌ای</button>'
+                + '<div style="height:.5rem"></div>'
+                + '<button id="arAddWelcome" class="ar-btn" style="width:100%">افزودن پیام خوش‌آمد</button>'
+                + '<div style="height:.5rem"></div>'
+                + '<button id="arAddThank" class="ar-btn" style="width:100%">افزودن پیام تشکر</button>'
+                + '</div>'
+                + '</div>';
+            fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(r=>r.json())
                 .then(function(data){
-                    try { if (AR_DEBUG) { var dbgList = (data.fields||[]).map(function(f){ return { id:f.id, sort:f.sort, type:(f.props&&f.props.type)||f.type }; }); clog('Builder:load fields', dbgList); } } catch(_){ }
+                    dlog('renderFormBuilder:loaded-fields', (data&&data.fields)?data.fields.length:0);
+                    var list = document.getElementById('arFormFieldsList');
+                    // Guard to prevent duplicate add when both click and drag/drop occur nearly simultaneously
+                    var lastAddClickTs = 0;
                     var fields = data.fields || [];
-                    // Build visible order: welcome (if any), then regulars, then thank_you (if any)
-                    var wIdx = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; });
-                    var tIdx = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; });
-                    var welcome = (wIdx !== -1) ? fields[wIdx] : null;
-                    var thankyou = (tIdx !== -1) ? fields[tIdx] : null;
-                    var regulars = fields.map(function(x,i){ return {item:x, original:i}; }).filter(function(z){ var p=z.item.props||z.item; var ty=p.type||z.item.type; return ty!=='welcome' && ty!=='thank_you'; });
-                    var visible = [];
+                    var qCounter = 0;
                     var visibleMap = [];
-                    if (welcome){ visible.push(welcome); visibleMap.push(wIdx); }
-                    regulars.forEach(function(z){ visible.push(z.item); visibleMap.push(z.original); });
-                    if (thankyou){ visible.push(thankyou); visibleMap.push(tIdx); }
-                    if (!visible.length){ list.innerHTML = '<div class="hint">هنوز فیلدی اضافه نشده است.</div>'; }
-                    else {
-                        var qCounter = 0;
-                        list.innerHTML = visible.map(function(f, vIdx){
-                            var p = f.props || f; var type = p.type || f.type || 'short_text';
-                            if (type==='welcome' || type==='thank_you'){
-                                var ttl = (type==='welcome'?'پیام خوش‌آمد':'پیام تشکر');
-                                var head = (p.heading&&String(p.heading).trim()) || ttl;
-                                return '<div class="card" data-vid="'+vIdx+'" data-oid="'+visibleMap[vIdx]+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+                    var vIdx = 0;
+                    list.innerHTML = fields.map(function(f, i){
+                        var p = f.props || f;
+                        var type = p.type || f.type || 'short_text';
+                        if (type === 'welcome' || type === 'thank_you'){
+                            var ttl = (type==='welcome') ? 'پیام خوش‌آمد' : 'پیام تشکر';
+                            var head = (p.heading && String(p.heading).trim()) || '';
+                            return '<div class="card" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
                                     <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
                                         <div class="hint">'+ttl+' — '+head+'</div>\
                                         <div style="display:flex;gap:.6rem;align-items:center;">\
-                                            <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
+                                            <a href="#" class="arEditField" data-id="'+id+'" data-index="'+i+'">ویرایش</a>\
                                             <a href="#" class="arDeleteMsg" title="حذف '+ttl+'" style="color:#d32f2f;">حذف</a>\
                                         </div>\
                                     </div>\
                                 </div>';
-                            }
-                            var q = (p.question&&p.question.trim()) || '';
-                            var qHtml = q ? sanitizeQuestionHtml(q) : 'پرسش بدون عنوان';
-                            var n = '';
-                            if (p.numbered !== false) { qCounter += 1; n = qCounter + '. '; }
-                            return '<div class="card ar-draggable" draggable="true" data-vid="'+vIdx+'" data-oid="'+visibleMap[vIdx]+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
-                                <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
-                                    <div style="display:flex;align-items:center;gap:.5rem;">\
-                                        <span class="ar-dnd-handle" title="جابجایی">≡</span>\
-                                        <input type="checkbox" class="arSelectItem" title="انتخاب" />\
-                                        <div class="qtext">'+n+qHtml+'</div>\
-                                    </div>\
-                                    <div style="display:flex;gap:.6rem;align-items:center;">\
-                                        <a href="#" class="arEditField" data-id="'+id+'" data-index="'+visibleMap[vIdx]+'">ویرایش</a>\
-                                        <a href="#" class="arDeleteField" style="color:#d32f2f;">حذف</a>\
-                                    </div>\
+                        }
+                        visibleMap[vIdx] = i;
+                        vIdx++;
+                        var q = (p.question&&p.question.trim()) || '';
+                        var qHtml = q ? sanitizeQuestionHtml(q) : 'پرسش بدون عنوان';
+                        var n = '';
+                        if (p.numbered !== false) { qCounter += 1; n = qCounter + '. '; }
+                        return '<div class="card ar-draggable" draggable="true" data-vid="'+(vIdx-1)+'" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
+                                <div style="display:flex;align-items:center;gap:.5rem;">\
+                                    <span class="ar-dnd-handle" title="جابجایی">≡</span>\
+                                    <input type="checkbox" class="arSelectItem" title="انتخاب" />\
+                                    <div class="qtext">'+n+qHtml+'</div>\
                                 </div>\
-                            </div>';
+                                <div style="display:flex;gap:.6rem;align-items:center;">\
+                                    <a href="#" class="arEditField" data-id="'+id+'" data-index="'+i+'">ویرایش</a>\
+                                    <a href="#" class="arDeleteField" style="color:#d32f2f;">حذف</a>\
+                                </div>\
+                            </div>\
+                        </div>';
                         }).join('');
                         // Helper: refresh data-oid and editor indices without full rerender
                         function refreshDomOidMapping(){
@@ -1128,31 +1714,83 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 positionToolPlaceholder(e);
                             }
                         });
-                        list.addEventListener('drop', function(e){
-                            var dt = e.dataTransfer; if (!dt) return; var t='';
-                            try{ t = dt.getData('application/arshline-tool') || dt.getData('text/plain') || ''; } catch(_){ t=''; }
-                            if (t === 'short_text' || t === 'long_text' || draggingTool){
+                        list.addEventListener('drop', function(e) {
+                            var dt = e.dataTransfer;
+                            if (!dt) return;
+                            // If a click-based add just happened, ignore this drop to avoid duplicates
+                            try {
+                                if (Date.now() - lastAddClickTs < 500) {
+                                    e.preventDefault();
+                                    if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh);
+                                    dlog('drop:ignored-due-to-recent-click');
+                                    return;
+                                }
+                            } catch(_){}
+                            var t = '';
+                            try {
+                                t = dt.getData('application/arshline-tool') || dt.getData('text/plain') || '';
+                            } catch (_) {
+                                t = '';
+                            }
+                            dlog('drop:tool', t);
+                            if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || draggingTool) {
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
-                                fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                    .then(r=>r.json())
-                                    .then(function(data){
+                                dlog('drop:insertAt', insertAt);
+                                fetch(ARSHLINE_REST + 'forms/' + id, { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+                                    .then(function(r){ return r.json(); })
+                                    .then(function (data) {
                                         var arr = (data && data.fields) ? data.fields.slice() : [];
-                                        var newField = t === 'long_text' ? { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:true } : { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
-                                        var hasWelcome = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='welcome'; }) !== -1;
-                                        var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
+                                        dlog('drop:loaded-fields', arr.length);
+                                        var newField;
+                                        if (t === 'long_text') {
+                                            newField = { type: 'long_text', label: 'پاسخ طولانی', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true, min_length: 0, max_length: 5000, media_upload: true };
+                                        } else if (t === 'multiple_choice' || t === 'multiple-choice') {
+                                            newField = { type: 'multiple_choice', label: 'سوال چندگزینه‌ای', options: [{ label: 'گزینه 1', value: 'opt_1', second_label: '', media_url: '' }], multiple: false, required: false, vertical: true, randomize: false, numbered: true };
+                                        } else {
+                                            newField = { type: 'short_text', label: 'پاسخ کوتاه', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true };
+                                        }
+                                        var hasWelcome = arr.findIndex(function (x) { var p = x.props || x; return (p.type || x.type) === 'welcome'; }) !== -1;
+                                        var hasThank = arr.findIndex(function (x) { var p = x.props || x; return (p.type || x.type) === 'thank_you'; }) !== -1;
                                         var baseOffset = hasWelcome ? 1 : 0;
                                         var maxPos = arr.length - (hasThank ? 1 : 0);
                                         var realAt = baseOffset + insertAt;
                                         if (realAt < baseOffset) realAt = baseOffset;
                                         if (realAt > maxPos) realAt = maxPos;
+                                        dlog('drop:realAt', realAt, 'baseOffset', baseOffset, 'maxPos', maxPos);
                                         arr.splice(realAt, 0, newField);
-                                        return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return {res:r, index: realAt}; });
+                                        dlog('drop:payload-size', arr.length);
+                                        return fetch(ARSHLINE_REST + 'forms/' + id + '/fields', {
+                                            method: 'PUT',
+                                            credentials: 'same-origin',
+                                            headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': ARSHLINE_NONCE },
+                                            body: JSON.stringify({ fields: arr })
+                                        }).then(function (r) {
+                                            if (!r.ok) {
+                                                if (r.status === 401) {
+                                                    if (typeof handle401 === 'function') handle401();
+                                                }
+                                                throw new Error('HTTP ' + r.status);
+                                            }
+                                            return { res: r, index: realAt };
+                                        });
                                     })
-                                    .then(function(obj){ return obj.res.json().then(function(){ return obj.index; }); })
-                                    .then(function(newIndex){ notify('فیلد جدید درج شد', 'success'); renderFormEditor(id, { index: newIndex }); })
-                                    .catch(function(){ notify('درج فیلد ناموفق بود', 'error'); })
-                                    .finally(function(){ if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+                                    .then(function (obj) {
+                                        return obj.res.json().then(function () {
+                                            dlog('drop:saved-index', obj.index);
+                                            return obj.index;
+                                        });
+                                    })
+                                    .then(function (newIndex) {
+                                        notify('فیلد جدید درج شد', 'success');
+                                        renderFormEditor(id, { index: newIndex });
+                                    })
+                                    .catch(function () {
+                                        notify('درج فیلد ناموفق بود', 'error');
+                                    })
+                                    .finally(function () {
+                                        if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh);
+                                    });
                             }
                         });
                         list.addEventListener('dragleave', function(e){
@@ -1162,12 +1800,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh);
                             }
                         });
-                    }
                 }).catch(function(){ list.textContent='خطا در بارگذاری فیلدها'; });
             var addBtn = document.getElementById('arAddShortText');
             if (addBtn){
                 addBtn.setAttribute('draggable','true');
-                addBtn.addEventListener('click', function(){ addNewField(id); });
+                // Remove any existing event listeners by cloning the node
+                var newAddBtn = addBtn.cloneNode(true);
+                addBtn.parentNode.replaceChild(newAddBtn, addBtn);
+                addBtn = newAddBtn;
+                addBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id); });
                 addBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
                     try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
@@ -1180,7 +1821,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var addLongBtn = document.getElementById('arAddLongText');
             if (addLongBtn){
                 addLongBtn.setAttribute('draggable','true');
-                addLongBtn.addEventListener('click', function(){ addNewField(id, 'long_text'); });
+                // Remove any existing event listeners by cloning the node
+                var newAddLongBtn = addLongBtn.cloneNode(true);
+                addLongBtn.parentNode.replaceChild(newAddLongBtn, addLongBtn);
+                addLongBtn = newAddLongBtn;
+                addLongBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'long_text'); });
                 addLongBtn.addEventListener('dragstart', function(e){
                     draggingTool = true;
                     try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
@@ -1190,8 +1835,29 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
                 addLongBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
             }
+            var addMcBtn = document.getElementById('arAddMultipleChoice');
+            if (addMcBtn){
+                addMcBtn.setAttribute('draggable','true');
+                // Remove any existing event listeners by cloning the node
+                var newAddMcBtn = addMcBtn.cloneNode(true);
+                addMcBtn.parentNode.replaceChild(newAddMcBtn, addMcBtn);
+                addMcBtn = newAddMcBtn;
+                addMcBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'multiple_choice'); });
+                addMcBtn.addEventListener('dragstart', function(e){
+                    draggingTool = true;
+                    try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
+                    try { e.dataTransfer.setData('application/arshline-tool','multiple_choice'); } catch(_){ }
+                    try { e.dataTransfer.setData('text/plain','multiple_choice'); } catch(_){ }
+                    try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'سؤال چندگزینه‌ای'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
+                });
+                addMcBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+            }
             var addWelcomeBtn = document.getElementById('arAddWelcome');
             if (addWelcomeBtn){
+                // Remove any existing event listeners by cloning the node
+                var newAddWelcomeBtn = addWelcomeBtn.cloneNode(true);
+                addWelcomeBtn.parentNode.replaceChild(newAddWelcomeBtn, addWelcomeBtn);
+                addWelcomeBtn = newAddWelcomeBtn;
                 addWelcomeBtn.addEventListener('click', function(){
                     fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                         .then(r=>r.json())
@@ -1209,6 +1875,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             }
             var addThankBtn = document.getElementById('arAddThank');
             if (addThankBtn){
+                // Remove any existing event listeners by cloning the node
+                var newAddThankBtn = addThankBtn.cloneNode(true);
+                addThankBtn.parentNode.replaceChild(newAddThankBtn, addThankBtn);
+                addThankBtn = newAddThankBtn;
                 addThankBtn.addEventListener('click', function(){
                     fetch(ARSHLINE_REST + 'forms/'+id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                         .then(r=>r.json())
@@ -1228,7 +1898,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var formSide = document.getElementById('arFormSide');
             if (formSide){
                 formSide.addEventListener('dragover', function(e){ e.preventDefault(); });
-                formSide.addEventListener('drop', function(e){ e.preventDefault(); var t = e.dataTransfer.getData('text/plain'); if (t==='short_text') addNewField(id); });
+                formSide.addEventListener('drop', function(e){ e.preventDefault(); var t = '';
+                    try { t = e.dataTransfer.getData('application/arshline-tool') || e.dataTransfer.getData('text/plain') || ''; } catch(_){ t = ''; }
+                    if (t === 'short_text') addNewField(id);
+                    else if (t === 'long_text') addNewField(id, 'long_text');
+                    else if (t === 'multiple_choice' || t === 'multiple-choice') addNewField(id, 'multiple_choice');
+                });
             }
         }
 
