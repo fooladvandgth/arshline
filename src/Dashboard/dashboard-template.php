@@ -162,6 +162,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
+    /* Small type icon next to tools/questions */
+    .ar-type-ic { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; color: var(--muted); }
+    .ar-toolbtn { position: relative; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; width:100%; padding-inline-start: 40px; }
+    /* Pin toolbox icon to button corner with a cream color */
+    .ar-toolbtn .ar-type-ic { position:absolute; inset-inline-start:10px; inset-block-start:8px; color:#f5e6c8; pointer-events:none; }
     /* Preview-only mode */
     body.preview-only .arshline-sidebar, body.preview-only .arshline-header { display:none !important; }
     body.preview-only .arshline-main { padding: 1.2rem; }
@@ -495,6 +500,29 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active');
             });
         }
+        // Map type -> Ionicon name (we already load Ionicons)
+        function getTypeIcon(type){
+            switch(type){
+                case 'short_text': return 'create-outline'; // pencil/text
+                case 'long_text': return 'newspaper-outline'; // document-like
+                case 'multiple_choice':
+                case 'multiple-choice': return 'list-outline';
+                case 'welcome': return 'happy-outline';
+                case 'thank_you': return 'checkmark-done-outline';
+                default: return 'help-circle-outline';
+            }
+        }
+        function getTypeLabel(type){
+            switch(type){
+                case 'short_text': return 'پاسخ کوتاه';
+                case 'long_text': return 'پاسخ طولانی';
+                case 'multiple_choice':
+                case 'multiple-choice': return 'چندگزینه‌ای';
+                case 'welcome': return 'پیام خوش‌آمد';
+                case 'thank_you': return 'پیام تشکر';
+                default: return 'نامشخص';
+            }
+        }
         function card(title, subtitle, icon){
             var ic = icon ? ('<span style="font-size:22px;margin-inline-start:.4rem;opacity:.85">'+icon+'</span>') : '';
             return '<div class="card glass" style="display:flex;align-items:center;gap:.6rem;">\
@@ -632,10 +660,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         if (numbered) qNum += 1;
                         var numberStr = numbered ? (qNum + '. ') : '';
                         var sanitizedQ = sanitizeQuestionHtml(showQ || '');
-                        var ariaQ = htmlToText(sanitizedQ);
+                        var ariaQ = htmlToText(sanitizedQ || 'پرسش بدون عنوان');
+                        var qDisplayHtml = sanitizedQ || 'پرسش بدون عنوان';
+                        var questionBlock = '<div class="hint" style="margin-bottom:.25rem">'+ (numbered ? (numberStr + qDisplayHtml) : qDisplayHtml) +'</div>';
                         if (type === 'long_text'){
-                            row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '')+
-                                '<textarea id="'+inputId+'" class="ar-input" style="width:100%" rows="4" placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+escapeAttr(numberStr+ariaQ)+'"'):'') + '></textarea>' +
+                            row.innerHTML = questionBlock +
+                                '<textarea id="'+inputId+'" class="ar-input" style="width:100%" rows="4" placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'"></textarea>' +
                                 (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
                         } else if (type === 'multiple_choice' || type === 'multiple-choice') {
                             var opts = p.options || [];
@@ -648,11 +678,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 html += '<label style="display:flex;align-items:center;gap:.5rem;"><input type="'+(multiple?'checkbox':'radio')+'" name="mc_'+(f.id||i)+'" value="'+escapeAttr(o.value||'')+'" /> <span>'+lbl+'</span> '+sec+'</label>';
                             });
                             html += '</div>';
-                            row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '') + html +
+                            row.innerHTML = questionBlock + html +
                                 (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
                         } else {
-                            row.innerHTML = (showQ ? ('<div class="hint" style="margin-bottom:.25rem">'+numberStr+sanitizedQ+'</div>') : '')+
-                                '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" ' + (showQ?('aria-label="'+escapeAttr(numberStr+ariaQ)+'"'):'') + ' />' +
+                            row.innerHTML = questionBlock +
+                                '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'" />' +
                                 (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
                         }
                         fwrap.appendChild(row);
@@ -1581,15 +1611,30 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '</div>'
                 + '<div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">'
                 + '<div class="title" style="margin-bottom:.6rem;">ابزارها</div>'
-                + '<button id="arAddShortText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ کوتاه</button>'
+                + '<button id="arAddShortText" class="ar-btn ar-toolbtn" draggable="true">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('short_text')+'"></ion-icon></span>'
+                + '  <span>افزودن سؤال با پاسخ کوتاه</span>'
+                + '</button>'
                 + '<div style="height:.5rem"></div>'
-                + '<button id="arAddLongText" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال با پاسخ طولانی</button>'
+                + '<button id="arAddLongText" class="ar-btn ar-toolbtn" draggable="true">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('long_text')+'"></ion-icon></span>'
+                + '  <span>افزودن سؤال با پاسخ طولانی</span>'
+                + '</button>'
                 + '<div style="height:.5rem"></div>'
-                + '<button id="arAddMultipleChoice" class="ar-btn" style="width:100%" draggable="true">افزودن سؤال چندگزینه‌ای</button>'
+                + '<button id="arAddMultipleChoice" class="ar-btn ar-toolbtn" draggable="true">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('multiple_choice')+'"></ion-icon></span>'
+                + '  <span>افزودن سؤال چندگزینه‌ای</span>'
+                + '</button>'
                 + '<div style="height:.5rem"></div>'
-                + '<button id="arAddWelcome" class="ar-btn" style="width:100%">افزودن پیام خوش‌آمد</button>'
+                + '<button id="arAddWelcome" class="ar-btn ar-toolbtn">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('welcome')+'"></ion-icon></span>'
+                + '  <span>افزودن پیام خوش‌آمد</span>'
+                + '</button>'
                 + '<div style="height:.5rem"></div>'
-                + '<button id="arAddThank" class="ar-btn" style="width:100%">افزودن پیام تشکر</button>'
+                + '<button id="arAddThank" class="ar-btn ar-toolbtn">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('thank_you')+'"></ion-icon></span>'
+                + '  <span>افزودن پیام تشکر</span>'
+                + '</button>'
                 + '</div>'
                 + '</div>';
             // Wire builder toolbar actions
@@ -1618,7 +1663,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var head = (p.heading && String(p.heading).trim()) || '';
                             return '<div class="card" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
                                     <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
-                                        <div class="hint">'+ttl+' — '+head+'</div>\
+                                        <div class="hint" style="display:flex;align-items:center;gap:.4rem;">\
+                                          <span class="ar-type-ic"><ion-icon name="'+getTypeIcon(type)+'"></ion-icon></span>\
+                                          <span>'+ttl+' — '+head+'</span>\
+                                        </div>\
                                         <div style="display:flex;gap:.6rem;align-items:center;">\
                                             <a href="#" class="arEditField" data-id="'+id+'" data-index="'+i+'">ویرایش</a>\
                                             <a href="#" class="arDeleteMsg" title="حذف '+ttl+'" style="color:#d32f2f;">حذف</a>\
@@ -1637,6 +1685,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 <div style="display:flex;align-items:center;gap:.5rem;">\
                                     <span class="ar-dnd-handle" title="جابجایی">≡</span>\
                                     <input type="checkbox" class="arSelectItem" title="انتخاب" />\
+                                    <span class="ar-type-ic" title="'+getTypeLabel(type)+'"><ion-icon name="'+getTypeIcon(type)+'"></ion-icon></span>\
                                     <div class="qtext">'+n+qHtml+'</div>\
                                 </div>\
                                 <div style="display:flex;gap:.6rem;align-items:center;">\

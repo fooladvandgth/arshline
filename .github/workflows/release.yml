@@ -1,0 +1,76 @@
+name: Release plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.6.1). If empty, uses ref tag when triggered from a tag.'
+        required: false
+        default: ''
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF##*/}"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::Cannot determine tag. Provide 'tag' input when running manually or trigger from a tag push."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build plugin ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.tag }}'
+          # Create zip with plugin folder at the root of the archive (WordPress convention)
+          zip -r "arshline-${TAG}.zip" . \
+            -x "*/.git/*" \
+               "*/node_modules/*" \
+               "*/vendor/*" \
+               "*/tests/*" \
+               "*/.github/*" \
+               "*/tools/*" \
+               "*.DS_Store" \
+               "*/.DS_Store"
+
+      - name: Resolve release notes path
+        id: notes
+        shell: bash
+        run: |
+          TAG='${{ steps.tag.outputs.tag }}'
+          NOTES="tools/releases/${TAG}.md"
+          if [ -f "$NOTES" ]; then
+            echo "notes_path=$NOTES" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes_path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_path }}
+          draft: false
+          prerelease: false
+          files: |
+            arshline-${{ steps.tag.outputs.tag }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
