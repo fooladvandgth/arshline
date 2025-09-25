@@ -747,7 +747,18 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var field = base.props || base || defaultProps;
                     var fType = field.type || base.type || 'short_text';
                     // ensure defaults by type
-                    if (fType === 'short_text'){
+                    if (fType === 'multiple_choice' || fType === 'multiple-choice') {
+                        field.type = 'multiple_choice';
+                        field.label = 'سوال چندگزینه‌ای';
+                        if (!field.options || !Array.isArray(field.options)) {
+                            field.options = [{ label: 'گزینه 1', value: 'opt_1', second_label: '', media_url: '' }];
+                        }
+                        if (typeof field.multiple === 'undefined') field.multiple = false;
+                        if (typeof field.required === 'undefined') field.required = false;
+                        if (typeof field.vertical === 'undefined') field.vertical = true;
+                        if (typeof field.randomize === 'undefined') field.randomize = false;
+                        if (typeof field.numbered === 'undefined') field.numbered = true;
+                    } else if (fType === 'short_text'){
                         field.type = 'short_text';
                         field.label = 'پاسخ کوتاه';
                     } else if (fType === 'welcome'){
