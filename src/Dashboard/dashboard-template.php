@@ -576,18 +576,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var backBtn = document.getElementById('arBackToForms');
                 if (backBtn) backBtn.addEventListener('click', function(){ renderTab('forms'); });
             }
-            // Persist route
+                        // Persist route
             try { setHash('results/'+formId); } catch(_){ }
                                     content.innerHTML = '<div class="card glass" style="padding:1rem;">\
-                <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
-                  <span class="title">نتایج فرم #'+formId+'</span>\
-                                    <input id="arSubSearch" class="ar-input" placeholder="جستجو (شناسه/خلاصه)" style="min-width:200px;margin-inline-start:auto"/>\
-                                    <input id="arAnsSearch" class="ar-input" placeholder="جستجو در پاسخ‌ها" style="min-width:220px"/>\
-                  <select id="arSubStatus" class="ar-select"><option value="">همه وضعیت‌ها</option><option value="pending">در انتظار</option><option value="approved">تایید شده</option><option value="rejected">رد شده</option></select>\
-                  <input id="arDateFrom" type="date" class="ar-input"/>\
-                  <input id="arDateTo" type="date" class="ar-input"/>\
-                  <button id="arSubExport" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
-                </div>\
+                                <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
+                                    <span class="title">نتایج فرم #'+formId+'</span>\
+                                </div>\
                                             <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">\
                                                 <select id="arFieldSelect" class="ar-select" style="min-width:220px"><option value="">انتخاب سوال...</option></select>\
                                                 <select id="arFieldOp" class="ar-select"><option value="eq">دقیقا برابر</option><option value="neq">اصلا این نباشد</option><option value="like">شامل باشد</option></select>\
@@ -596,15 +590,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 </span>\
                                                 <button id="arFieldApply" class="ar-btn ar-btn--soft">اعمال فیلتر</button>\
                                                 <button id="arFieldClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>\
+                                                                                                <span style="flex:1 1 auto"></span>\
+                                                                                                <button id="arSubExportCsv" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
+                                                                                                <button id="arSubExportXls" class="ar-btn ar-btn--outline" title="خروجی Excel">خروجی Excel</button>\
                                             </div>\
                                 <div id="arSubsList"></div>\
             </div>';
-            var q = document.getElementById('arSubSearch');
-            var st = document.getElementById('arSubStatus');
-            var ans = document.getElementById('arAnsSearch');
-            var df = document.getElementById('arDateFrom');
-            var dt = document.getElementById('arDateTo');
-            var exp = document.getElementById('arSubExport');
+                        // simplified header: no global search/status/date filters
+                        var q = null, st = null, ans = null, df = null, dt = null;
+                        var expCsv = document.getElementById('arSubExportCsv');
+                        var expXls = document.getElementById('arSubExportXls');
             var selField = document.getElementById('arFieldSelect');
             var selOp = document.getElementById('arFieldOp');
             var inpVal = document.getElementById('arFieldVal');
@@ -617,11 +612,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             function buildQuery(){
                 var p = new URLSearchParams();
                 p.set('page', String(state.page||1)); p.set('per_page', String(state.per_page||10));
-                var sv = (st && st.value)||''; if (sv) p.set('status', sv);
-                var qv = (q && q.value.trim())||''; if (qv) p.set('search', qv);
-                var av = (ans && ans.value.trim())||''; if (av) p.set('answers', av);
-                var fv = (df && df.value)||''; if (fv) p.set('from', fv);
-                var tv = (dt && dt.value)||''; if (tv) p.set('to', tv);
+                var sv = '';
+                var qv = '';
+                var av = '';
+                var fv = '';
+                var tv = '';
                 // single per-field filter with operator
                 var fid = (selField && parseInt(selField.value||'0'))||0;
                 var vv = (inpVal && inpVal.value.trim())||'';
@@ -774,12 +769,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(function(resp){ renderTable(resp); })
                 .catch(function(err){ try { cerror('results:render:error', err && (err.message||err)); } catch(_){ } list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
             }
-            if (q) q.addEventListener('input', function(){ state.page = 1; clearTimeout(q._t); q._t = setTimeout(load, 300); });
-            if (st) st.addEventListener('change', function(){ state.page = 1; load(); });
-            if (ans) ans.addEventListener('input', function(){ state.page = 1; clearTimeout(ans._t); ans._t = setTimeout(load, 300); });
-            if (df) df.addEventListener('change', function(){ state.page = 1; load(); });
-            if (dt) dt.addEventListener('change', function(){ state.page = 1; load(); });
-            if (exp) exp.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(url, '_blank'); });
+            if (expCsv) expCsv.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(url, '_blank'); });
+            if (expXls) expXls.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=excel'); window.open(url, '_blank'); });
             if (btnApply) btnApply.addEventListener('click', function(){ state.page = 1; load(); });
             if (btnClear) btnClear.addEventListener('click', function(){ if (selField) selField.value=''; if (inpVal) inpVal.value=''; if (selOp) selOp.value='like'; state.page = 1; load(); });
             load();

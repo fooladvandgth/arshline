@@ -264,9 +264,9 @@ class Api
             'field_ops' => $fieldOps,
         ];
         $include = (string)($request->get_param('include') ?? ''); // values,fields
-        // export all as CSV when format=csv
+        // export all as CSV when format=csv, or Excel-compatible when format=excel
         $format = (string)($request->get_param('format') ?? '');
-        if ($format === 'csv') {
+        if ($format === 'csv' || $format === 'excel') {
             $all = SubmissionRepository::listByFormAll($form_id, $filters);
             // Optional: include answers as separate columns (wide CSV)
             $fields = FieldRepository::listByForm($form_id);
@@ -305,8 +305,14 @@ class Api
             }
             $csv = "\xEF\xBB\xBF" . implode("\r\n", $out);
             $resp = new WP_REST_Response($csv, 200);
-            $resp->header('Content-Type', 'text/csv; charset=utf-8');
-            $resp->header('Content-Disposition', 'attachment; filename="submissions-'.$form_id.'.csv"');
+            if ($format === 'excel') {
+                // Excel-friendly headers; we still send CSV content for simplicity/compatibility
+                $resp->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+                $resp->header('Content-Disposition', 'attachment; filename="submissions-'.$form_id.'.xls"');
+            } else {
+                $resp->header('Content-Type', 'text/csv; charset=utf-8');
+                $resp->header('Content-Disposition', 'attachment; filename="submissions-'.$form_id.'.csv"');
+            }
             return $resp;
         }
         $res = SubmissionRepository::listByFormPaged($form_id, $page, $per_page, $filters);
