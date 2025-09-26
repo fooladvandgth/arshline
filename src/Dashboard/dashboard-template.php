@@ -493,10 +493,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var raw = (location.hash||'').replace('#','').trim();
             if (!raw){ renderTab('dashboard'); return; }
             var parts = raw.split('/');
-            if (['dashboard','forms','submissions','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
+            // Backward-compat: if someone navigates to old #submissions, redirect to forms
+            if (parts[0]==='submissions'){ renderTab('forms'); return; }
+            if (['dashboard','forms','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
             if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
             if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
             if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
+            if (parts[0]==='results' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormResults(id); return; } }
             renderTab('dashboard');
         }
         window.addEventListener('hashchange', function(){ if (_arNavSilence>0) return; routeFromHash(); });
@@ -556,6 +559,154 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                   <div class="hint">'+(subtitle||'')+'</div>\
                 </div>\
             </div>';
+        }
+
+        // Per-form results page (moved from standalone submissions)
+        function renderFormResults(formId){
+            var content = document.getElementById('arshlineDashboardContent');
+            if (!content) return;
+            // Header actions: back to forms
+            var headerActions = document.getElementById('arHeaderActions');
+            if (headerActions) {
+                headerActions.innerHTML = '<button id="arBackToForms" class="ar-btn ar-btn--outline">بازگشت به فرم‌ها</button>';
+                var backBtn = document.getElementById('arBackToForms');
+                if (backBtn) backBtn.addEventListener('click', function(){ renderTab('forms'); });
+            }
+            // Persist route
+            try { setHash('results/'+formId); } catch(_){ }
+                        content.innerHTML = '<div class="card glass" style="padding:1rem;">\
+                <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
+                  <span class="title">نتایج فرم #'+formId+'</span>\
+                                    <input id="arSubSearch" class="ar-input" placeholder="جستجو (شناسه/خلاصه)" style="min-width:200px;margin-inline-start:auto"/>\
+                                    <input id="arAnsSearch" class="ar-input" placeholder="جستجو در پاسخ‌ها" style="min-width:220px"/>\
+                  <select id="arSubStatus" class="ar-select"><option value="">همه وضعیت‌ها</option><option value="pending">در انتظار</option><option value="approved">تایید شده</option><option value="rejected">رد شده</option></select>\
+                  <input id="arDateFrom" type="date" class="ar-input"/>\
+                  <input id="arDateTo" type="date" class="ar-input"/>\
+                  <button id="arSubExport" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
+                </div>\
+                                <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem"></div>\
+                                <div id="arSubsList"></div>\
+            </div>';
+            var q = document.getElementById('arSubSearch');
+            var st = document.getElementById('arSubStatus');
+            var ans = document.getElementById('arAnsSearch');
+            var df = document.getElementById('arDateFrom');
+            var dt = document.getElementById('arDateTo');
+            var exp = document.getElementById('arSubExport');
+            var state = { page: 1, per_page: 10 };
+            function buildQuery(){
+                var p = new URLSearchParams();
+                p.set('page', String(state.page||1)); p.set('per_page', String(state.per_page||10));
+                var sv = (st && st.value)||''; if (sv) p.set('status', sv);
+                var qv = (q && q.value.trim())||''; if (qv) p.set('search', qv);
+                var av = (ans && ans.value.trim())||''; if (av) p.set('answers', av);
+                var fv = (df && df.value)||''; if (fv) p.set('from', fv);
+                var tv = (dt && dt.value)||''; if (tv) p.set('to', tv);
+                // gather per-field filters
+                try {
+                    var ff = document.querySelectorAll('#arFieldFilters input[data-fid]');
+                    ff.forEach(function(inp){ var v = inp.value.trim(); if (v) p.set('f['+inp.getAttribute('data-fid')+']', v); });
+                } catch(_){ }
+                return p.toString();
+            }
+            function buildRestUrl(path, qs){
+                try {
+                    var base = ARSHLINE_REST || '';
+                    if (path.charAt(0) === '/') path = path.slice(1);
+                    var u = new URL(base, window.location.origin);
+                    if (u.searchParams.has('rest_route')){
+                        var rr = u.searchParams.get('rest_route') || '';
+                        if (rr && rr.charAt(rr.length-1) !== '/') rr += '/';
+                        rr += path;
+                        u.searchParams.set('rest_route', rr);
+                    } else {
+                        if (u.pathname && u.pathname.charAt(u.pathname.length-1) !== '/') u.pathname += '/';
+                        u.pathname += path;
+                    }
+                    if (qs){
+                        var extra = new URLSearchParams(qs);
+                        extra.forEach(function(v,k){ u.searchParams.set(k, v); });
+                    }
+                    return u.toString();
+                } catch(_) {
+                    return (ARSHLINE_REST||'') + path + (qs? ('?'+qs) : '');
+                }
+            }
+            function renderTable(resp){
+                var list = document.getElementById('arSubsList'); if (!list) return; if (!resp) { list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
+                var rows = Array.isArray(resp) ? resp : (resp.rows||[]);
+                var total = Array.isArray(resp) ? rows.length : (resp.total||0);
+                var fields = resp.fields || [];
+                var fieldOrder = []; var fieldLabels = {}; var choices = {};
+                if (Array.isArray(fields) && fields.length){
+                    fields.forEach(function(f){ var fid = parseInt(f.id||0); if (!fid) return; fieldOrder.push(fid); var p = f.props||{}; fieldLabels[fid] = p.question || ('فیلد #'+fid); if (Array.isArray(p.options)){ p.options.forEach(function(opt){ var v = String(opt.value||opt.label||''); var l = String(opt.label||v); if (!choices[fid]) choices[fid] = {}; if (v) choices[fid][v] = l; }); } });
+                }
+                // render per-field filter inputs if empty
+                var ffWrap = document.getElementById('arFieldFilters');
+                if (ffWrap && ffWrap.childElementCount === 0 && fieldOrder.length){
+                    var ffHtml = fieldOrder.map(function(fid){ return '<input class="ar-input" data-fid="'+fid+'" placeholder="فیلتر '+(fieldLabels[fid]||('فیلد #'+fid))+'" style="min-width:180px"/>'; }).join('');
+                    ffWrap.innerHTML = ffHtml;
+                    ffWrap.querySelectorAll('input[data-fid]').forEach(function(inp){ inp.addEventListener('input', function(){ state.page = 1; clearTimeout(inp._t); inp._t = setTimeout(load, 300); }); });
+                }
+                if (!rows || rows.length===0){ list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
+                var html = '<div style="overflow:auto">\
+                    <table class="ar-table" style="width:100%;border-collapse:collapse">\
+                        <thead><tr>\
+                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">شناسه</th>\
+                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">وضعیت</th>\
+                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">تاریخ</th>';
+                fieldOrder.forEach(function(fid){ html += '<th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">'+(fieldLabels[fid]||('فیلد #'+fid))+'</th>'; });
+                html += '<th style="border-bottom:1px solid var(--border);padding:.5rem">اقدام</th>\
+                        </tr></thead><tbody>';
+                html += rows.map(function(it){
+                    var viewUrl = (ARSHLINE_SUB_VIEW_BASE||'').replace('%ID%', String(it.id));
+                    var byField = {};
+                    if (Array.isArray(it.values)){
+                        it.values.forEach(function(v){ var fid = parseInt(v.field_id||0); if (!fid) return; if (byField[fid] == null) byField[fid] = String(v.value||''); });
+                    }
+                    var tr = '\
+                    <tr>\
+                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">#'+it.id+'</td>\
+                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.status||'')+'</td>\
+                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.created_at||'')+'</td>';
+                    fieldOrder.forEach(function(fid){ var val = byField[fid] || ''; if (choices[fid] && choices[fid][val]) val = choices[fid][val]; tr += '<td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+escapeHtml(String(val))+'</td>'; });
+                    tr += '\
+                        <td style="padding:.5rem;border-bottom:1px dashed var(--border);text-align:left"><a href="'+viewUrl+'" target="_blank" rel="noopener" class="ar-btn ar-btn--soft">مشاهده پاسخ</a></td>\
+                    </tr>';
+                    return tr;
+                }).join('');
+                html += '</tbody></table></div>';
+                if (!Array.isArray(resp)){
+                    var page = resp.page||1, per = resp.per_page||10; var pages = Math.max(1, Math.ceil(total/per));
+                    html += '<div style="display:flex;gap:.5rem;align-items:center;justify-content:center;margin-top:.6rem">';
+                    html += '<button class="ar-btn" data-page="prev" '+(page<=1?'disabled':'')+'>قبلی</button>';
+                    html += '<span class="hint">صفحه '+page+' از '+pages+' — '+total+' رکورد</span>';
+                    html += '<button class="ar-btn" data-page="next" '+(page>=pages?'disabled':'')+'>بعدی</button>';
+                    html += '</div>';
+                }
+                list.innerHTML = html;
+                if (!Array.isArray(resp)){
+                    var prev = list.querySelector('button[data-page="prev"]'); var next = list.querySelector('button[data-page="next"]');
+                    if (prev) prev.onclick = function(){ state.page = Math.max(1, (resp.page||1)-1); load(); };
+                    if (next) next.onclick = function(){ var pages = Math.max(1, Math.ceil((resp.total||0)/(resp.per_page||10))); state.page = Math.min(pages, (resp.page||1)+1); load(); };
+                }
+            }
+            function load(){
+                var list = document.getElementById('arSubsList'); if (!list) return;
+                list.innerHTML = '<div class="hint">در حال بارگذاری...</div>';
+                var qs = buildQuery();
+                var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'include=values,fields');
+                fetch(url, { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+                .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                .then(function(resp){ renderTable(resp); }).catch(function(){ list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
+            }
+            if (q) q.addEventListener('input', function(){ state.page = 1; clearTimeout(q._t); q._t = setTimeout(load, 300); });
+            if (st) st.addEventListener('change', function(){ state.page = 1; load(); });
+            if (ans) ans.addEventListener('input', function(){ state.page = 1; clearTimeout(ans._t); ans._t = setTimeout(load, 300); });
+            if (df) df.addEventListener('change', function(){ state.page = 1; load(); });
+            if (dt) dt.addEventListener('change', function(){ state.page = 1; load(); });
+            if (exp) exp.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(url, '_blank'); });
+            load();
         }
 
         function suggestPlaceholder(fmt){
@@ -2441,7 +2592,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-            try { if (['dashboard','forms','submissions','reports','users'].includes(tab)) setHash(tab); } catch(_){ }
+            try { if (['dashboard','forms','reports','users'].includes(tab)) setHash(tab); } catch(_){ }
             try { setSidebarClosed(false, false); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
@@ -2477,25 +2628,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
                         </div>\
                     </div>';
-            } else if (tab === 'forms') {
+                        } else if (tab === 'forms') {
                 // header button already rendered globally
-                content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
-                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
-                      <span class="title">فرم‌ها</span>\
-                      <button id="arCreateFormBtn" class="ar-btn ar-btn--soft" style="margin-inline-start:auto;">+ فرم جدید</button>\
-                    </div>\
-                    <div id="arCreateInline" style="display:none;align-items:center;gap:.5rem;margin-bottom:.8rem;">\
-                      <input id="arNewFormTitle" class="ar-input" placeholder="عنوان فرم" style="min-width:220px"/>\
-                      <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
-                      <button id="arCreateFormCancel" class="ar-btn ar-btn--outline">انصراف</button>\
-                    </div>\
-                    <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
-                </div>';
+                                content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
+                                        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
+                                            <span class="title">فرم‌ها</span>\
+                                            <div style="display:flex;gap:.5rem;align-items:center;margin-inline-start:auto;flex-wrap:wrap">\
+                                                <input id="arFormSearch" class="ar-input" placeholder="جستجو عنوان/شناسه" style="min-width:220px"/>\
+                                                <input id="arFormDateFrom" type="date" class="ar-input" title="از تاریخ"/>\
+                                                <input id="arFormDateTo" type="date" class="ar-input" title="تا تاریخ"/>\
+                                                <button id="arCreateFormBtn" class="ar-btn ar-btn--soft">+ فرم جدید</button>\
+                                            </div>\
+                                        </div>\
+                                        <div id="arCreateInline" style="display:none;align-items:center;gap:.5rem;margin-bottom:.8rem;">\
+                                            <input id="arNewFormTitle" class="ar-input" placeholder="عنوان فرم" style="min-width:220px"/>\
+                                            <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
+                                            <button id="arCreateFormCancel" class="ar-btn ar-btn--outline">انصراف</button>\
+                                        </div>\
+                                        <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
+                                </div>';
                 var createBtn = document.getElementById('arCreateFormBtn');
                 var headerCreateBtn = document.getElementById('arHeaderCreateForm');
                 var inlineWrap = document.getElementById('arCreateInline');
                 var submitBtn = document.getElementById('arCreateFormSubmit');
                 var cancelBtn = document.getElementById('arCreateFormCancel');
+                                var formSearch = document.getElementById('arFormSearch');
+                                var formDF = document.getElementById('arFormDateFrom');
+                                var formDT = document.getElementById('arFormDateTo');
                 if (!ARSHLINE_CAN_MANAGE && createBtn){ createBtn.style.display = 'none'; }
                 if (createBtn) createBtn.addEventListener('click', function(){
                     if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex';
@@ -2535,173 +2694,52 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
                 // Allow pressing Enter in title input to submit
                 (function(){ try { var inp=document.getElementById('arNewFormTitle'); if (inp){ inp.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); if (submitBtn) submitBtn.click(); } }); } } catch(_){ } })();
-                // load forms list
+                // load forms list with client-side filtering
                 fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
+                    var all = Array.isArray(forms) ? forms : [];
                     var box = document.getElementById('arFormsList'); if (!box) return;
-                    var isEmpty = !forms || forms.length===0;
-                    if (isEmpty){
-                        // Show a friendly hint, but do NOT return early; inline create stays closed until user clicks "+ فرم جدید"
-                        box.innerHTML = '<div class="hint">هنوز فرمی ندارید. برای شروع روی «+ فرم جدید» کلیک کنید.</div>';
-                    }
-                    var html = (forms||[]).map(function(f){
-                        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
-                            <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'</div>\
-                            <div style="display:flex;gap:.6rem;">\
-                                <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
-                                <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
-                                <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
-                                '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
-                            </div>\
-                        </div>';
-                    }).join('');
-                    if (!isEmpty){
+                    function applyFilters(){
+                        var term = (formSearch && formSearch.value.trim()) || '';
+                        var df = (formDF && formDF.value) || '';
+                        var dt = (formDT && formDT.value) || '';
+                        var list = all.filter(function(f){
+                            var ok = true;
+                            if (term){
+                                var t = (f.title||'') + ' ' + String(f.id||'');
+                                ok = t.indexOf(term) !== -1;
+                            }
+                            if (ok && df){ ok = String(f.created_at||'').slice(0,10) >= df; }
+                            if (ok && dt){ ok = String(f.created_at||'').slice(0,10) <= dt; }
+                            return ok;
+                        });
+                        var isEmpty = list.length===0;
+                        if (isEmpty){ box.innerHTML = '<div class="hint">فرمی مطابق جستجو یافت نشد.</div>'; return; }
+                        var html = list.map(function(f){
+                            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
+                                <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div>\
+                                <div style="display:flex;gap:.6rem;">\
+                                    <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
+                                    <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
+                                    <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
+                                    '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
+                                </div>\
+                            </div>';
+                        }).join('');
                         box.innerHTML = html;
                         box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); });
                         box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
-                        box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; window._pendingFormSelectId = id; renderTab('submissions'); }); });
+                        box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; renderFormResults(id); }); });
                         if (ARSHLINE_CAN_MANAGE) {
                             box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
                         }
                     }
-                    // If header create was requested before arriving here, open inline create now (even if list is empty)
+                    applyFilters();
+                    if (formSearch) formSearch.addEventListener('input', function(){ clearTimeout(formSearch._t); formSearch._t = setTimeout(applyFilters, 200); });
+                    if (formDF) formDF.addEventListener('change', applyFilters);
+                    if (formDT) formDT.addEventListener('change', applyFilters);
+                    // If header create was requested before arriving here, open inline create now
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
-            } else if (tab === 'submissions') {
-                content.innerHTML = '<div class="card glass" style="padding:1rem;">\
-                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
-                      <span class="title">پاسخ‌ها</span>\
-                      <select id="arFormSelect" style="margin-inline-start:auto;padding:.35rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></select>\
-                      <input id="arSubSearch" class="ar-input" placeholder="جستجو (شناسه/خلاصه)" style="min-width:200px"/>\
-                      <select id="arSubStatus" class="ar-select"><option value="">همه وضعیت‌ها</option><option value="pending">در انتظار</option><option value="approved">تایید شده</option><option value="rejected">رد شده</option></select>\
-                      <input id="arDateFrom" type="date" class="ar-input"/>\
-                      <input id="arDateTo" type="date" class="ar-input"/>\
-                      <button id="arSubExport" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
-                    </div>\
-                    <div id="arSubsList">\
-                      <div class="hint">فرمی انتخاب کنید...</div>\
-                    </div>\
-                </div>';
-                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
-                    var sel = document.getElementById('arFormSelect');
-                    if (!sel) return;
-                    sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
-                    var q = document.getElementById('arSubSearch');
-                    var st = document.getElementById('arSubStatus');
-                    var df = document.getElementById('arDateFrom');
-                    var dt = document.getElementById('arDateTo');
-                    var exp = document.getElementById('arSubExport');
-                    var state = { page: 1, per_page: 10 };
-                    function buildQuery(){
-                        var p = new URLSearchParams();
-                        p.set('page', String(state.page||1)); p.set('per_page', String(state.per_page||10));
-                        var sv = (st && st.value)||''; if (sv) p.set('status', sv);
-                        var qv = (q && q.value.trim())||''; if (qv) p.set('search', qv);
-                        var fv = (df && df.value)||''; if (fv) p.set('from', fv);
-                        var tv = (dt && dt.value)||''; if (tv) p.set('to', tv);
-                        return p.toString();
-                    }
-                    function buildRestUrl(path, qs){
-                        try {
-                            var base = ARSHLINE_REST || '';
-                            // Ensure path has no leading slash (rest_url already includes trailing slash)
-                            if (path.charAt(0) === '/') path = path.slice(1);
-                            var u = new URL(base, window.location.origin);
-                            if (u.searchParams.has('rest_route')){
-                                var rr = u.searchParams.get('rest_route') || '';
-                                if (rr && rr.charAt(rr.length-1) !== '/') rr += '/';
-                                rr += path;
-                                u.searchParams.set('rest_route', rr);
-                            } else {
-                                // Append to pathname (ensure single slash)
-                                if (u.pathname && u.pathname.charAt(u.pathname.length-1) !== '/') u.pathname += '/';
-                                u.pathname += path;
-                            }
-                            if (qs){
-                                var extra = new URLSearchParams(qs);
-                                extra.forEach(function(v,k){ u.searchParams.set(k, v); });
-                            }
-                            return u.toString();
-                        } catch(_) {
-                            // Fallback: naive concatenation
-                            return (ARSHLINE_REST||'') + path + (qs? ('?'+qs) : '');
-                        }
-                    }
-                                        function renderTable(resp){
-                        var list = document.getElementById('arSubsList'); if (!list) return; if (!resp) { list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
-                                                var rows = Array.isArray(resp) ? resp : (resp.rows||[]);
-                                                var total = Array.isArray(resp) ? rows.length : (resp.total||0);
-                                                // Build dynamic columns from fields when present
-                                                var fields = resp.fields || [];
-                                                var fieldOrder = [];
-                                                var fieldLabels = {};
-                                                var choices = {};
-                                                if (Array.isArray(fields) && fields.length){
-                                                        fields.forEach(function(f){ var fid = parseInt(f.id||0); if (!fid) return; fieldOrder.push(fid); var p = f.props||{}; fieldLabels[fid] = p.question || ('فیلد #'+fid); if (Array.isArray(p.options)){ p.options.forEach(function(opt){ var v = String(opt.value||opt.label||''); var l = String(opt.label||v); if (!choices[fid]) choices[fid] = {}; if (v) choices[fid][v] = l; }); } });
-                                                }
-                        if (!rows || rows.length===0){ list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
-                                                var html = '<div style="overflow:auto">\
-                                                    <table class="ar-table" style="width:100%;border-collapse:collapse">\
-                                                        <thead><tr>\
-                                                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">شناسه</th>\
-                                                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">وضعیت</th>\
-                                                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">تاریخ</th>';
-                                                // dynamic question columns
-                                                fieldOrder.forEach(function(fid){ html += '<th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">'+(fieldLabels[fid]||('فیلد #'+fid))+'</th>'; });
-                                                html += '<th style="border-bottom:1px solid var(--border);padding:.5rem">اقدام</th>\
-                                                        </tr></thead><tbody>';
-                                                html += rows.map(function(it){
-                                                        var viewUrl = (ARSHLINE_SUB_VIEW_BASE||'').replace('%ID%', String(it.id));
-                                                        var byField = {};
-                                                        if (Array.isArray(it.values)){
-                                                                it.values.forEach(function(v){ var fid = parseInt(v.field_id||0); if (!fid) return; if (byField[fid] == null) byField[fid] = String(v.value||''); });
-                                                        }
-                                                        var tr = '\
-                                                    <tr>\
-                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">#'+it.id+'</td>\
-                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.status||'')+'</td>\
-                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.created_at||'')+'</td>';
-                                                        fieldOrder.forEach(function(fid){ var val = byField[fid] || ''; if (choices[fid] && choices[fid][val]) val = choices[fid][val]; tr += '<td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+escapeHtml(String(val))+'</td>'; });
-                                                        tr += '\
-                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border);text-align:left"><a href="'+viewUrl+'" target="_blank" rel="noopener" class="ar-btn ar-btn--soft">مشاهده پاسخ</a></td>\
-                                                    </tr>';
-                                                        return tr;
-                                                }).join('');
-                        html += '</tbody></table></div>';
-                        // pagination
-                                                if (!Array.isArray(resp)){
-                            var page = resp.page||1, per = resp.per_page||10; var pages = Math.max(1, Math.ceil(total/per));
-                            html += '<div style="display:flex;gap:.5rem;align-items:center;justify-content:center;margin-top:.6rem">';
-                            html += '<button class="ar-btn" data-page="prev" '+(page<=1?'disabled':'')+'>قبلی</button>';
-                            html += '<span class="hint">صفحه '+page+' از '+pages+' — '+total+' رکورد</span>';
-                            html += '<button class="ar-btn" data-page="next" '+(page>=pages?'disabled':'')+'>بعدی</button>';
-                            html += '</div>';
-                        }
-                        list.innerHTML = html;
-                        // bind pager
-                        if (!Array.isArray(resp)){
-                            var prev = list.querySelector('button[data-page="prev"]'); var next = list.querySelector('button[data-page="next"]');
-                            if (prev) prev.onclick = function(){ state.page = Math.max(1, (resp.page||1)-1); load(); };
-                            if (next) next.onclick = function(){ var pages = Math.max(1, Math.ceil((resp.total||0)/(resp.per_page||10))); state.page = Math.min(pages, (resp.page||1)+1); load(); };
-                        }
-                    }
-                    function load(){
-                        var id = parseInt(sel.value||'0'); var list = document.getElementById('arSubsList'); if (!id){ list.innerHTML='<div class="hint">فرمی انتخاب کنید...</div>'; return; }
-                        list.innerHTML = '<div class="hint">در حال بارگذاری...</div>';
-                        var qs = buildQuery();
-                        var url = buildRestUrl('forms/'+id+'/submissions', (qs? (qs+'&') : '') + 'include=values,fields');
-                        fetch(url, { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
-                        .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                        .then(function(resp){ renderTable(resp); }).catch(function(){ list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
-                    }
-                    sel.addEventListener('change', function(){ state.page = 1; load(); });
-                    if (q) q.addEventListener('input', function(){ state.page = 1; clearTimeout(q._t); q._t = setTimeout(load, 300); });
-                    if (st) st.addEventListener('change', function(){ state.page = 1; load(); });
-                    if (df) df.addEventListener('change', function(){ state.page = 1; load(); });
-                    if (dt) dt.addEventListener('change', function(){ state.page = 1; load(); });
-                    if (exp) exp.addEventListener('click', function(){ var id = parseInt(sel.value||'0'); if (!id) return; var qs = buildQuery(); var url = buildRestUrl('forms/'+id+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(url, '_blank'); });
-                    // If a form id was requested before arriving here, select it and trigger load
-                    if (window._pendingFormSelectId){ sel.value = String(window._pendingFormSelectId); state.page = 1; load(); window._pendingFormSelectId = null; }
-                });
             } else if (tab === 'reports') {
                 content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
                     card('نمودار نرخ تبدیل', 'به‌زودی') +
@@ -2735,7 +2773,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         if (location.hash){ routeFromHash(); }
         else {
             var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
-            if (![ 'dashboard','forms','submissions','reports','users' ].includes(initial)) initial = 'dashboard';
+            if (![ 'dashboard','forms','reports','users' ].includes(initial)) initial = 'dashboard';
             setHash(initial);
             renderTab(initial);
         }
@@ -2750,7 +2788,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <nav>
                 <a href="#" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
                 <a href="#" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
-                <a href="#" data-tab="submissions"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">پاسخ‌ها</span></a>
                 <a href="#" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
                 <a href="#" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
             </nav>

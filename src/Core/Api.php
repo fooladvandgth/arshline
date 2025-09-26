@@ -235,6 +235,18 @@ class Api
             'from' => $request->get_param('from') ?: null,
             'to' => $request->get_param('to') ?: null,
             'search' => $request->get_param('search') !== null ? (string)$request->get_param('search') : null,
+            // New: full-text search within answers (submission_values.value)
+            'answers' => $request->get_param('answers') !== null ? (string)$request->get_param('answers') : null,
+            // New: per-field filters f[field_id]=value
+            'field_filters' => (function(){
+                $f = $request->get_param('f');
+                if (is_array($f)){
+                    $out = [];
+                    foreach ($f as $k => $v){ $fid = (int)$k; $sv = is_scalar($v) ? (string)$v : ''; if ($fid>0 && $sv !== '') $out[$fid] = $sv; }
+                    return $out;
+                }
+                return [];
+            })(),
         ];
         $include = (string)($request->get_param('include') ?? ''); // values,fields
         // export all as CSV when format=csv

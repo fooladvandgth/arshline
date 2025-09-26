@@ -48,6 +48,7 @@ class SubmissionRepository
     {
         global $wpdb;
         $table = Helpers::tableName('submissions');
+        $vals = Helpers::tableName('submission_values');
         $where = [ $wpdb->prepare('form_id=%d', $form_id) ];
         $params = [];
         // status filter
@@ -73,6 +74,20 @@ class SubmissionRepository
             } else {
                 $where[] = 'meta LIKE %s';
                 $params[] = '%' . $wpdb->esc_like($q) . '%';
+            }
+        }
+        // answers full-text within submission_values
+        if (!empty($filters['answers'])){
+            $ans = '%' . $wpdb->esc_like((string)$filters['answers']) . '%';
+            $where[] = "EXISTS (SELECT 1 FROM {$vals} sv WHERE sv.submission_id = {$table}.id AND sv.value LIKE %s)";
+            $params[] = $ans;
+        }
+        // per-field filters: each must match in its own EXISTS
+        if (!empty($filters['field_filters']) && is_array($filters['field_filters'])){
+            foreach ($filters['field_filters'] as $fid => $val){
+                $fid = (int)$fid; $val = (string)$val; if ($fid<=0 || $val==='') continue;
+                $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
+                $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
             }
         }
         $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
@@ -105,6 +120,7 @@ class SubmissionRepository
     {
         global $wpdb;
         $table = Helpers::tableName('submissions');
+        $vals = Helpers::tableName('submission_values');
         $where = [ $wpdb->prepare('form_id=%d', $form_id) ];
         $params = [];
         if (!empty($filters['status'])){ $where[] = 'status = %s'; $params[] = (string)$filters['status']; }
@@ -114,6 +130,18 @@ class SubmissionRepository
             $q = (string)$filters['search'];
             if (ctype_digit($q)){ $where[]='id = %d'; $params[]=(int)$q; }
             else { $where[]='meta LIKE %s'; $params[]='%'.$wpdb->esc_like($q).'%'; }
+        }
+        if (!empty($filters['answers'])){
+            $ans = '%' . $wpdb->esc_like((string)$filters['answers']) . '%';
+            $where[] = "EXISTS (SELECT 1 FROM {$vals} sv WHERE sv.submission_id = {$table}.id AND sv.value LIKE %s)";
+            $params[] = $ans;
+        }
+        if (!empty($filters['field_filters']) && is_array($filters['field_filters'])){
+            foreach ($filters['field_filters'] as $fid => $val){
+                $fid = (int)$fid; $val = (string)$val; if ($fid<=0 || $val==='') continue;
+                $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
+                $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
+            }
         }
         $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
         $sql = "SELECT id, status, meta, created_at FROM {$table} {$whereSql} ORDER BY id DESC LIMIT %d";
