@@ -30,6 +30,17 @@ if (!defined('ARSHLINE_DEBUG_NONCE_KEY')) {
 }
 
 add_filter('template_include', static function ($template) {
+    // Printable submission view: ?arshline_submission=ID (admins/editors only)
+    if (isset($_GET['arshline_submission']) && (int) $_GET['arshline_submission'] > 0) {
+        if (current_user_can('manage_options') || current_user_can('edit_posts')) {
+            $sub_template = __DIR__ . '/src/Dashboard/submission-view.php';
+            if (file_exists($sub_template)) {
+                return $sub_template;
+            }
+        } else {
+            wp_die(__('دسترسی مجاز نیست.', 'arshline'));
+        }
+    }
     // Public form rendering via query param
     if (isset($_GET['arshline_form']) && (int) $_GET['arshline_form'] > 0) {
         $public_template = __DIR__ . '/src/Frontend/form-template.php';
