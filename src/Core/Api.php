@@ -230,33 +230,38 @@ class Api
         // optional pagination & filters
         $page = (int)($request->get_param('page') ?? 1);
         $per_page = (int)($request->get_param('per_page') ?? 20);
+        $debugFlag = (string)($request->get_param('debug') ?? '') === '1';
+        // Build filters safely (avoid closures that don't capture $request)
+        $statusParam = $request->get_param('status');
+        $fromParam = $request->get_param('from');
+        $toParam = $request->get_param('to');
+        $searchParam = $request->get_param('search');
+        $answersParam = $request->get_param('answers');
+        $fParam = $request->get_param('f');
+        $opParam = $request->get_param('op');
+        $fieldFilters = [];
+        if (is_array($fParam)){
+            foreach ($fParam as $k => $v){
+                $fid = (int)$k; $sv = is_scalar($v) ? (string)$v : '';
+                if ($fid>0 && $sv !== ''){ $fieldFilters[$fid] = $sv; }
+            }
+        }
+        $fieldOps = [];
+        if (is_array($opParam)){
+            foreach ($opParam as $k => $v){
+                $fid = (int)$k; $sv = is_scalar($v) ? strtolower((string)$v) : '';
+                if ($fid>0 && in_array($sv, ['eq','neq','like'], true)) { $fieldOps[$fid] = $sv; }
+            }
+        }
         $filters = [
-            'status' => $request->get_param('status') ?: null,
-            'from' => $request->get_param('from') ?: null,
-            'to' => $request->get_param('to') ?: null,
-            'search' => $request->get_param('search') !== null ? (string)$request->get_param('search') : null,
+            'status' => $statusParam ?: null,
+            'from' => $fromParam ?: null,
+            'to' => $toParam ?: null,
+            'search' => $searchParam !== null ? (string)$searchParam : null,
             // New: full-text search within answers (submission_values.value)
-            'answers' => $request->get_param('answers') !== null ? (string)$request->get_param('answers') : null,
-            // New: per-field filters f[field_id]=value
-            'field_filters' => (function(){
-                $f = $request->get_param('f');
-                if (is_array($f)){
-                    $out = [];
-                    foreach ($f as $k => $v){ $fid = (int)$k; $sv = is_scalar($v) ? (string)$v : ''; if ($fid>0 && $sv !== '') $out[$fid] = $sv; }
-                    return $out;
-                }
-                return [];
-            })(),
-            // New: per-field operators op[field_id] => eq|neq|like
-            'field_ops' => (function(){
-                $o = $request->get_param('op');
-                if (is_array($o)){
-                    $out = [];
-                    foreach ($o as $k => $v){ $fid = (int)$k; $sv = is_scalar($v) ? strtolower((string)$v) : ''; if ($fid>0 && in_array($sv, ['eq','neq','like'], true)) $out[$fid] = $sv; }
-                    return $out;
-                }
-                return [];
-            })(),
+            'answers' => $answersParam !== null ? (string)$answersParam : null,
+            'field_filters' => $fieldFilters,
+            'field_ops' => $fieldOps,
         ];
         $include = (string)($request->get_param('include') ?? ''); // values,fields
         // export all as CSV when format=csv
@@ -327,6 +332,14 @@ class Api
             'per_page' => (int)$res['per_page'],
         ];
         if (strpos($include, 'fields') !== false){ $payload['fields'] = FieldRepository::listByForm($form_id); }
+        // Optional debug details for admins/editors only
+        if ($debugFlag && self::user_can_manage_forms()){
+            global $wpdb;
+            $payload['debug'] = [
+                'db_last_error' => (string)($wpdb->last_error ?? ''),
+                'db_last_query' => (string)($wpdb->last_query ?? ''),
+            ];
+        }
         return new WP_REST_Response($payload, 200);
     }
 

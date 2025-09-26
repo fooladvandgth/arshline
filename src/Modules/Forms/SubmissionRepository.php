@@ -49,37 +49,37 @@ class SubmissionRepository
         global $wpdb;
         $table = Helpers::tableName('submissions');
         $vals = Helpers::tableName('submission_values');
-        $where = [ $wpdb->prepare('form_id=%d', $form_id) ];
+        $where = [ $wpdb->prepare('s.form_id=%d', $form_id) ];
         $params = [];
         // status filter
         if (!empty($filters['status'])){
-            $where[] = 'status = %s';
+            $where[] = 's.status = %s';
             $params[] = (string)$filters['status'];
         }
         // date range filters (created_at)
         if (!empty($filters['from'])){
             $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['from']) ? ($filters['from'] . ' 00:00:00') : null;
-            if ($from){ $where[] = 'created_at >= %s'; $params[] = $from; }
+            if ($from){ $where[] = 's.created_at >= %s'; $params[] = $from; }
         }
         if (!empty($filters['to'])){
             $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['to']) ? ($filters['to'] . ' 23:59:59') : null;
-            if ($to){ $where[] = 'created_at <= %s'; $params[] = $to; }
+            if ($to){ $where[] = 's.created_at <= %s'; $params[] = $to; }
         }
         // search by id or meta like
         if (isset($filters['search']) && $filters['search'] !== ''){
             $q = (string)$filters['search'];
             if (ctype_digit($q)){
-                $where[] = 'id = %d';
+                $where[] = 's.id = %d';
                 $params[] = (int)$q;
             } else {
-                $where[] = 'meta LIKE %s';
+                $where[] = 's.meta LIKE %s';
                 $params[] = '%' . $wpdb->esc_like($q) . '%';
             }
         }
         // answers full-text within submission_values
         if (!empty($filters['answers'])){
             $ans = '%' . $wpdb->esc_like((string)$filters['answers']) . '%';
-            $where[] = "EXISTS (SELECT 1 FROM {$vals} sv WHERE sv.submission_id = {$table}.id AND sv.value LIKE %s)";
+            $where[] = "EXISTS (SELECT 1 FROM {$vals} sv WHERE sv.submission_id = s.id AND sv.value LIKE %s)";
             $params[] = $ans;
         }
         // per-field filters: each must match in its own EXISTS
@@ -89,13 +89,13 @@ class SubmissionRepository
                 $fid = (int)$fid; $val = (string)$val; if ($fid<=0 || $val==='') continue;
                 $op = isset($ops[$fid]) ? $ops[$fid] : 'like';
                 if ($op === 'eq'){
-                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value = %s)";
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = s.id AND svf.field_id = %d AND svf.value = %s)";
                     $params[] = $fid; $params[] = $val;
                 } else if ($op === 'neq'){
-                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value <> %s)";
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = s.id AND svf.field_id = %d AND svf.value <> %s)";
                     $params[] = $fid; $params[] = $val;
                 } else { // like
-                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = s.id AND svf.field_id = %d AND svf.value LIKE %s)";
                     $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
                 }
             }
@@ -106,10 +106,15 @@ class SubmissionRepository
         $offset = ($page - 1) * $per_page;
 
         // total count
-        $sqlCount = "SELECT COUNT(*) FROM {$table} {$whereSql}";
-        $total = (int)$wpdb->get_var($wpdb->prepare($sqlCount, $params));
+        $sqlCount = "SELECT COUNT(*) FROM {$table} s {$whereSql}";
+        // Avoid calling prepare() when there are no placeholders/params (prevents WPDB warnings that can surface as 500)
+        if (empty($params)) {
+            $total = (int)$wpdb->get_var($sqlCount);
+        } else {
+            $total = (int)$wpdb->get_var($wpdb->prepare($sqlCount, $params));
+        }
         // rows
-        $sqlRows = "SELECT id, status, meta, created_at FROM {$table} {$whereSql} ORDER BY id DESC LIMIT %d OFFSET %d";
+        $sqlRows = "SELECT s.id, s.status, s.meta, s.created_at FROM {$table} s {$whereSql} ORDER BY s.id DESC LIMIT %d OFFSET %d";
         $rowsParams = array_merge($params, [ $per_page, $offset ]);
         $rows = $wpdb->get_results($wpdb->prepare($sqlRows, $rowsParams), ARRAY_A);
         $items = array_map(function($r){
@@ -131,19 +136,19 @@ class SubmissionRepository
         global $wpdb;
         $table = Helpers::tableName('submissions');
         $vals = Helpers::tableName('submission_values');
-        $where = [ $wpdb->prepare('form_id=%d', $form_id) ];
+        $where = [ $wpdb->prepare('s.form_id=%d', $form_id) ];
         $params = [];
-        if (!empty($filters['status'])){ $where[] = 'status = %s'; $params[] = (string)$filters['status']; }
-        if (!empty($filters['from'])){ $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['from']) ? ($filters['from'].' 00:00:00') : null; if($from){ $where[]='created_at >= %s'; $params[]=$from; } }
-        if (!empty($filters['to'])){ $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['to']) ? ($filters['to'].' 23:59:59') : null; if($to){ $where[]='created_at <= %s'; $params[]=$to; } }
+    if (!empty($filters['status'])){ $where[] = 's.status = %s'; $params[] = (string)$filters['status']; }
+        if (!empty($filters['from'])){ $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['from']) ? ($filters['from'].' 00:00:00') : null; if($from){ $where[]='s.created_at >= %s'; $params[]=$from; } }
+        if (!empty($filters['to'])){ $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['to']) ? ($filters['to'].' 23:59:59') : null; if($to){ $where[]='s.created_at <= %s'; $params[]=$to; } }
         if (isset($filters['search']) && $filters['search']!==''){
             $q = (string)$filters['search'];
-            if (ctype_digit($q)){ $where[]='id = %d'; $params[]=(int)$q; }
-            else { $where[]='meta LIKE %s'; $params[]='%'.$wpdb->esc_like($q).'%'; }
+            if (ctype_digit($q)){ $where[]='s.id = %d'; $params[]=(int)$q; }
+            else { $where[]='s.meta LIKE %s'; $params[]='%'.$wpdb->esc_like($q).'%'; }
         }
         if (!empty($filters['answers'])){
             $ans = '%' . $wpdb->esc_like((string)$filters['answers']) . '%';
-            $where[] = "EXISTS (SELECT 1 FROM {$vals} sv WHERE sv.submission_id = {$table}.id AND sv.value LIKE %s)";
+            $where[] = "EXISTS (SELECT 1 FROM {$vals} sv WHERE sv.submission_id = s.id AND sv.value LIKE %s)";
             $params[] = $ans;
         }
         if (!empty($filters['field_filters']) && is_array($filters['field_filters'])){
@@ -152,19 +157,19 @@ class SubmissionRepository
                 $fid = (int)$fid; $val = (string)$val; if ($fid<=0 || $val==='') continue;
                 $op = isset($ops[$fid]) ? $ops[$fid] : 'like';
                 if ($op === 'eq'){
-                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value = %s)";
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = s.id AND svf.field_id = %d AND svf.value = %s)";
                     $params[] = $fid; $params[] = $val;
                 } else if ($op === 'neq'){
-                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value <> %s)";
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = s.id AND svf.field_id = %d AND svf.value <> %s)";
                     $params[] = $fid; $params[] = $val;
                 } else {
-                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = s.id AND svf.field_id = %d AND svf.value LIKE %s)";
                     $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
                 }
             }
         }
         $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
-        $sql = "SELECT id, status, meta, created_at FROM {$table} {$whereSql} ORDER BY id DESC LIMIT %d";
+        $sql = "SELECT s.id, s.status, s.meta, s.created_at FROM {$table} s {$whereSql} ORDER BY s.id DESC LIMIT %d";
         $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge($params, [ $hard_limit ])), ARRAY_A);
         return array_map(function($r){
             return [

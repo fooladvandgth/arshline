@@ -565,6 +565,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         function renderFormResults(formId){
             var content = document.getElementById('arshlineDashboardContent');
             if (!content) return;
+            // Results diagnostics: pick up optional debug toggles from localStorage
+            var REST_DEBUG = false;
+            try { REST_DEBUG = (localStorage.getItem('arshRestDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+            try { clog('results:init', { formId: formId, restBase: ARSHLINE_REST, debug: REST_DEBUG }); } catch(_){ }
             // Header actions: back to forms
             var headerActions = document.getElementById('arHeaderActions');
             if (headerActions) {
@@ -587,7 +591,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                             <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">\
                                                 <select id="arFieldSelect" class="ar-select" style="min-width:220px"><option value="">انتخاب سوال...</option></select>\
                                                 <select id="arFieldOp" class="ar-select"><option value="eq">دقیقا برابر</option><option value="neq">اصلا این نباشد</option><option value="like">شامل باشد</option></select>\
-                                                <input id="arFieldVal" class="ar-input" placeholder="مقدار فیلتر" style="min-width:240px"/>\
+                                                <span id="arFieldValWrap" style="display:inline-flex;min-width:240px">\
+                                                    <input id="arFieldVal" class="ar-input" placeholder="مقدار فیلتر" style="min-width:240px"/>\
+                                                </span>\
                                                 <button id="arFieldApply" class="ar-btn ar-btn--soft">اعمال فیلتر</button>\
                                                 <button id="arFieldClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>\
                                             </div>\
@@ -602,9 +608,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var selField = document.getElementById('arFieldSelect');
             var selOp = document.getElementById('arFieldOp');
             var inpVal = document.getElementById('arFieldVal');
+            var valWrap = document.getElementById('arFieldValWrap');
             var btnApply = document.getElementById('arFieldApply');
             var btnClear = document.getElementById('arFieldClear');
             var state = { page: 1, per_page: 10 };
+            // metadata populated after first load
+            var fieldMeta = { choices: {}, labels: {}, types: {}, options: {} };
             function buildQuery(){
                 var p = new URLSearchParams();
                 p.set('page', String(state.page||1)); p.set('per_page', String(state.per_page||10));
@@ -618,6 +627,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var vv = (inpVal && inpVal.value.trim())||'';
                 var op = (selOp && selOp.value)||'like';
                 if (fid>0 && vv){ p.set('f['+fid+']', vv); if (op && op!=='like') p.set('op['+fid+']', op); }
+                try { clog('results:filters', { search:qv, answers:av, status:sv, from:fv, to:tv, fieldFilter: { fid: fid, op: op, value: vv } }); } catch(_){ }
                 return p.toString();
             }
             function buildRestUrl(path, qs){
@@ -648,10 +658,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var rows = Array.isArray(resp) ? resp : (resp.rows||[]);
                 var total = Array.isArray(resp) ? rows.length : (resp.total||0);
                 var fields = resp.fields || [];
-                var fieldOrder = []; var fieldLabels = {}; var choices = {};
+                var fieldOrder = []; var fieldLabels = {}; var choices = {}; var typesMap = {}; var optionsMap = {};
                 if (Array.isArray(fields) && fields.length){
-                    fields.forEach(function(f){ var fid = parseInt(f.id||0); if (!fid) return; fieldOrder.push(fid); var p = f.props||{}; fieldLabels[fid] = p.question || ('فیلد #'+fid); if (Array.isArray(p.options)){ p.options.forEach(function(opt){ var v = String(opt.value||opt.label||''); var l = String(opt.label||v); if (!choices[fid]) choices[fid] = {}; if (v) choices[fid][v] = l; }); } });
+                    fields.forEach(function(f){
+                        var fid = parseInt(f.id||0); if (!fid) return;
+                        fieldOrder.push(fid);
+                        var p = f.props||{};
+                        fieldLabels[fid] = p.question || ('فیلد #'+fid);
+                        typesMap[fid] = (p.type||'');
+                        if (Array.isArray(p.options)){
+                            optionsMap[fid] = (p.options||[]).map(function(opt){ return { value: String(opt.value||opt.label||''), label: String(opt.label||String(opt.value||'')) }; });
+                            p.options.forEach(function(opt){ var v = String(opt.value||opt.label||''); var l = String(opt.label||v); if (!choices[fid]) choices[fid] = {}; if (v) choices[fid][v] = l; });
+                        }
+                    });
                 }
+                // cache meta for filter UI
+                fieldMeta.choices = choices; fieldMeta.labels = fieldLabels; fieldMeta.types = typesMap; fieldMeta.options = optionsMap;
                 // populate select with fields once
                 if (selField && selField.children.length<=1 && fieldOrder.length){ selField.innerHTML = '<option value="">انتخاب سوال...</option>' + fieldOrder.map(function(fid){ return '<option value="'+fid+'">'+(fieldLabels[fid]||('فیلد #'+fid))+'</option>'; }).join(''); }
                 if (!rows || rows.length===0){ list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
@@ -691,6 +713,34 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     html += '</div>';
                 }
                 list.innerHTML = html;
+                // Update field value control if needed (dropdown for choice fields)
+                function updateFieldValueControl(){
+                    if (!valWrap) return;
+                    var fid = (selField && parseInt(selField.value||'0'))||0;
+                    var prevValEl = document.getElementById('arFieldVal');
+                    var current = prevValEl ? prevValEl.value : '';
+                    var hasChoices = !!(fid && fieldMeta && fieldMeta.options && Array.isArray(fieldMeta.options[fid]) && fieldMeta.options[fid].length);
+                    var newEl;
+                    if (hasChoices){
+                        var sel = document.createElement('select');
+                        sel.id = 'arFieldVal';
+                        sel.className = 'ar-select';
+                        sel.style.minWidth = '240px';
+                        sel.innerHTML = '<option value="">انتخاب مقدار...</option>' + fieldMeta.options[fid].map(function(o){ return '<option value="'+escapeAttr(String(o.value||''))+'">'+escapeHtml(String(o.label||o.value||''))+'</option>'; }).join('');
+                        newEl = sel;
+                    } else {
+                        var inp = document.createElement('input');
+                        inp.id = 'arFieldVal'; inp.className = 'ar-input'; inp.placeholder = 'مقدار فیلتر'; inp.style.minWidth = '240px';
+                        newEl = inp;
+                    }
+                    // replace
+                    if (prevValEl){ valWrap.replaceChild(newEl, prevValEl); }
+                    // rebind reference
+                    inpVal = newEl;
+                    // restore value if exists
+                    try { if (current) newEl.value = current; } catch(_){ }
+                }
+                if (selField){ selField.removeEventListener && selField.removeEventListener('change', updateFieldValueControl); selField.addEventListener('change', updateFieldValueControl); }
                 if (!Array.isArray(resp)){
                     var prev = list.querySelector('button[data-page="prev"]'); var next = list.querySelector('button[data-page="next"]');
                     if (prev) prev.onclick = function(){ state.page = Math.max(1, (resp.page||1)-1); load(); };
@@ -701,10 +751,28 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var list = document.getElementById('arSubsList'); if (!list) return;
                 list.innerHTML = '<div class="hint">در حال بارگذاری...</div>';
                 var qs = buildQuery();
-                var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'include=values,fields');
+                var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'include=values,fields' + (REST_DEBUG ? '&debug=1' : ''));
+                try { clog('results:fetch:url', url); } catch(_){ }
                 fetch(url, { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
-                .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                .then(function(resp){ renderTable(resp); }).catch(function(){ list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
+                .then(async function(r){
+                    try { clog('results:fetch:status', r.status); } catch(_){ }
+                    var txt = '';
+                    try { txt = await r.clone().text(); } catch(_){ }
+                    if(!r.ok){
+                        try { cerror('results:fetch:error', { status: r.status, body: (txt||'').slice(0, 2000) }); } catch(_){ }
+                        if(r.status===401){ if (typeof handle401 === 'function') handle401(); }
+                        throw new Error('HTTP '+r.status);
+                    }
+                    var data;
+                    try { data = txt ? JSON.parse(txt) : await r.json(); } catch(e){ try { cerror('results:parse:error', e, 'body:', (txt||'').slice(0, 2000)); } catch(_){ } throw e; }
+                    try {
+                        if (data && data.debug){ cwarn('results:debug', data.debug); }
+                        clog('results:fetch:ok', { total: data.total, rows: (data.rows||[]).length });
+                    } catch(_){ }
+                    return data;
+                })
+                .then(function(resp){ renderTable(resp); })
+                .catch(function(err){ try { cerror('results:render:error', err && (err.message||err)); } catch(_){ } list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
             }
             if (q) q.addEventListener('input', function(){ state.page = 1; clearTimeout(q._t); q._t = setTimeout(load, 300); });
             if (st) st.addEventListener('change', function(){ state.page = 1; load(); });
