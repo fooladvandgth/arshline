@@ -108,6 +108,12 @@ class Api
                 'permission_callback' => '__return_true',
             ]
         ]);
+        // Get a specific submission (with values)
+        register_rest_route('arshline/v1', '/submissions/(?P<submission_id>\\d+)', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_submission'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
         // Upload image (for admins/editors)
         register_rest_route('arshline/v1', '/upload', [
             'methods' => 'POST',
@@ -219,21 +225,29 @@ class Api
 
     public static function get_submissions(WP_REST_Request $request)
     {
-        global $wpdb;
         $form_id = (int)$request['form_id'];
         if ($form_id <= 0) return new WP_REST_Response([], 200);
-        $table = Helpers::tableName('submissions');
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, status, meta, created_at FROM {$table} WHERE form_id=%d ORDER BY id DESC LIMIT 100", $form_id), ARRAY_A);
+        $rows = SubmissionRepository::listByForm($form_id, 100);
         $data = array_map(function ($r) {
-            $meta = json_decode($r['meta'] ?: '{}', true);
             return [
-                'id' => (int)$r['id'],
+                'id' => $r['id'],
                 'status' => $r['status'],
                 'created_at' => $r['created_at'],
-                'summary' => $meta['summary'] ?? null,
+                'summary' => is_array($r['meta']) ? ($r['meta']['summary'] ?? null) : null,
             ];
         }, $rows ?: []);
         return new WP_REST_Response($data, 200);
+    }
+
+    public static function get_submission(WP_REST_Request $request)
+    {
+        $sid = (int)$request['submission_id'];
+        if ($sid <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
+        $data = SubmissionRepository::findWithValues($sid);
+        if (!$data) return new WP_REST_Response(['error'=>'not_found'], 404);
+        // Also include field meta to render labels
+        $fields = FieldRepository::listByForm((int)$data['form_id']);
+        return new WP_REST_Response(['submission' => $data, 'fields' => $fields], 200);
     }
 
     public static function create_submission(WP_REST_Request $request)

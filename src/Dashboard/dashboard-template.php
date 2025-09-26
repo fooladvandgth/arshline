@@ -2589,10 +2589,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var html = rows.map(function(it){
                                 return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
                                     <div>#'+it.id+' · '+(it.status)+'<span class="hint" style="margin-inline-start:.6rem">'+(it.created_at||'')+'</span></div>\
-                                    <a href="#" class="hint">جزئیات</a>\
+                                    <a href="#" class="arSubDetail hint" data-id="'+it.id+'">جزئیات</a>\
                                 </div>';
-                            }).join('');
+                            }).join('') + '<div id="arSubDetailPanel"></div>';
                             list.innerHTML = html;
+                            // bind details
+                            list.querySelectorAll('.arSubDetail').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var sid = parseInt(a.getAttribute('data-id')||'0'); if(!sid) return; var panel = document.getElementById('arSubDetailPanel'); if (!panel) return; panel.innerHTML = '<div class="hint">در حال بارگذاری جزئیات...</div>'; fetch(ARSHLINE_REST+'submissions/'+sid, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(resp){ var sub = resp.submission||{}; var fields = resp.fields||[]; var labels = {}; fields.forEach(function(fr){ var p = fr.props||{}; labels[fr.id] = p.question || ('فیلد #'+fr.id); }); var items = (sub.values||[]).map(function(v){ var label = labels[v.field_id] || ('فیلد #'+v.field_id); var val = String(v.value||''); return '<div class="card" style="padding:.6rem;margin:.4rem 0;border:1px solid var(--border);border-radius:10px;"><div style="font-weight:600;margin-bottom:.3rem">'+label+'</div><div>'+escapeHtml(val)+'</div></div>'; }).join('') || '<div class="hint">هیچ مقداری ثبت نشده است.</div>'; panel.innerHTML = '<div class="card glass" style="margin-top:.8rem;padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem"><div><b>ارسال #'+(sub.id||sid)+'</b> — <span class="hint">'+(sub.status||'')+'</span></div><span class="hint">'+(sub.created_at||'')+'</span></div>'+items+'</div>'; }).catch(function(){ panel.innerHTML = '<div class="hint">خطا در بارگذاری جزئیات</div>'; }); }); });
                         }).catch(function(){ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
                     });
                 // If a form id was requested before arriving here, select it and trigger load
