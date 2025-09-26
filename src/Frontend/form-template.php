@@ -27,8 +27,8 @@ get_header();
 
 <div class="arsh-public-wrap">
   <div id="arshPublic" class="arsh-public-card">
-    <div class="arsh-title"><?php echo esc_html(get_bloginfo('name')); ?></div>
-    <div class="arsh-hint"><?php echo esc_html(get_bloginfo('description')); ?></div>
+    <div id="arFormTitle" class="arsh-title"><?php echo esc_html(get_bloginfo('name')); ?></div>
+    <div id="arFormHint" class="arsh-hint"><?php echo esc_html(get_bloginfo('description')); ?></div>
     <div id="arFormMount" style="margin-top:12px"></div>
   </div>
 </div>
@@ -39,7 +39,9 @@ get_header();
   var FORM_ID = <?php echo json_encode($form_id); ?>;
   var TOKEN = <?php echo json_encode($token); ?>;
   var mount = document.getElementById('arFormMount');
-  var state = { def:null };
+  var titleEl = document.getElementById('arFormTitle');
+  var hintEl = document.getElementById('arFormHint');
+  var state = { def:null, fields:[], questions:[] };
 
   // Optional: load HTMX if not present
   if (!window.htmx) {
@@ -110,6 +112,9 @@ get_header();
     var meta = def.meta || {};
     document.documentElement.style.setProperty('--ar-primary', meta.design_primary || '#1e40af');
     document.body.style.background = meta.design_bg || '#f6f8fb';
+    // title from meta
+    if (titleEl) { titleEl.textContent = meta.title || titleEl.textContent || 'فرم'; }
+    if (hintEl) { /* keep site description as hint by default */ }
   var form = document.createElement('form'); form.id='arPublicForm'; form.style.marginTop = '8px';
   // Attach hx-* attributes unconditionally; activate once HTMX is available
   var hxUrl = TOKEN
@@ -118,7 +123,9 @@ get_header();
   form.setAttribute('hx-post', hxUrl);
     form.setAttribute('hx-target', '#arAlert');
     form.setAttribute('hx-swap', 'innerHTML');
-    (def.fields||[]).forEach(function(f,i){ form.appendChild(renderField(f,i)); });
+    // Render only supported question fields with proper numbering
+    var qIdx = 0;
+    (state.questions||[]).forEach(function(f){ form.appendChild(renderField(f, qIdx)); qIdx++; });
     var foot = document.createElement('div'); foot.style.marginTop='12px';
     var submit = document.createElement('button'); submit.type='submit'; submit.className='arsh-btn'; submit.textContent='ارسال'; foot.appendChild(submit);
     var alert = document.createElement('div'); alert.id='arAlert'; alert.style.display='none'; foot.appendChild(alert);
@@ -127,7 +134,7 @@ get_header();
       // If HTMX is present, let HTMX handle submission
       if (window.htmx) { return; }
       e.preventDefault(); submit.disabled = true; alert.style.display='none';
-      var fd = new FormData(form); var vals = []; (def.fields||[]).forEach(function(f){ var k='field_'+f.id; if (fd.has(k)){ vals.push({ field_id: f.id, value: fd.get(k) }); } });
+      var fd = new FormData(form); var vals = []; (state.questions||[]).forEach(function(f){ var k='field_'+f.id; if (fd.has(k)){ vals.push({ field_id: f.id, value: fd.get(k) }); } });
   var postUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN) + '/submissions') : (AR_REST + 'forms/'+FORM_ID+'/submissions');
   fetch(postUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) })
         .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
@@ -145,7 +152,30 @@ get_header();
   var getUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN)) : (AR_REST + 'public/forms/' + FORM_ID);
   fetch(getUrl)
     .then(function(r){ return r.json(); })
-    .then(function(data){ state.def = data; render(); })
+    .then(function(data){
+      state.def = data || {};
+      var rows = Array.isArray(state.def.fields) ? state.def.fields : [];
+      // Flatten DB rows (id, sort, props) into public field objects
+      var flat = rows.map(function(row){ var p = (row && row.props) || {}; return {
+        id: row.id,
+        sort: row.sort,
+        required: !!p.required,
+        type: p.type || '',
+        question: p.question || '',
+        placeholder: p.placeholder || '',
+        options: Array.isArray(p.options)? p.options : [],
+        numbered: (p.numbered !== false),
+        alpha_sort: !!p.alpha_sort,
+        randomize: !!p.randomize,
+        max: p.max,
+        icon: p.icon,
+      }; });
+      // Filter to supported question types and skip non-questions like welcome/thank_you
+      var supported = { short_text:1, long_text:1, multiple_choice:1, dropdown:1, rating:1 };
+      state.fields = flat;
+      state.questions = flat.filter(function(f){ return supported[f.type]; });
+      render();
+    })
     .catch(function(){ mount.innerHTML = '<div class="arsh-hint">فرم یافت نشد.</div>'; });
 })();
 </script>
