@@ -46,12 +46,19 @@ class FormsModule
             // Fallback: if dbDelta didn't add the column (environment differences), use ALTER TABLE
             $col2 = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'public_token'));
             if (!$col2) {
+                // Extra safety: Validate table identifier strictly to avoid injection via unexpected prefixes.
+                // We cannot parameterize identifiers with $wpdb->prepare, so we whitelist characters and backtick-quote.
+                $safeTable = preg_replace('/[^A-Za-z0-9_]/', '', (string)$table);
+                if ($safeTable === '' || $safeTable !== $table) {
+                    // If sanitization changed the name, bail to avoid risky query on an unexpected identifier.
+                    return;
+                }
                 // Add column
-                $wpdb->query("ALTER TABLE `{$table}` ADD `public_token` VARCHAR(24) NULL");
+                $wpdb->query("ALTER TABLE `{$safeTable}` ADD `public_token` VARCHAR(24) NULL");
                 // Add unique index if missing
-                $idx = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM `{$table}` WHERE Key_name = %s", 'public_token_unique'));
+                $idx = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM `{$safeTable}` WHERE Key_name = %s", 'public_token_unique'));
                 if (!$idx) {
-                    $wpdb->query("ALTER TABLE `{$table}` ADD UNIQUE KEY `public_token_unique` (`public_token`)");
+                    $wpdb->query("ALTER TABLE `{$safeTable}` ADD UNIQUE KEY `public_token_unique` (`public_token`)");
                 }
             }
         }

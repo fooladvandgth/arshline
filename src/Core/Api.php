@@ -14,6 +14,126 @@ use Arshline\Modules\Forms\FieldRepository;
 
 class Api
 {
+    /**
+     * Normalize and sanitize supported meta keys to expected types.
+     * Unknown keys are left as-is to keep flexibility, but callers should prefer known keys.
+     */
+    protected static function sanitize_meta_input(array $in): array
+    {
+        $out = $in;
+        // Booleans
+        if (array_key_exists('anti_spam_honeypot', $in)) {
+            $out['anti_spam_honeypot'] = (bool)$in['anti_spam_honeypot'];
+        }
+        if (array_key_exists('captcha_enabled', $in)) {
+            $out['captcha_enabled'] = (bool)$in['captcha_enabled'];
+        }
+        // Integers with bounds
+        if (array_key_exists('min_submit_seconds', $in)) {
+            $out['min_submit_seconds'] = max(0, (int)$in['min_submit_seconds']);
+        }
+        if (array_key_exists('rate_limit_per_min', $in)) {
+            $out['rate_limit_per_min'] = max(0, (int)$in['rate_limit_per_min']);
+        }
+        if (array_key_exists('rate_limit_window_min', $in)) {
+            $out['rate_limit_window_min'] = max(1, (int)$in['rate_limit_window_min']);
+        }
+        // Captcha keys (allow limited charset)
+        $allowKey = function($v) {
+            $v = is_scalar($v) ? (string)$v : '';
+            $v = trim($v);
+            // Allow common recaptcha key charset
+            $v = preg_replace('/[^A-Za-z0-9_\-\.:]/', '', $v);
+            // Limit length
+            return substr($v, 0, 200);
+        };
+        if (array_key_exists('captcha_site_key', $in)) {
+            $out['captcha_site_key'] = $allowKey($in['captcha_site_key']);
+        }
+        if (array_key_exists('captcha_secret_key', $in)) {
+            $out['captcha_secret_key'] = $allowKey($in['captcha_secret_key']);
+        }
+        if (array_key_exists('captcha_version', $in)) {
+            $v = is_scalar($in['captcha_version']) ? (string)$in['captcha_version'] : 'v2';
+            $v = ($v === 'v3') ? 'v3' : 'v2';
+            $out['captcha_version'] = $v;
+        }
+        // Design keys
+        $sanitize_color = function($v, $fallback) {
+            $s = is_scalar($v) ? (string)$v : '';
+            $s = trim($s);
+            if (preg_match('/^#([A-Fa-f0-9]{6})$/', $s)) return $s;
+            return $fallback;
+        };
+        if (array_key_exists('design_primary', $in)) {
+            $out['design_primary'] = $sanitize_color($in['design_primary'], '#1e40af');
+        }
+        if (array_key_exists('design_bg', $in)) {
+            $out['design_bg'] = $sanitize_color($in['design_bg'], '#f5f7fb');
+        }
+        if (array_key_exists('design_theme', $in)) {
+            $v = is_scalar($in['design_theme']) ? (string)$in['design_theme'] : 'light';
+            $v = ($v === 'dark') ? 'dark' : 'light';
+            $out['design_theme'] = $v;
+        }
+        return $out;
+    }
+    /**
+     * Sanitize global settings payload and enforce defaults/limits.
+     */
+    protected static function sanitize_settings_input(array $in): array
+    {
+        $out = self::sanitize_meta_input($in);
+        // Upload constraints
+        if (array_key_exists('upload_max_kb', $in)) {
+            $kb = (int)$in['upload_max_kb'];
+            $out['upload_max_kb'] = max(50, min(4096, $kb));
+        }
+        if (array_key_exists('block_svg', $in)) {
+            $out['block_svg'] = (bool)$in['block_svg'];
+        }
+        // AI options
+        if (array_key_exists('ai_enabled', $in)) {
+            $out['ai_enabled'] = (bool)$in['ai_enabled'];
+        }
+        if (array_key_exists('ai_spam_threshold', $in)) {
+            $t = is_numeric($in['ai_spam_threshold']) ? (float)$in['ai_spam_threshold'] : 0.5;
+            $out['ai_spam_threshold'] = max(0.0, min(1.0, $t));
+        }
+        if (array_key_exists('ai_model', $in)) {
+            $m = is_scalar($in['ai_model']) ? trim((string)$in['ai_model']) : '';
+            // keep arbitrary model name but constrain length and charset
+            $m = preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $m);
+            $out['ai_model'] = substr($m, 0, 100);
+        }
+        return $out;
+    }
+
+    /**
+     * Load global settings from WP options with defaults and sanitization.
+     */
+    protected static function get_global_settings(): array
+    {
+        $defaults = [
+            'anti_spam_honeypot' => false,
+            'min_submit_seconds' => 0,
+            'rate_limit_per_min' => 0,
+            'rate_limit_window_min' => 1,
+            'captcha_enabled' => false,
+            'captcha_site_key' => '',
+            'captcha_secret_key' => '',
+            'captcha_version' => 'v2',
+            'upload_max_kb' => 300,
+            'block_svg' => true,
+            'ai_enabled' => false,
+            'ai_spam_threshold' => 0.5,
+            'ai_model' => 'gpt-4o-mini',
+        ];
+        $raw = get_option('arshline_settings', []);
+        $arr = is_array($raw) ? $raw : [];
+        $san = self::sanitize_settings_input($arr);
+        return array_merge($defaults, $san);
+    }
     protected static function flag(array $meta, string $key, bool $default=false): bool
     {
         if (!array_key_exists($key, $meta)) return $default;
@@ -37,6 +157,19 @@ class Api
             'methods' => 'GET',
             'callback' => [self::class, 'get_forms'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        // Global settings (admin-only)
+        register_rest_route('arshline/v1', '/settings', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_settings'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_settings'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ]
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
@@ -112,6 +245,34 @@ class Api
                 'callback' => [self::class, 'create_submission'],
                 'permission_callback' => '__return_true',
             ]
+        ]);
+        // AI configuration and agent endpoints (admin-only)
+        register_rest_route('arshline/v1', '/ai/config', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_ai_config'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_ai_config'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ]
+        ]);
+        register_rest_route('arshline/v1', '/ai/test', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'test_ai_connect'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        register_rest_route('arshline/v1', '/ai/capabilities', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_ai_capabilities'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        register_rest_route('arshline/v1', '/ai/agent', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'ai_agent'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         // Get a specific submission (with values)
         register_rest_route('arshline/v1', '/submissions/(?P<submission_id>\\d+)', [
@@ -192,6 +353,471 @@ class Api
         return new WP_REST_Response($payload, 200);
     }
 
+    /**
+     * GET /settings (admin-only)
+     */
+    public static function get_settings(WP_REST_Request $request)
+    {
+        $settings = self::get_global_settings();
+        return new WP_REST_Response(['settings' => $settings], 200);
+    }
+
+    /**
+     * PUT /settings (admin-only)
+     */
+    public static function update_settings(WP_REST_Request $request)
+    {
+        $data = $request->get_param('settings');
+        if (!is_array($data)) $data = [];
+        $san = self::sanitize_settings_input($data);
+        $current = get_option('arshline_settings', []);
+        $cur = is_array($current) ? $current : [];
+        $merged = array_merge($cur, $san);
+        update_option('arshline_settings', $merged, false);
+        $out = self::get_global_settings();
+        return new WP_REST_Response(['ok'=>true, 'settings'=>$out], 200);
+    }
+
+    // ---- AI config helpers & endpoints ----
+    protected static function get_ai_settings(): array
+    {
+        $raw = get_option('arshline_settings', []);
+        $arr = is_array($raw) ? $raw : [];
+        $base = isset($arr['ai_base_url']) && is_scalar($arr['ai_base_url']) ? trim((string)$arr['ai_base_url']) : '';
+        // normalize base URL (no trailing spaces, keep as-is otherwise to allow custom paths)
+        $base = substr($base, 0, 500);
+        $key = isset($arr['ai_api_key']) && is_scalar($arr['ai_api_key']) ? trim((string)$arr['ai_api_key']) : '';
+        $key = substr($key, 0, 2000);
+        $enabled = isset($arr['ai_enabled']) ? (bool)$arr['ai_enabled'] : false;
+        $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'gpt-4o-mini';
+        return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model ];
+    }
+    public static function get_ai_config(WP_REST_Request $request)
+    {
+        return new WP_REST_Response(['config' => self::get_ai_settings()], 200);
+    }
+    public static function update_ai_config(WP_REST_Request $request)
+    {
+        $cfg = $request->get_param('config');
+        if (!is_array($cfg)) $cfg = [];
+        $base = is_scalar($cfg['base_url'] ?? '') ? trim((string)$cfg['base_url']) : '';
+        $key  = is_scalar($cfg['api_key'] ?? '') ? trim((string)$cfg['api_key']) : '';
+        $enabled = (bool)($cfg['enabled'] ?? false);
+        $model = is_scalar($cfg['model'] ?? '') ? trim((string)$cfg['model']) : '';
+        $cur = get_option('arshline_settings', []);
+        $arr = is_array($cur) ? $cur : [];
+        $arr['ai_base_url'] = substr($base, 0, 500);
+        $arr['ai_api_key']  = substr($key, 0, 2000);
+        $arr['ai_enabled']  = $enabled;
+        if ($model !== ''){ $arr['ai_model'] = substr(preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $model), 0, 100); }
+        update_option('arshline_settings', $arr, false);
+        return new WP_REST_Response(['ok'=>true, 'config'=> self::get_ai_settings()], 200);
+    }
+    public static function test_ai_connect(WP_REST_Request $request)
+    {
+        $s = self::get_ai_settings();
+        if (!$s['enabled'] || !$s['base_url'] || !$s['api_key']){
+            return new WP_REST_Response(['ok'=>false, 'error'=>'missing_config'], 400);
+        }
+        $url = rtrim($s['base_url'], '/').'/';
+        $resp = wp_remote_get($url, [ 'timeout'=>5, 'headers'=> [ 'Authorization' => 'Bearer '.$s['api_key'] ] ]);
+        if (is_wp_error($resp)) return new WP_REST_Response(['ok'=>false, 'error'=>'network'], 502);
+        $code = (int)wp_remote_retrieve_response_code($resp);
+        return new WP_REST_Response(['ok'=> ($code>=200 && $code<500), 'status'=>$code ], 200);
+    }
+    public static function get_ai_capabilities(WP_REST_Request $request)
+    {
+        $caps = [
+            'navigation' => [
+                'title' => 'مسیر‌یابی',
+                'items' => [
+                    [ 'id' => 'open_tab', 'label' => 'باز کردن تب‌ها', 'params' => ['tab' => 'dashboard|forms|reports|users|settings', 'section?' => 'security|ai|users'], 'confirm' => false, 'examples' => [ 'باز کردن تنظیمات', 'باز کردن فرم‌ها' ] ],
+                    [ 'id' => 'open_builder', 'label' => 'باز کردن ویرایشگر فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'ویرایش فرم 12' ] ],
+                    [ 'id' => 'public_link', 'label' => 'دریافت لینک عمومی فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'لینک عمومی فرم 7' ] ],
+                ],
+            ],
+            'forms' => [
+                'title' => 'فرم‌ها',
+                'items' => [
+                    [ 'id' => 'list_forms', 'label' => 'نمایش لیست فرم‌ها', 'params' => [], 'confirm' => false, 'examples' => [ 'لیست فرم ها' ] ],
+                    [ 'id' => 'create_form', 'label' => 'ایجاد فرم جدید', 'params' => ['title' => 'string'], 'confirm' => true, 'examples' => [ 'ایجاد فرم با عنوان فرم تست' ] ],
+                    [ 'id' => 'delete_form', 'label' => 'حذف فرم', 'params' => ['id' => 'number'], 'confirm' => true, 'examples' => [ 'حذف فرم 5' ] ],
+                    [ 'id' => 'export_csv', 'label' => 'خروجی CSV از ارسال‌ها', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'خروجی فرم 5' ] ],
+                ],
+            ],
+            'settings' => [
+                'title' => 'تنظیمات',
+                'items' => [
+                    [ 'id' => 'set_setting', 'label' => 'تغییر تنظیمات سراسری', 'params' => ['key' => 'ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model', 'value' => 'string|number|boolean'], 'confirm' => true, 'examples' => [ 'فعال کردن هوش مصنوعی', 'مدل را روی gpt-5-mini بگذار' ] ],
+                ],
+            ],
+            'ui' => [
+                'title' => 'تعاملات UI',
+                'items' => [
+                    [ 'id' => 'toggle_theme', 'label' => 'روشن/تاریک', 'params' => [], 'confirm' => false, 'examples' => [ 'حالت تاریک را فعال کن' ] ],
+                    [ 'id' => 'open_ai_terminal', 'label' => 'باز کردن ترمینال هوش مصنوعی', 'params' => [], 'confirm' => false, 'examples' => [ 'ترمینال هوش مصنوعی را باز کن' ] ],
+                ],
+            ],
+            'help' => [
+                'title' => 'کمک',
+                'items' => [
+                    [ 'id' => 'help', 'label' => 'نمایش راهنما و لیست توانمندی‌ها', 'params' => [], 'confirm' => false, 'examples' => [ 'کمک', 'لیست دستورات' ] ],
+                ],
+            ],
+        ];
+        return new WP_REST_Response(['ok' => true, 'capabilities' => $caps], 200);
+    }
+    public static function ai_agent(WP_REST_Request $request)
+    {
+        $cmd = (string)($request->get_param('command') ?? '');
+        $cmd = trim($cmd);
+        // Execute previously confirmed action directly
+        $confirmPayload = $request->get_param('confirm_action');
+        if (is_array($confirmPayload) && isset($confirmPayload['action'])){
+            return self::execute_confirmed_action($confirmPayload);
+        }
+        if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
+        try {
+            // Help / capabilities
+            if (preg_match('/^(کمک|راهنما|لیست\s*دستورات)$/u', $cmd)){
+                $caps = self::get_ai_capabilities($request);
+                $data = $caps instanceof WP_REST_Response ? $caps->get_data() : ['capabilities'=>[]];
+                return new WP_REST_Response(['ok'=>true, 'action'=>'help', 'capabilities'=>$data['capabilities'] ?? []], 200);
+            }
+            // Create form: "ایجاد فرم با عنوان X"
+            if (preg_match('/^ایجاد\s*فرم\s*با\s*عنوان\s*(.+)$/u', $cmd, $m)){
+                $title = trim($m[1]);
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'ایجاد فرم جدید با عنوان «'.$title.'» تایید می‌کنید؟',
+                    'confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>$title] ]
+                ], 200);
+            }
+            // Delete form: "حذف فرم <id>"
+            if (preg_match('/^حذف\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'حذف فرم شماره '.$fid.' تایید می‌کنید؟ این عمل قابل بازگشت نیست.',
+                    'confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$fid] ]
+                ], 200);
+            }
+            // Delete form without id -> clarify
+            if (preg_match('/^حذف\s*فرم\s*$/u', $cmd)){
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را حذف کنم؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'delete_form']], 200);
+            }
+            // Public link: "لینک عمومی فرم <id>"
+            if (preg_match('/^لینک\s*عمومی\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $res = self::get_form($req);
+                $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $token = isset($data['token']) ? (string)$data['token'] : '';
+                $url = $token ? home_url('/?arshline='.rawurlencode($token)) : '';
+                return new WP_REST_Response(['ok'=> (bool)$url, 'url'=>$url, 'token'=>$token], 200);
+            }
+            // List forms: "لیست فرم ها" | "نمایش فرم ها"
+            if (preg_match('/^(لیست|نمایش)\s*فرم(?:\s*ها)?$/u', $cmd)){
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                // Normalize minimal list
+                $list = array_map(function($r){ return [ 'id'=>(int)($r['id']??0), 'title'=>(string)($r['title']??'') ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true, 'forms'=>$list], 200);
+            }
+            // Open builder: "باز کردن فرم <id>" | "ویرایش فرم <id>"
+            if (preg_match('/^(باز\s*کردن|ویرایش)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[2];
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$fid], 200);
+            }
+            // Open builder without id -> clarify
+            if (preg_match('/^(باز\s*کردن|ویرایش)\s*فرم\s*$/u', $cmd)){
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'فرم مورد نظر برای باز کردن؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'open_builder']], 200);
+            }
+            // Open tab: "باز کردن تنظیمات" | "باز کردن گزارشات" | "باز کردن فرم ها"
+            if (preg_match('/^باز\s*کردن\s*(داشبورد|فرم\s*ها|گزارشات|کاربران|تنظیمات)$/u', $cmd, $m)){
+                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرمها'=>'forms', 'گزارشات'=>'reports', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
+                $raw = (string)$m[1]; $raw = str_replace('‌',' ', $raw);
+                $tab = $map[$raw] ?? ($raw === 'فرم ها' ? 'forms' : 'dashboard');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tab], 200);
+            }
+            // Open tab without target -> clarify
+            if (preg_match('/^باز\s*کردن\s*$/u', $cmd)){
+                $opts = [
+                    ['label'=>'داشبورد', 'value'=>'dashboard'],
+                    ['label'=>'فرم‌ها', 'value'=>'forms'],
+                    ['label'=>'گزارشات', 'value'=>'reports'],
+                    ['label'=>'کاربران', 'value'=>'users'],
+                    ['label'=>'تنظیمات', 'value'=>'settings'],
+                ];
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام بخش را باز کنم؟','param_key'=>'tab','options'=>$opts,'clarify_action'=>['action'=>'open_tab']], 200);
+            }
+            // Export CSV: "خروجی فرم <id>" | "دانلود csv فرم <id>"
+            if (preg_match('/^(خروجی|دانلود)\s*(csv\s*)?فرم\s*(\d+)$/iu', $cmd, $m)){
+                $fid = (int)$m[3];
+                $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+            }
+            // Heuristic colloquial navigation: "منوی فرم‌ها رو باز کن"، "برو به فرم‌ها"، "منو تنظیمات"
+            {
+                $plain = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $cmd); // remove ZWNJ, RLM
+                $hasNavVerb = preg_match('/(منو|منوی|باز\s*کن|باز|برو\s*به|برو|نمایش|نشون\s*بده)/u', $plain) === 1;
+                $syns = [
+                    'forms' => ['فرم ها','فرمها','فرم‌ها','فرم'],
+                    'dashboard' => ['داشبورد','خانه'],
+                    'reports' => ['گزارشات','گزارش','آمار'],
+                    'users' => ['کاربران','کاربر','اعضا'],
+                    'settings' => ['تنظیمات','تنظیم','ستینگ','پیکربندی'],
+                ];
+                $foundTab = '';
+                foreach ($syns as $tabKey => $words){
+                    foreach ($words as $w){ if ($w !== '' && mb_strpos($plain, $w) !== false){ $foundTab = $tabKey; break 2; } }
+                }
+                if ($foundTab && ($hasNavVerb || mb_strpos($plain, 'منو') !== false)){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$foundTab], 200);
+                }
+            }
+            // Colloquial Persian digit map for id parsing
+            $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+            $toInt = function($s) use ($fa2en){ return (int) strtr(preg_replace('/\D+/u','', (string)$s), $fa2en); };
+
+            // Colloquial: open/edit form builder by id
+            if (preg_match('/^(ویرایش|باز(?:\s*کن)?|بازش\s*کن|سازنده)\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
+              || preg_match('/^فرم\s*([0-9۰-۹]+)\s*(?:را|رو)?\s*(ویرایش|باز)(?:\s*کن)?$/iu', $cmd, $m)){
+                $fid = $toInt($m[2] ?? $m[1]);
+                if ($fid > 0){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$fid], 200);
+                }
+            }
+
+            // Colloquial: delete form by id (confirmation)
+            if (preg_match('/^(حذف|پاک(?:\s*کردن)?|دلیت|delete)\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
+              || preg_match('/^فرم\s*([0-9۰-۹]+)\s*(?:را|رو)?\s*(حذف|پاک)(?:\s*کن)?$/iu', $cmd, $m)){
+                $fid = $toInt($m[2] ?? $m[1]);
+                if ($fid > 0){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>sprintf(__('آیا از حذف فرم %d مطمئنید؟','arshline'), $fid),
+                        'confirm_action'=>['type'=>'delete_form','params'=>['id'=>$fid]]
+                    ], 200);
+                }
+            }
+
+            // Colloquial: create form with name
+            if (preg_match('/^(بساز|ایجاد|درست\s*کن)\s*فرم(?:\s*جدید)?\s*(?:با\s*عنوان|به\s*نام)?\s*(.+)$/iu', $cmd, $m)){
+                $name = trim($m[2]);
+                $name = trim($name, " \"'\x{200C}\x{200F}");
+                if ($name !== ''){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>sprintf(__('فرم جدید با عنوان "%s" ساخته شود؟','arshline'), $name),
+                        'confirm_action'=>['type'=>'create_form','params'=>['name'=>$name]]
+                    ], 200);
+                }
+            }
+
+            // Colloquial: export csv by id
+            if (preg_match('/^(اکسپورت|خروجی|دانلود)\s*(?:csv\s*)?(?:از\s*)?فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
+              || preg_match('/^csv\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)){
+                $fid = $toInt($m[2] ?? $m[1]);
+                if ($fid > 0){
+                    $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+                }
+            }
+
+            // Colloquial: list forms
+            if (preg_match('/^(لیست|فهرست|نمایش|نشون\s*بده)\s*فرم(?:\s*ها)?$/iu', $cmd)){
+                $forms = self::get_forms_list();
+                return new WP_REST_Response(['ok'=>true, 'action'=>'list_forms', 'forms'=>$forms], 200);
+            }
+            // If not matched, try LLM-assisted parsing when configured
+            $s = self::get_ai_settings();
+            if ($s['enabled'] && $s['base_url'] && $s['api_key']){
+                $intent = self::llm_parse_command($cmd, $s);
+                if (is_array($intent) && isset($intent['action'])){
+                    $action = (string)$intent['action'];
+                    if ($action === 'create_form' && !empty($intent['title'])){
+                        $req = new WP_REST_Request('POST', '/arshline/v1/forms');
+                        $req->set_body_params(['title'=>(string)$intent['title']]);
+                        $res = self::create_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'delete_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('DELETE', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $res = self::delete_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'public_link' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('GET', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $res = self::get_form($req);
+                        $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                        $token = isset($data['token']) ? (string)$data['token'] : '';
+                        $url = $token ? home_url('/?arshline='.rawurlencode($token)) : '';
+                        return new WP_REST_Response(['ok'=> (bool)$url, 'url'=>$url, 'token'=>$token], 200);
+                    }
+                    if ($action === 'list_forms'){
+                        $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                        $res = self::get_forms($req);
+                        $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                        $list = array_map(function($r){ return [ 'id'=>(int)($r['id']??0), 'title'=>(string)($r['title']??'') ]; }, is_array($rows)?$rows:[]);
+                        return new WP_REST_Response(['ok'=>true, 'forms'=>$list], 200);
+                    }
+                    if ($action === 'open_builder' && !empty($intent['id'])){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>(int)$intent['id']], 200);
+                    }
+                    if ($action === 'open_tab' && !empty($intent['tab'])){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>(string)$intent['tab']], 200);
+                    }
+                    if ($action === 'export_csv' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+                    }
+                }
+            }
+            return new WP_REST_Response(['ok'=>false,'error'=>'unknown_command'], 200);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response(['ok'=>false,'error'=>'agent_error'], 200);
+        }
+    }
+
+    /**
+     * Execute a previously confirmed action sent by the UI terminal.
+     */
+    protected static function execute_confirmed_action(array $payload)
+    {
+        $action = (string)($payload['action'] ?? '');
+        $params = is_array($payload['params'] ?? null) ? $payload['params'] : [];
+        try {
+            if ($action === 'create_form' && !empty($params['title'])){
+                $req = new WP_REST_Request('POST', '/arshline/v1/forms');
+                $req->set_body_params(['title'=>(string)$params['title']]);
+                $res = self::create_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'open_builder' && !empty($params['id'])){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>(int)$params['id']], 200);
+            }
+            if ($action === 'open_tab' && !empty($params['tab'])){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>(string)$params['tab']], 200);
+            }
+            if ($action === 'export_csv' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+            }
+            if ($action === 'delete_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('DELETE', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $res = self::delete_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'set_setting' && !empty($params['key'])){
+                $key = (string)$params['key']; $value = $params['value'] ?? null;
+                $allowed = ['ai_enabled','ai_model','min_submit_seconds','rate_limit_per_min','block_svg'];
+                if (!in_array($key, $allowed, true)){
+                    return new WP_REST_Response(['ok'=>false, 'error'=>'invalid_setting'], 200);
+                }
+                if ($key === 'ai_model' || $key === 'ai_enabled'){
+                    $cur = self::get_ai_settings();
+                    $cfg = [
+                        'base_url' => $cur['base_url'],
+                        'api_key' => $cur['api_key'],
+                        'enabled' => ($key === 'ai_enabled') ? (bool)$value : $cur['enabled'],
+                        'model' => ($key === 'ai_model') ? (string)$value : $cur['model'],
+                    ];
+                    $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
+                    $r->set_body_params(['config'=>$cfg]);
+                    return self::update_ai_config($r);
+                } else {
+                    $cur = get_option('arshline_settings', []);
+                    $arr = is_array($cur) ? $cur : [];
+                    if ($key === 'min_submit_seconds') $arr['min_submit_seconds'] = max(0, (int)$value);
+                    if ($key === 'rate_limit_per_min') $arr['rate_limit_per_min'] = max(0, (int)$value);
+                    if ($key === 'block_svg') $arr['block_svg'] = (bool)$value;
+                    update_option('arshline_settings', $arr, false);
+                    return new WP_REST_Response(['ok'=>true, 'settings'=> self::get_global_settings()], 200);
+                }
+            }
+        } catch (\Throwable $e) {
+            return new WP_REST_Response(['ok'=>false, 'error'=>'confirm_execute_failed'], 200);
+        }
+        return new WP_REST_Response(['ok'=>false, 'error'=>'unknown_confirm_action'], 200);
+    }
+
+    /**
+     * Use an OpenAI-compatible chat/completions endpoint to parse a natural-language command
+     * into a structured intent. Expected JSON output schema:
+     * { action: "create_form"|"delete_form"|"public_link", title?: string, id?: number }
+     */
+    protected static function llm_parse_command(string $cmd, array $s)
+    {
+        try {
+            $base = rtrim((string)$s['base_url'], '/');
+            $model = (string)($s['model'] ?? 'gpt-4o-mini');
+            $url = $base . '/v1/chat/completions';
+          $sys = 'You are an assistant that converts Persian admin commands about the Arshline dashboard into JSON actions. '
+              . 'Respond ONLY with a single JSON object. Schema: '
+              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_tab|export_csv|help|set_setting|ui","title?":string,"id?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal","params?":object}. '
+              . 'Examples: '
+              . '"ایجاد فرم با عنوان فرم تست" => {"action":"create_form","title":"فرم تست"}. '
+              . '"حذف فرم 12" => {"action":"delete_form","id":12}. '
+              . '"لینک عمومی فرم 7" => {"action":"public_link","id":7}. '
+              . '"لیست فرم ها" => {"action":"list_forms"}. '
+              . '"باز کردن فرم 9" => {"action":"open_builder","id":9}. '
+              . '"باز کردن تنظیمات" => {"action":"open_tab","tab":"settings"}. '
+              . '"خروجی فرم 5" => {"action":"export_csv","id":5}. '
+              . '"کمک" => {"action":"help"}. '
+              . '"مدل را روی gpt-4o-mini بگذار" => {"action":"set_setting","key":"ai_model","value":"gpt-4o-mini"}. '
+              . '"حالت تاریک را فعال کن" => {"action":"ui","target":"toggle_theme","params":{"mode":"dark"}}. '
+              . 'If unclear, reply {"action":"unknown"}.';
+            $body = [
+                'model' => $model,
+                'messages' => [
+                    [ 'role' => 'system', 'content' => $sys ],
+                    [ 'role' => 'user', 'content' => $cmd ],
+                ],
+                'temperature' => 0,
+                'response_format' => [ 'type' => 'json_object' ],
+            ];
+            $resp = wp_remote_post($url, [
+                'timeout' => 10,
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'Authorization' => 'Bearer ' . (string)$s['api_key'],
+                ],
+                'body' => wp_json_encode($body),
+            ]);
+            if (is_wp_error($resp)) return null;
+            $code = (int)wp_remote_retrieve_response_code($resp);
+            if ($code < 200 || $code >= 300) return null;
+            $json = json_decode(wp_remote_retrieve_body($resp), true);
+            $content = $json['choices'][0]['message']['content'] ?? '';
+            if (!is_string($content) || $content === '') return null;
+            $parsed = json_decode($content, true);
+            return is_array($parsed) ? $parsed : null;
+        } catch (\Throwable $e) { return null; }
+    }
+
     public static function get_form_by_token(WP_REST_Request $request)
     {
         $token = (string)$request['token'];
@@ -223,6 +849,8 @@ class Api
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
         $meta = $request->get_param('meta');
         if (!is_array($meta)) $meta = [];
+        // Normalize and sanitize incoming meta before merging
+        $meta = self::sanitize_meta_input($meta);
         $form->meta = array_merge(is_array($form->meta)?$form->meta:[], $meta);
         FormRepository::save($form);
         return new WP_REST_Response(['ok'=>true, 'meta'=>$form->meta], 200);
@@ -392,7 +1020,8 @@ class Api
         // Load form to access meta settings
         $form = FormRepository::find($form_id);
         if (!$form) return new WP_REST_Response(['error' => 'invalid_form_id'], 400);
-        $meta = is_array($form->meta) ? $form->meta : [];
+    $global = self::get_global_settings();
+    $meta = array_merge($global, is_array($form->meta) ? $form->meta : []);
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         $now = time();
         // 1) Honeypot: reject if value present
@@ -492,7 +1121,8 @@ class Api
         if ($form_id <= 0) return new WP_REST_Response('<div class="ar-alert ar-alert--err">شناسه فرم نامعتبر است.</div>', 200);
         $form = FormRepository::find($form_id);
         if (!$form) return new WP_REST_Response('<div class="ar-alert ar-alert--err">فرم یافت نشد.</div>', 200);
-        $meta = is_array($form->meta) ? $form->meta : [];
+    $global = self::get_global_settings();
+    $meta = array_merge($global, is_array($form->meta) ? $form->meta : []);
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         $now = time();
         // Honeypot (htmx submit may include hp/ts fields)
@@ -688,20 +1318,73 @@ class Api
         if (!isset($files['file'])){
             return new WP_REST_Response(['error' => 'no_file'], 400);
         }
+        // Simple per-IP rate limit for uploads (10 per دقیقه)
+        try {
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            $now = time();
+            $key = 'arsh_up_rl_'.md5($ip ?: '');
+            $entry = get_transient($key);
+            $windowSec = 60; $limit = 10;
+            $data = is_array($entry) ? $entry : ['count'=>0,'reset'=>$now + $windowSec];
+            if ($now >= (int)$data['reset']){ $data = ['count'=>0,'reset'=>$now + $windowSec]; }
+            if ((int)$data['count'] >= $limit){ return new WP_REST_Response(['error'=>'rate_limited','retry_after'=>max(0,(int)$data['reset']-$now)], 429); }
+            $data['count'] = (int)$data['count'] + 1; set_transient($key, $data, $windowSec);
+        } catch (\Throwable $e) { /* ignore RL errors */ }
         $file = $files['file'];
-        // Allow only images
-        $allowed = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml'];
-        $type = $file['type'] ?? '';
-        if ($type && !in_array($type, $allowed, true)){
+    // Basic size limit (server-side double-check) from global settings
+    $gs = self::get_global_settings();
+    $maxKB = isset($gs['upload_max_kb']) ? max(50, min(4096, (int)$gs['upload_max_kb'])) : 300;
+    $maxBytes = $maxKB * 1024;
+        $size = isset($file['size']) ? (int)$file['size'] : 0;
+        if ($size <= 0 || $size > $maxBytes){
+            return new WP_REST_Response(['error' => 'invalid_size', 'message' => 'File too large or invalid. Max 300KB'], 413);
+        }
+    // Allow only common raster image types by extension and real MIME (SVG excluded for security)
+    $allowedMimes = ['image/jpeg','image/png','image/gif','image/webp'];
+        $clientType = (string)($file['type'] ?? '');
+        $name = (string)($file['name'] ?? '');
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    $allowedExt = ['jpg','jpeg','png','gif','webp'];
+        if (!in_array($ext, $allowedExt, true)){
+            return new WP_REST_Response(['error' => 'invalid_extension'], 415);
+        }
+        // Real MIME sniffing using finfo when available
+        $realMime = '';
+        if (function_exists('finfo_open') && is_readable($file['tmp_name'] ?? '')){
+            $f = finfo_open(FILEINFO_MIME_TYPE);
+            if ($f){ $realMime = (string)finfo_file($f, $file['tmp_name']); finfo_close($f); }
+        }
+        $mimeToCheck = $realMime ?: $clientType;
+        if ($mimeToCheck && !in_array($mimeToCheck, $allowedMimes, true)){
             return new WP_REST_Response(['error' => 'invalid_type'], 415);
         }
+        // Block SVG uploads entirely when enabled (risk of embedded scripts)
+        $blockSvg = !isset($gs['block_svg']) || (bool)$gs['block_svg'];
+        if ($blockSvg && $ext === 'svg'){
+            return new WP_REST_Response(['error' => 'invalid_type'], 415);
+        }
+        // Enforce max dimensions (<=2048x2048 and <=4MP)
+        try {
+            $tmp = isset($file['tmp_name']) ? (string)$file['tmp_name'] : '';
+            if ($tmp && is_readable($tmp)){
+                $info = @getimagesize($tmp);
+                if (is_array($info)){
+                    $w = (int)($info[0] ?? 0); $h = (int)($info[1] ?? 0);
+                    $maxW = 2048; $maxH = 2048; $maxPixels = 4000000;
+                    if ($w <= 0 || $h <= 0 || $w > $maxW || $h > $maxH || ($w*$h) > $maxPixels){
+                        return new WP_REST_Response(['error'=>'invalid_dimensions','message'=>'Image dimensions exceed limits'], 415);
+                    }
+                }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
         add_filter('upload_dir', function($dirs){
             $dirs['subdir'] = '/arshline';
             $dirs['path'] = $dirs['basedir'] . $dirs['subdir'];
             $dirs['url']  = $dirs['baseurl'] . $dirs['subdir'];
             return $dirs;
         });
-        $overrides = [ 'test_form' => false ];
+        // Enforce type/size checks in WordPress as well
+    $overrides = [ 'test_form' => false, 'mimes' => [ 'jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','webp'=>'image/webp' ], 'unique_filename_callback' => null ];
         $movefile = wp_handle_upload($file, $overrides);
         remove_all_filters('upload_dir');
         if (!$movefile || isset($movefile['error'])){

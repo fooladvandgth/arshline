@@ -63,7 +63,8 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
     document.head.appendChild(s);
   }
 
-  function h(html){ var d=document.createElement('div'); d.innerHTML=html; return d.firstChild; }
+    function h(html){ var d=document.createElement('div'); d.innerHTML=html; return d.firstChild; }
+    function esc(s){ s = String(s||''); return s.replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'})[c]; }); }
 
   // normalize Persian/Arabic digits to ASCII
   function normalizeDigits(s){
@@ -183,8 +184,9 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
   wrap.setAttribute('data-field-id', String(f.id));
   wrap.setAttribute('data-index', String(idx));
   var req = f.required ? ' <span style="color:#b91c1c">*</span>' : '';
-  var label = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '') + (f.question||'') + req;
-  wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+label+'</div>';
+  var labelNumber = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '');
+  var labelHtml = labelNumber + esc(f.question||'') + req;
+  wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+labelHtml+'</div>';
     var body = document.createElement('div');
     // known types
     if (f.type === 'short_text' || f.type === 'long_text'){
@@ -195,12 +197,12 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
       inp.className = 'ar-input'; inp.style.cssText = 'width:100%';
       body.appendChild(inp);
     } else if (f.type === 'multiple_choice'){
-      (f.options||[]).forEach(function(opt, i){ var id='f'+f.id+'_'+i; var row = h('<label for="'+id+'" style="display:flex;gap:.35rem;align-items:center;margin:.15rem 0"><input type="radio" name="field_'+f.id+'" id="'+id+'" value="'+String(opt.value||opt.label||'')+'" '+(i===0 && f.required?'required':'')+' /> <span>'+(opt.label||'')+'</span></label>'); body.appendChild(row); });
+  (f.options||[]).forEach(function(opt, i){ var id='f'+f.id+'_'+i; var row = document.createElement('label'); row.setAttribute('for', id); row.style.cssText='display:flex;gap:.35rem;align-items:center;margin:.15rem 0'; var input=document.createElement('input'); input.type='radio'; input.name='field_'+f.id; input.id=id; input.value=String(opt.value||opt.label||''); if (i===0 && f.required) input.required=true; var span=document.createElement('span'); span.textContent = String(opt.label||''); row.appendChild(input); row.appendChild(span); body.appendChild(row); });
     } else if (f.type === 'dropdown'){
       var sel = document.createElement('select'); sel.name='field_'+f.id; sel.required=!!f.required; sel.className='ar-select'; sel.style.cssText='width:100%';
-      var ph = (f.placeholder||'یک گزینه را انتخاب کنید'); var phOpt=document.createElement('option'); phOpt.value=''; phOpt.textContent=ph; phOpt.disabled=true; phOpt.selected=true; sel.appendChild(phOpt);
+  var ph = (f.placeholder||'یک گزینه را انتخاب کنید'); var phOpt=document.createElement('option'); phOpt.value=''; phOpt.textContent=String(ph); phOpt.disabled=true; phOpt.selected=true; sel.appendChild(phOpt);
       var opts = (f.options||[]).slice(); if (f.alpha_sort) opts.sort(function(a,b){ return String(a.label||'').localeCompare(String(b.label||''),'fa'); }); if (f.randomize) { for (let i=opts.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=opts[i]; opts[i]=opts[j]; opts[j]=t; } }
-      opts.forEach(function(o){ var op=document.createElement('option'); op.value = String(o.value||o.label||''); op.textContent = o.label||''; sel.appendChild(op); });
+  opts.forEach(function(o){ var op=document.createElement('option'); op.value = String(o.value||o.label||''); op.textContent = String(o.label||''); sel.appendChild(op); });
       body.appendChild(sel);
     } else if (f.type === 'rating'){
       var max = Math.max(1, Math.min(20, parseInt(f.max||5)));

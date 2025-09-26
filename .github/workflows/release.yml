@@ -11,6 +11,9 @@ on:
         required: false
         default: ''
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Create GitHub Release
@@ -50,23 +53,35 @@ jobs:
                "*.DS_Store" \
                "*/.DS_Store"
 
-      - name: Resolve release notes path
+      - name: Resolve release name and notes
         id: notes
         shell: bash
         run: |
+          set -euo pipefail
           TAG='${{ steps.tag.outputs.tag }}'
           NOTES="tools/releases/${TAG}.md"
+          BODY_PATH=""
           if [ -f "$NOTES" ]; then
-            echo "notes_path=$NOTES" >> "$GITHUB_OUTPUT"
-          else
-            echo "notes_path=" >> "$GITHUB_OUTPUT"
+            BODY_PATH="$NOTES"
+          elif [ -f "CHANGELOG.md" ]; then
+            BODY_PATH="CHANGELOG.md"
           fi
+          # Extract first heading as name if present
+          NAME="$TAG"
+          if [ -n "$BODY_PATH" ]; then
+            FIRST_LINE=$(head -n 1 "$BODY_PATH" || true)
+            if echo "$FIRST_LINE" | grep -qE '^#'; then
+              NAME=$(echo "$FIRST_LINE" | sed -E 's/^# *//')
+            fi
+          fi
+          echo "notes_path=$BODY_PATH" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.notes.outputs.name }}
           body_path: ${{ steps.notes.outputs.notes_path }}
           draft: false
           prerelease: false

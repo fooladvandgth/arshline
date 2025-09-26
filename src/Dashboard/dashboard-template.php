@@ -238,6 +238,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .vc-toggle-container { display:inline-block; }
     .vc-small-switch { position: relative; display: inline-block; width: var(--vc-width,50px); height: var(--vc-height,25px); }
     .vc-small-switch input { display:none; }
+    /* Floating AI Terminal */
+    .ar-ai-fab { position: fixed; left: 1rem; bottom: 1rem; z-index: 9998; border: 0; border-radius: 999px; padding: .7rem 1rem; background: var(--primary); color: #fff; box-shadow: 0 10px 20px rgba(0,0,0,.18); cursor: pointer; font-weight: 700; }
+    .ar-ai-fab:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(0,0,0,.22); }
+    .ar-ai-panel { position: fixed; left: 1rem; bottom: 4.2rem; width: min(92vw, 380px); max-height: 70vh; display: flex; flex-direction: column; gap: .6rem; padding: .8rem; border-radius: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-card); z-index: 9998; opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
+    .ar-ai-panel.open { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .ar-ai-header { display:flex; align-items:center; justify-content: space-between; gap:.6rem; }
+    .ar-ai-header .title { font-weight: 700; }
+    .ar-ai-close { background: transparent; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; }
+    .ar-ai-body textarea { width: 100%; min-height: 84px; resize: vertical; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-family: inherit; }
+    .ar-ai-body pre { background: rgba(2,6,23,.06); padding:.6rem; border-radius:8px; max-height: 200px; overflow: auto; direction: ltr; text-align: left; }
     .vc-switch-label { position: absolute; inset: 0; cursor: pointer; background: var(--vc-off-color,#d1d3d4); border-radius: var(--vc-box-border-radius,18px); transition: background var(--vc-animation-speed,.15s ease-out); font-family: var(--vc-font-family,Arial); font-weight: var(--vc-font-weight,300); font-size: var(--vc-font-size,11px); color: var(--vc-off-font-color,#fff); }
     .vc-switch-label:before { content: attr(data-off); position: absolute; right: var(--vc-label-position-off,12px); line-height: var(--vc-height,25px); }
     .vc-switch-label:after  { content: attr(data-on); position: absolute; left: var(--vc-label-position-on,11px); line-height: var(--vc-height,25px); opacity: 0; }
@@ -2207,6 +2217,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var cs = document.getElementById('arSetCaptchaSite'); if (cs) cs.value = meta.captcha_site_key || '';
                             var ck = document.getElementById('arSetCaptchaSecret'); if (ck) ck.value = meta.captcha_secret_key || '';
                             var cv = document.getElementById('arSetCaptchaVersion'); if (cv) cv.value = meta.captcha_version || 'v2';
+                            // UX: disable captcha inputs when not enabled
+                            try {
+                                function updateCaptchaInputs(){
+                                    var enabled = !!(ce && ce.checked);
+                                    if (cs) cs.disabled = !enabled;
+                                    if (ck) ck.disabled = !enabled;
+                                    if (cv) cv.disabled = !enabled;
+                                }
+                                updateCaptchaInputs();
+                                if (ce) ce.addEventListener('change', updateCaptchaInputs);
+                            } catch(_){ }
                             var saveS = document.getElementById('arSaveSettings'); if (saveS){ saveS.onclick = function(){
                                 var payload = { meta: {
                                     anti_spam_honeypot: !!(hp && hp.checked),
@@ -2773,7 +2794,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-            try { if (['dashboard','forms','reports','users'].includes(tab)) setHash(tab); } catch(_){ }
+            try { if (['dashboard','forms','reports','users','settings'].includes(tab)) setHash(tab); } catch(_){ }
             try { setSidebarClosed(false, false); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
@@ -2927,11 +2948,162 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     card('منابع ترافیک', 'به‌زودی') +
                     card('زمان‌های اوج', 'به‌زودی') +
                 '</div>';
-            } else if (tab === 'users') {
+                        } else if (tab === 'users') {
                 content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
                     <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
                     <div class="card glass"><span class="title">همکاری تیمی</span><div class="hint">دعوت هم‌تیمی‌ها (Placeholder)</div></div>\
                 </div>';
+                        } else if (tab === 'settings') {
+                                content.innerHTML = '\
+                                <div class="card glass" style="padding:1rem;display:flex;flex-direction:column;gap:.8rem;">\
+                                    <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">\
+                                        <button class="ar-btn ar-btn--soft" data-s-tab="security">امنیت</button>\
+                                        <button class="ar-btn ar-btn--soft" data-s-tab="ai">هوش مصنوعی</button>\
+                                        <button class="ar-btn ar-btn--soft" data-s-tab="users">کاربران</button>\
+                                    </div>\
+                                    <div id="arGlobalSettingsPanels">\
+                                        <div id="arS_Security" class="s-panel">\
+                                            <div class="title">تنظیمات امنیتی (سراسری)</div>\
+                                            <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                                                <label><input type="checkbox" id="gsHoneypot"/> Honeypot</label>\
+                                                <span class="hint">حداقل ثانیه</span><input id="gsMinSec" type="number" min="0" step="1" class="ar-input" style="width:100px"/>\
+                                                <span class="hint">ارسال/دقیقه</span><input id="gsRatePerMin" type="number" min="0" step="1" class="ar-input" style="width:100px"/>\
+                                                <span class="hint">پنجره (دقیقه)</span><input id="gsRateWindow" type="number" min="1" step="1" class="ar-input" style="width:100px"/>\
+                                            </div>\
+                                            <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                                                <label><input type="checkbox" id="gsCaptchaEnabled"/> reCAPTCHA</label>\
+                                                <span class="hint">Site Key</span><input id="gsCaptchaSite" class="ar-input" style="min-width:220px"/>\
+                                                <span class="hint">Secret</span><input id="gsCaptchaSecret" type="password" class="ar-input" style="min-width:220px"/>\
+                                                <span class="hint">نسخه</span><select id="gsCaptchaVersion" class="ar-select"><option value="v2">v2</option><option value="v3">v3</option></select>\
+                                            </div>\
+                                            <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                                                <span class="hint">حداکثر اندازه آپلود (KB)</span><input id="gsUploadKB" type="number" min="50" max="4096" step="10" class="ar-input" style="width:120px"/>\
+                                                <label><input type="checkbox" id="gsBlockSvg"/> مسدود کردن SVG</label>\
+                                            </div>\
+                                            <div><button id="gsSaveSecurity" class="ar-btn">ذخیره امنیت</button></div>\
+                                        </div>\
+                                        <div id="arS_AI" class="s-panel" style="display:none;">\
+                                            <div class="title">تنظیمات هوش مصنوعی (سراسری)</div>\
+                                            <label><input type="checkbox" id="gsAiEnabled"/> فعال‌سازی هوش مصنوعی ضداسپم</label>\
+                                            <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                                                <span class="hint">آستانه امتیاز (0 تا 1)</span><input id="gsAiThreshold" type="number" min="0" max="1" step="0.05" class="ar-input" style="width:120px"/>\
+                                            </div>\
+                                            <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                                                <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
+                                                <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
+                                                <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-5-mini">gpt-5-mini</option></select>\
+                                                <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
+                                            </div>\
+                                            <div class="field" style="display:flex;flex-direction:column;gap:.4rem;">\
+                                                <div class="hint">دستور عامل (Agent): مثلا «ایجاد فرم با عنوان فرم تست» یا «حذف فرم 12»</div>\
+                                                <textarea id="aiAgentCmd" class="ar-input" style="min-height:72px"></textarea>\
+                                                <div><button id="aiAgentRun" class="ar-btn">اجرای دستور</button></div>\
+                                                <pre id="aiAgentOut" style="background:rgba(2,6,23,.06); padding:.6rem;border-radius:8px;max-height:180px;overflow:auto;"></pre>\
+                                            </div>\
+                                            <div><button id="gsSaveAI" class="ar-btn">ذخیره هوش مصنوعی</button></div>\
+                                        </div>\
+                                        <div id="arS_Users" class="s-panel" style="display:none;">\
+                                            <div class="title">کاربران و دسترسی‌ها (Placeholder)</div>\
+                                            <div class="hint">به‌زودی: نقش‌ها، دسترسی‌ها، تیم‌ها</div>\
+                                        </div>\
+                                    </div>\
+                                </div>';
+                                // tab switch inside settings
+                                (function(){ try {
+                                        var btns = content.querySelectorAll('[data-s-tab]');
+                                        function show(which){
+                                                ['Security','AI','Users'].forEach(function(k){ var el = document.getElementById('arS_'+k); if (el) el.style.display = (k.toLowerCase()===which)?'block':'none'; });
+                                                btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-s-tab')===which); });
+                                        }
+                                        btns.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-s-tab')); }); });
+                                        show('security');
+                                } catch(_){ } })();
+                // load settings
+                                fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                                        .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try {
+                                                var hp = document.getElementById('gsHoneypot'); if (hp) hp.checked = !!s.anti_spam_honeypot;
+                                                var ms = document.getElementById('gsMinSec'); if (ms) ms.value = String(s.min_submit_seconds||0);
+                                                var rpm = document.getElementById('gsRatePerMin'); if (rpm) rpm.value = String(s.rate_limit_per_min||0);
+                                                var rwin = document.getElementById('gsRateWindow'); if (rwin) rwin.value = String(s.rate_limit_window_min||1);
+                                                var ce = document.getElementById('gsCaptchaEnabled'); if (ce) ce.checked = !!s.captcha_enabled;
+                                                var cs = document.getElementById('gsCaptchaSite'); if (cs) cs.value = s.captcha_site_key||'';
+                                                var ck = document.getElementById('gsCaptchaSecret'); if (ck) ck.value = s.captcha_secret_key||'';
+                                                var cv = document.getElementById('gsCaptchaVersion'); if (cv) cv.value = s.captcha_version||'v2';
+                                                var uk = document.getElementById('gsUploadKB'); if (uk) uk.value = String(s.upload_max_kb||300);
+                                                var bsvg = document.getElementById('gsBlockSvg'); if (bsvg) bsvg.checked = (s.block_svg !== false);
+                                                var aiE = document.getElementById('gsAiEnabled'); if (aiE) aiE.checked = !!s.ai_enabled;
+                                                var aiT = document.getElementById('gsAiThreshold'); if (aiT) aiT.value = String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5));
+                                                // toggle captcha inputs
+                                                function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; }
+                                                updC(); if (ce) ce.addEventListener('change', updC);
+                    } catch(_){ } })
+                    .then(function(){
+                        // Load AI connection config (base_url, api_key is not auto-filled for safety)
+                        return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                        .then(function(resp){ try {
+                            var c = resp && resp.config ? resp.config : {};
+                            var bu = document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || '';
+                            var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o-mini';
+                            // Do not prefill API key for safety; user can paste to update
+                        } catch(_){ } });
+                    })
+                                        .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
+                                function putSettings(part){
+                                        return fetch(ARSHLINE_REST + 'settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ settings: part }) })
+                                                .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+                                }
+                function putAiConfig(cfg){
+                    return fetch(ARSHLINE_REST + 'ai/config', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ config: cfg }) })
+                        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+                }
+                                var saveSec = document.getElementById('gsSaveSecurity'); if (saveSec){ saveSec.addEventListener('click', function(){
+                                        var payload = {
+                                                anti_spam_honeypot: !!(document.getElementById('gsHoneypot')?.checked),
+                                                min_submit_seconds: Math.max(0, parseInt(document.getElementById('gsMinSec')?.value||'0')||0),
+                                                rate_limit_per_min: Math.max(0, parseInt(document.getElementById('gsRatePerMin')?.value||'0')||0),
+                                                rate_limit_window_min: Math.max(1, parseInt(document.getElementById('gsRateWindow')?.value||'1')||1),
+                                                captcha_enabled: !!(document.getElementById('gsCaptchaEnabled')?.checked),
+                                                captcha_site_key: String(document.getElementById('gsCaptchaSite')?.value||''),
+                                                captcha_secret_key: String(document.getElementById('gsCaptchaSecret')?.value||''),
+                                                captcha_version: String(document.getElementById('gsCaptchaVersion')?.value||'v2'),
+                                                upload_max_kb: Math.max(50, Math.min(4096, parseInt(document.getElementById('gsUploadKB')?.value||'300')||300)),
+                                                block_svg: !!(document.getElementById('gsBlockSvg')?.checked)
+                                        };
+                                        putSettings(payload).then(function(){ notify('تنظیمات امنیت ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات امنیت ناموفق بود', 'error'); });
+                                }); }
+                var saveAI = document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){
+                    var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked);
+                    var payload = {
+                        ai_enabled: ai_enabled,
+                        ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5))
+                    };
+                    var cfg = {
+                        enabled: ai_enabled,
+                        base_url: String(document.getElementById('gsAiBaseUrl')?.value||''),
+                        api_key: String(document.getElementById('gsAiApiKey')?.value||''),
+                        model: String(document.getElementById('gsAiModel')?.value||'')
+                    };
+                    putSettings(payload)
+                        .then(function(){ return putAiConfig(cfg); })
+                        .then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); })
+                        .catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); });
+                }); }
+                var testBtn = document.getElementById('gsAiTest'); if (testBtn){ testBtn.addEventListener('click', function(){
+                    fetch(ARSHLINE_REST + 'ai/test', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                        .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); })
+                        .then(function(res){ if (res.body && res.body.ok){ notify('اتصال موفق بود (HTTP '+(res.body.status||res.status)+')', 'success'); } else { notify('اتصال ناموفق بود', 'error'); } })
+                        .catch(function(){ notify('خطا در تست اتصال', 'error'); });
+                }); }
+                var runBtn = document.getElementById('aiAgentRun'); if (runBtn){ runBtn.addEventListener('click', function(){
+                    var cmdEl = document.getElementById('aiAgentCmd'); var outEl = document.getElementById('aiAgentOut');
+                    var cmd = (cmdEl && cmdEl.value) ? String(cmdEl.value) : '';
+                    if (!cmd){ notify('دستور خالی است', 'warn'); return; }
+                    fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) })
+                        .then(async function(r){ var txt = ''; try { txt = await r.clone().text(); } catch(_){ } try { var j = txt ? JSON.parse(txt) : await r.json(); outEl.textContent = JSON.stringify(j, null, 2); } catch(_){ outEl.textContent = txt||('HTTP '+r.status); } if (!r.ok) notify('اجرا ناموفق بود', 'error'); else notify('انجام شد', 'success'); })
+                        .catch(function(){ notify('خطا در اجرای دستور', 'error'); });
+                }); }
             }
             // re-trigger entrance animation
             content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
@@ -2954,10 +3126,116 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         if (location.hash){ routeFromHash(); }
         else {
             var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
-            if (![ 'dashboard','forms','reports','users' ].includes(initial)) initial = 'dashboard';
+            if (![ 'dashboard','forms','reports','users','settings' ].includes(initial)) initial = 'dashboard';
             setHash(initial);
             renderTab(initial);
         }
+        // Floating AI Terminal wiring
+        try {
+            var fab = document.getElementById('arAiFab');
+            var panel = document.getElementById('arAiPanel');
+            var closeBtn = document.getElementById('arAiClose');
+            var runBtn = document.getElementById('arAiRun');
+            var clearBtn = document.getElementById('arAiClear');
+            var cmdEl = document.getElementById('arAiCmd');
+            var outEl = document.getElementById('arAiOut');
+            function setOpen(b){ if (!panel) return; panel.classList.toggle('open', !!b); panel.setAttribute('aria-hidden', b? 'false':'true'); if (b && cmdEl) cmdEl.focus(); try { sessionStorage.setItem('arAiOpen', b?'1':'0'); } catch(_){ } }
+            if (fab) fab.addEventListener('click', function(){ var isOpen = panel && panel.classList.contains('open'); setOpen(!isOpen); });
+            if (closeBtn) closeBtn.addEventListener('click', function(){ setOpen(false); });
+            if (clearBtn) clearBtn.addEventListener('click', function(){ if(outEl) outEl.textContent=''; if(cmdEl) cmdEl.value=''; try { sessionStorage.removeItem('arAiHist'); } catch(_){ } });
+            function appendOut(o){ if (!outEl) return; try { var old = outEl.textContent || ''; var s = (typeof o==='string')? o : JSON.stringify(o, null, 2); outEl.textContent = (old? (old+"\n\n") : '') + s; outEl.scrollTop = outEl.scrollHeight; } catch(_){ }
+            }
+            function saveHist(cmd, res){ try { var h = []; try { h = JSON.parse(sessionStorage.getItem('arAiHist')||'[]'); } catch(_){ h = []; } h.push({ t: Date.now(), cmd: String(cmd||''), res: res }); h = h.slice(-20); sessionStorage.setItem('arAiHist', JSON.stringify(h)); } catch(_){ } }
+            function loadHist(){ try { var h = JSON.parse(sessionStorage.getItem('arAiHist')||'[]'); if (Array.isArray(h) && h.length && outEl){ outEl.textContent = h.map(function(x){ return '> '+(x.cmd||'')+'\n'+JSON.stringify(x.res||{}, null, 2); }).join('\n\n'); } } catch(_){ } }
+            loadHist();
+            function handleAgentAction(j){
+                try {
+                    if (!j) return;
+                    // Confirmation flow: render a quick inline yes/no prompt in output
+                    if (j.action === 'confirm' && j.confirm_action){
+                        var msg = String(j.message||'تایید می‌کنید؟');
+                        appendOut({ confirm: msg, params: j.confirm_action });
+                        // Render ephemeral buttons
+                        try {
+                            var wrap = document.createElement('div'); wrap.style.marginTop='.5rem';
+                            var yes = document.createElement('button'); yes.className='ar-btn'; yes.textContent='تایید';
+                            var no = document.createElement('button'); no.className='ar-btn ar-btn--outline'; no.textContent='انصراف'; no.style.marginInlineStart='.5rem';
+                            yes.addEventListener('click', async function(){
+                                try {
+                                    var r2 = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: j.confirm_action }) });
+                                    var txt2 = ''; try { txt2 = await r2.clone().text(); } catch(_){ }
+                                    var j2 = null; try { j2 = txt2 ? JSON.parse(txt2) : await r2.json(); } catch(_){ }
+                                    appendOut(j2 || (txt2 || ('HTTP '+r2.status)));
+                                    if (r2.ok && j2 && j2.ok !== false){ handleAgentAction(j2); notify('تایید شد', 'success'); }
+                                    else { notify('انجام نشد', 'error'); }
+                                } catch(e){ appendOut(String(e)); notify('خطا', 'error'); }
+                            });
+                            no.addEventListener('click', function(){ notify('لغو شد', 'warn'); });
+                            wrap.appendChild(yes); wrap.appendChild(no);
+                            if (outEl) outEl.appendChild(wrap);
+                        } catch(_){ }
+                        return;
+                    }
+                    // Clarify with options
+                    if (j.action === 'clarify' && j.kind === 'options' && Array.isArray(j.options)){
+                        appendOut({ clarify: String(j.message||'مبهم است'), options: j.options });
+                        try {
+                            var wrap2 = document.createElement('div'); wrap2.style.marginTop='.5rem';
+                            (j.options||[]).forEach(function(opt){
+                                var b = document.createElement('button'); b.className='ar-btn'; b.textContent=String(opt.label||opt.value);
+                                b.style.marginInlineEnd='.5rem';
+                                b.addEventListener('click', async function(){
+                                    // If clarify_action provided, send a confirm prompt next
+                                    if (j.clarify_action){
+                                        const ca = j.clarify_action; const pa = {}; pa[j.param_key] = opt.value;
+                                        // Ask backend to execute direct by sending confirm_action to maintain consistency
+                                        var r3 = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: { action: ca.action, params: pa } }) });
+                                        var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
+                                        var j3 = null; try { j3 = t3 ? JSON.parse(t3) : await r3.json(); } catch(_){ }
+                                        appendOut(j3 || (t3 || ('HTTP '+r3.status)));
+                                        if (r3.ok && j3 && j3.ok !== false){ handleAgentAction(j3); notify('انجام شد', 'success'); } else { notify('انجام نشد', 'error'); }
+                                    }
+                                });
+                                wrap2.appendChild(b);
+                            });
+                            if (outEl) outEl.appendChild(wrap2);
+                        } catch(_){ }
+                        return;
+                    }
+                    // Help capabilities
+                    if (j.action === 'help' && j.capabilities){ appendOut({ capabilities: j.capabilities }); return; }
+                    // UI actions
+                    if (j.action === 'ui' && j.target === 'toggle_theme'){
+                        try { var t = document.getElementById('arThemeToggle'); if (t) t.click(); } catch(_){ }
+                        return;
+                    }
+                    if (j.action === 'open_tab' && j.tab){ renderTab(String(j.tab)); }
+                    else if (j.action === 'open_builder' && j.id){ try { setHash('builder/'+parseInt(j.id)); } catch(_){ } renderTab('forms'); }
+                    else if ((j.action === 'download' || j.action === 'export') && j.url){ try { window.open(String(j.url), '_blank'); } catch(_){ } }
+                    else if (j.url && !j.action){ try { window.open(String(j.url), '_blank'); } catch(_){ } }
+                } catch(_){ }
+            }
+            async function runAgent(cmdOverride){
+                var cmd = (typeof cmdOverride === 'string' && cmdOverride.trim()) ? cmdOverride.trim() : ((cmdEl && cmdEl.value) ? String(cmdEl.value) : '');
+                if (!cmd){ notify('دستور خالی است', 'warn'); return; }
+                appendOut('> '+cmd);
+                try {
+                    var r = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) });
+                    var txt = ''; try { txt = await r.clone().text(); } catch(_){ }
+                    var j = null; try { j = txt ? JSON.parse(txt) : await r.json(); } catch(_){ }
+                    appendOut(j || (txt || ('HTTP '+r.status)));
+                    saveHist(cmd, j || txt || {});
+                    if (r.ok && j && j.ok !== false){ handleAgentAction(j); notify('انجام شد', 'success'); }
+                    else { notify('اجرا ناموفق بود', 'error'); }
+                } catch(e){ appendOut(String(e)); notify('خطا در اجرای دستور', 'error'); }
+            }
+            if (runBtn) runBtn.addEventListener('click', runAgent);
+            if (cmdEl) cmdEl.addEventListener('keydown', function(e){ if (e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); runAgent(); }});
+            // restore open state
+            try { if ((sessionStorage.getItem('arAiOpen')||'')==='1') setOpen(true); } catch(_){ }
+        } catch(_){ }
+        // Allow other modules to trigger AI terminal
+        try { window.ARSH_AI = { open: function(){ var p=document.getElementById('arAiPanel'); if(!p) return; p.classList.add('open'); p.setAttribute('aria-hidden','false'); }, run: function(cmd){ var t=document.getElementById('arAiCmd'); if(t){ t.value=String(cmd||''); } var b=document.getElementById('arAiRun'); if(b){ b.click(); } } }; } catch(_){ }
     });
     </script>
     </head>
@@ -2971,6 +3249,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 <a href="#" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
                 <a href="#" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
                 <a href="#" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
+                <a href="#" data-tab="settings"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 7.8 7.8 0 0 1-2.6.9 1 1 0 0 0-.8.9V21a2 2 0 0 1-4 0v-.1a1 1 0 0 0-.8-.9 7.8 7.8 0 0 1-2.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1A7.8 7.8 0 0 1 3 12a7.8 7.8 0 0 1 .9-2.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 7.8 7.8 0 0 1 2.6-.9 1 1 0 0 0 .8-.9V3a2 2 0 0 1 4 0v.1a1 1 0 0 0 .8.9 7.8 7.8 0 0 1 2.6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 7.8 7.8 0 0 1 .9 2.6Z" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">تنظیمات</span></a>
             </nav>
         </aside>
         <main class="arshline-main">
@@ -2984,6 +3263,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             </div>
             <div id="arshlineDashboardContent" class="view"></div>
         </main>
+    </div>
+    <!-- Floating AI Terminal -->
+    <button id="arAiFab" class="ar-ai-fab" title="ترمینال هوش مصنوعی">هوش مصنوعی ▷</button>
+    <div id="arAiPanel" class="ar-ai-panel" aria-hidden="true">
+        <div class="ar-ai-header">
+            <div class="title">ترمینال هوش مصنوعی</div>
+            <button id="arAiClose" class="ar-ai-close" aria-label="بستن">✕</button>
+        </div>
+        <div class="ar-ai-body">
+            <textarea id="arAiCmd" placeholder="مثلاً: ایجاد فرم با عنوان فرم تست"></textarea>
+            <div style="display:flex; gap:.5rem; align-items:center; justify-content:flex-start;">
+                <button id="arAiRun" class="ar-btn">اجرا</button>
+                <button id="arAiClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>
+            </div>
+            <pre id="arAiOut"></pre>
+        </div>
     </div>
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
