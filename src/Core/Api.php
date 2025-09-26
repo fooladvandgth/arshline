@@ -36,9 +36,49 @@ class Api
             'callback' => [self::class, 'get_form'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
+        // Ensure/generate public token and return it (admin only)
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/token', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'ensure_token'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        // Public, read-only form definition (without requiring admin perms)
+        register_rest_route('arshline/v1', '/public/forms/(?P<form_id>\\d+)', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_form'],
+            'permission_callback' => '__return_true',
+        ]);
+        // Public by-token routes
+        register_rest_route('arshline/v1', '/public/forms/by-token/(?P<token>[A-Za-z0-9]{8,24})', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_form_by_token'],
+            'permission_callback' => '__return_true',
+        ]);
+        register_rest_route('arshline/v1', '/public/forms/by-token/(?P<token>[A-Za-z0-9]{8,24})/submissions', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'create_submission_by_token'],
+            'permission_callback' => '__return_true',
+        ]);
+        // Public by-token, HTMX-friendly submission endpoint (HTML fragment response)
+        register_rest_route('arshline/v1', '/public/forms/by-token/(?P<token>[A-Za-z0-9]{8,24})/submit', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'create_submission_htmx_by_token'],
+            'permission_callback' => '__return_true',
+        ]);
+        // Public, HTMX-friendly submission endpoint (form-encoded)
+        register_rest_route('arshline/v1', '/public/forms/(?P<form_id>\\d+)/submit', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'create_submission_htmx'],
+            'permission_callback' => '__return_true',
+        ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/fields', [
             'methods' => 'PUT',
             'callback' => [self::class, 'update_fields'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/meta', [
+            'methods' => 'PUT',
+            'callback' => [self::class, 'update_meta'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         register_rest_route('arshline/v1', '/forms', [
@@ -105,7 +145,12 @@ class Api
         ];
         $form = new Form($formData);
         $id = FormRepository::save($form);
-        return new WP_REST_Response([ 'id' => $id, 'title' => $title, 'status' => 'draft' ], 201);
+        if ($id > 0) {
+            return new WP_REST_Response([ 'id' => $id, 'title' => $title, 'status' => 'draft' ], 201);
+        }
+        global $wpdb;
+        $err = $wpdb->last_error ?: 'unknown_db_error';
+        return new WP_REST_Response([ 'error' => 'create_failed', 'message' => $err ], 500);
     }
 
     public static function get_form(WP_REST_Request $request)
@@ -113,9 +158,36 @@ class Api
         $id = (int)$request['form_id'];
         $form = FormRepository::find($id);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        // Ensure token exists when an admin/editor opens the builder (backfill on-read)
+        if (self::user_can_manage_forms() && empty($form->public_token)) {
+            // Save will generate a token if missing
+            FormRepository::save($form);
+            // Re-fetch to include the generated token
+            $form = FormRepository::find($id) ?: $form;
+        }
         $fields = FieldRepository::listByForm($id);
+        $payload = [
+            'id' => $form->id,
+            'status' => $form->status,
+            'meta' => $form->meta,
+            'fields' => $fields,
+        ];
+        // Expose token only to users who can manage forms (admin/editor)
+        if (self::user_can_manage_forms() && !empty($form->public_token)) {
+            $payload['token'] = $form->public_token;
+        }
+        return new WP_REST_Response($payload, 200);
+    }
+
+    public static function get_form_by_token(WP_REST_Request $request)
+    {
+        $token = (string)$request['token'];
+        $form = FormRepository::findByToken($token);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        $fields = FieldRepository::listByForm($form->id);
         return new WP_REST_Response([
             'id' => $form->id,
+            'token' => $form->public_token,
             'status' => $form->status,
             'meta' => $form->meta,
             'fields' => $fields,
@@ -129,6 +201,18 @@ class Api
         if (!is_array($fields)) $fields = [];
         FieldRepository::replaceAll($id, $fields);
         return new WP_REST_Response(['ok'=>true], 200);
+    }
+
+    public static function update_meta(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        $form = FormRepository::find($id);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        $meta = $request->get_param('meta');
+        if (!is_array($meta)) $meta = [];
+        $form->meta = array_merge(is_array($form->meta)?$form->meta:[], $meta);
+        FormRepository::save($form);
+        return new WP_REST_Response(['ok'=>true, 'meta'=>$form->meta], 200);
     }
 
     public static function get_submissions(WP_REST_Request $request)
@@ -182,12 +266,101 @@ class Api
         return new WP_REST_Response([ 'id' => $id, 'form_id' => $form_id, 'status' => 'pending' ], 201);
     }
 
+    public static function create_submission_by_token(WP_REST_Request $request)
+    {
+        $token = (string)$request['token'];
+        $form = FormRepository::findByToken($token);
+        if (!$form) return new WP_REST_Response(['error' => 'invalid_form_token'], 404);
+        $request['form_id'] = $form->id;
+        return self::create_submission($request);
+    }
+
+    /**
+     * Public submission handler for HTMX (accepts form-encoded fields like field_{id}).
+     * Returns a small HTML fragment suitable for hx-swap.
+     */
+    public static function create_submission_htmx(WP_REST_Request $request)
+    {
+        $form_id = (int)$request['form_id'];
+        if ($form_id <= 0) return new WP_REST_Response('<div class="ar-alert ar-alert--err">شناسه فرم نامعتبر است.</div>', 200);
+
+        // Load schema for validation
+        $fields = FieldRepository::listByForm($form_id);
+        $params = $request->get_params();
+        $values = [];
+        foreach ($fields as $f) {
+            $fid = (int)($f['id'] ?? 0);
+            if ($fid <= 0) continue;
+            $key = 'field_' . $fid;
+            if (isset($params[$key])) {
+                $values[] = [ 'field_id' => $fid, 'value' => $params[$key] ];
+            }
+        }
+        $valErrors = FormValidator::validateSubmission($fields, $values);
+        if (!empty($valErrors)) {
+            $html = '<div class="ar-alert ar-alert--err"><div>خطا در اعتبارسنجی:</div><ul style="margin:6px 0;">';
+            foreach ($valErrors as $msg) { $html .= '<li>' . esc_html($msg) . '</li>'; }
+            $html .= '</ul></div>';
+            return new WP_REST_Response($html, 200);
+        }
+
+        $submissionData = [
+            'form_id' => $form_id,
+            'user_id' => get_current_user_id(),
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'status' => 'pending',
+            'meta' => [ 'summary' => 'ایجاد از HTMX' ],
+            'values' => $values,
+        ];
+        $submission = new Submission($submissionData);
+        $id = SubmissionRepository::save($submission);
+        foreach ($values as $idx => $entry) {
+            $field_id = (int)($entry['field_id'] ?? 0);
+            $value = $entry['value'] ?? '';
+            if ($field_id > 0) {
+                SubmissionValueRepository::save($id, $field_id, $value, $idx);
+            }
+        }
+        $ok = '<div class="ar-alert ar-alert--ok">با موفقیت ثبت شد. شناسه: ' . (int)$id . '</div>';
+        return new WP_REST_Response($ok, 200);
+    }
+
+    /**
+     * Public HTMX submission by token (returns HTML fragment like create_submission_htmx)
+     */
+    public static function create_submission_htmx_by_token(WP_REST_Request $request)
+    {
+        $token = (string)$request['token'];
+        $form = FormRepository::findByToken($token);
+        if (!$form) {
+            return new WP_REST_Response('<div class="ar-alert ar-alert--err">فرم یافت نشد.</div>', 200);
+        }
+        $request['form_id'] = $form->id;
+        return self::create_submission_htmx($request);
+    }
+
     public static function delete_form(WP_REST_Request $request)
     {
         $id = (int)$request['form_id'];
         if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
         $ok = FormRepository::delete($id);
         return new WP_REST_Response(['ok' => (bool)$ok], $ok ? 200 : 404);
+    }
+
+    /**
+     * Ensures a public_token exists for form and returns it. Admin/editor only.
+     */
+    public static function ensure_token(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
+        $form = FormRepository::find($id);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        if (empty($form->public_token)) {
+            FormRepository::save($form);
+            $form = FormRepository::find($id) ?: $form;
+        }
+        return new WP_REST_Response(['token' => (string)$form->public_token], 200);
     }
 
     public static function upload_image(WP_REST_Request $request)

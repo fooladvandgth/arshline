@@ -9,10 +9,17 @@ class FormRepository
     {
         global $wpdb;
         $table = Helpers::tableName('forms');
+        // Ensure public token exists
+        if (!$form->public_token) {
+            // try until unique
+            do { $tok = Helpers::randomToken(9); $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE public_token=%s LIMIT 1", $tok)); } while ($exists);
+            $form->public_token = $tok;
+        }
         $data = [
             'schema_version' => $form->schema_version,
             'owner_id' => $form->owner_id,
             'status' => $form->status,
+            'public_token' => $form->public_token,
             'meta' => json_encode($form->meta, JSON_UNESCAPED_UNICODE),
         ];
         if ($form->id > 0) {
@@ -33,6 +40,14 @@ class FormRepository
             return new Form($row);
         }
         return null;
+    }
+
+    public static function findByToken(string $token): ?Form
+    {
+        global $wpdb;
+        $table = Helpers::tableName('forms');
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE public_token = %s LIMIT 1", $token), ARRAY_A);
+        return $row ? new Form($row) : null;
     }
 
     public static function delete(int $id): bool

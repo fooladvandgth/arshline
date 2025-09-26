@@ -591,6 +591,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var builder = document.getElementById('arBuilder');
             var id = parseInt(builder.dataset.formId||'0');
             var idx = parseInt(builder.dataset.fieldIndex||'-1');
+            var creating = (builder && builder.getAttribute('data-creating') === '1');
+            var intendedInsert = builder ? parseInt(builder.getAttribute('data-intended-insert')||'-1') : -1;
             dlog('saveFields:start', { id: id, idx: idx });
             var canvas = document.getElementById('arCanvas');
             var edited = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); })[0] || {};
@@ -610,8 +612,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(function(data){
                     dlog('saveFields:loaded-current-fields', (data&&data.fields)?data.fields.length:0);
                     var arr = (data && data.fields) ? data.fields.slice() : [];
-                    if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
-                    else { arr.push(edited); }
+                    if (creating){
+                        var at = (!isNaN(intendedInsert) && intendedInsert >= 0 && intendedInsert <= arr.length) ? intendedInsert : arr.length;
+                        // If there is a thank_you at the end and intendedInsert equals arr.length, insert before it
+                        try { var last = arr[arr.length-1]; var lp = last && (last.props||last); if (lp && (lp.type||last.type)==='thank_you' && at >= arr.length) at = arr.length - 1; } catch(_){ }
+                        arr.splice(at, 0, edited);
+                    } else {
+                        if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
+                        else { arr.push(edited); }
+                    }
                     try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - sending field.question (sample):', String(edited.question||'').slice(0,200)); } catch(_){ }
                     try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - full payload fields count:', arr.length); } catch(_){ }
                     dlog('saveFields:payload', arr);
@@ -651,7 +660,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
                 <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
             </div>';
-            fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+            // First, ensure token exists for this form
+            fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                .then(function(){ return fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }); })
                 .then(r=>r.json())
                 .then(function(data){
                     var fwrap = document.getElementById('arFormPreviewFields');
@@ -793,13 +804,27 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderFormEditor(id, opts){
             dlog('renderFormEditor:start', { id: id, opts: opts });
+            // Merge any pending creating context (set by addNewField) to survive routing re-entry
+            try {
+                if (!opts || !opts.creating) {
+                    var pend = (typeof window !== 'undefined') ? window._arPendingEditor : null;
+                    if (pend && pend.id === id) {
+                        opts = Object.assign({}, opts||{}, pend);
+                        try { window._arPendingEditor = null; } catch(_){ }
+                        dlog('renderFormEditor:merged-pending-opts', opts);
+                    }
+                }
+            } catch(_){ }
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             try { setSidebarClosed(true, false); } catch(_){ }
             try {
                 var idxHashRaw = (opts && typeof opts.index!=='undefined') ? opts.index : 0;
                 var idxHash = parseInt(idxHashRaw);
                 if (isNaN(idxHash)) idxHash = 0;
-                setHash('editor/'+id+'/'+idxHash);
+                // Important: avoid changing hash in creating mode to prevent routeFromHash re-entry
+                if (!(opts && opts.creating)) {
+                    setHash('editor/'+id+'/'+idxHash);
+                }
             } catch(_){ }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
@@ -938,12 +963,53 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (titleEl) titleEl.textContent = creating ? ('ایجاد فرم — ' + (formTitle||(' #' + id))) : ('ویرایش فرم #' + id + (formTitle?(' — ' + formTitle):''));
                     var fields = data.fields || [];
                     var idx = fieldIndex;
-                    if (isNaN(idx) || idx < 0 || idx >= fields.length) idx = 0;
-                    // Keep builder dataset in sync so saveFields updates proper index
-                    try { var b = document.getElementById('arBuilder'); if (b) b.setAttribute('data-field-index', String(idx)); } catch(_){ }
+                    var creating = !!(opts && opts.creating);
+                    var pendCtx = (typeof window !== 'undefined') ? window._arPendingEditor : null;
+                    var pendType = (pendCtx && pendCtx.id === id) ? (pendCtx.newType || null) : null;
+                    var newTypeFromOpts = (opts && opts.newType) ? String(opts.newType) : null;
+                    var newTypeEffective = newTypeFromOpts || pendType || null;
+                    // Resolve target index: in creating mode honor the intended insert; if idx is out-of-range treat as creating
+                    if (creating){
+                        var fi = parseInt(fieldIndex);
+                        if (isNaN(fi) || fi < 0){
+                            // fallback: insert at end (before thank_you if present)
+                            var hasThankIdx = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type) === 'thank_you'; });
+                            idx = (hasThankIdx !== -1) ? hasThankIdx : fields.length;
+                        } else {
+                            idx = fi;
+                        }
+                    } else {
+                        // Editing existing field: if index invalid -> 0; if out-of-range -> switch to creating-at-end
+                        if (isNaN(idx) || idx < 0) idx = 0;
+                        else if (idx >= fields.length){
+                            creating = true;
+                            var hasThankIdx2 = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type) === 'thank_you'; });
+                            idx = (hasThankIdx2 !== -1) ? hasThankIdx2 : fields.length;
+                        }
+                    }
+                    dlog('renderFormEditor:flags', { fieldIndex: fieldIndex, creating: creating, newType: newTypeEffective, fieldsLen: fields.length });
+                    // Keep builder dataset in sync so saveFields updates proper index and mode
+                    try {
+                        var b = document.getElementById('arBuilder');
+                        if (b) {
+                            b.setAttribute('data-field-index', String(idx));
+                            b.setAttribute('data-creating', creating ? '1' : '0');
+                            if (creating && typeof opts.intendedInsert !== 'undefined') b.setAttribute('data-intended-insert', String(opts.intendedInsert));
+                            if (creating && typeof opts.newType !== 'undefined') b.setAttribute('data-new-type', String(opts.newType));
+                        }
+                    } catch(_){ }
                     dlog('renderFormEditor:resolved-index', idx);
-                    var base = fields[idx] || defaultProps;
+                    // Choose defaults by requested newType when creating
+                    var newType = newTypeEffective;
+                    var typeDefaults = (newType && ARSH && ARSH.Tools && ARSH.Tools.getDefaults(newType))
+                        || (newType === 'long_text' ? longTextDefaults : null)
+                        || (ARSH && ARSH.Tools && ARSH.Tools.getDefaults('short_text'))
+                        || defaultProps;
+                    // In creating mode we always render the editor with defaults for newType
+                    var base = creating ? typeDefaults : (fields[idx] || typeDefaults);
                     var field = base.props || base || defaultProps;
+                    // Force requested type when creating if defaults didn't carry it
+                    if (creating && newType && (field.type||'') !== newType){ field.type = newType; }
                     var fType = field.type || base.type || 'short_text';
                     dlog('renderFormEditor:field-type', fType);
                     // Try tool module first (if provided)
@@ -1308,7 +1374,19 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (qNode){
                                 var showQ = (p.question && String(p.question).trim());
                                 qNode.style.display = showQ ? 'block' : 'none';
-                                var numPrefix = (p.numbered !== false ? '1. ' : '');
+                                // Compute the real visible question index (skip welcome/thank_you before this idx)
+                                var qIndex = 1;
+                                try {
+                                    var beforeCount = 0;
+                                    (fields||[]).forEach(function(ff, i3){
+                                        if (i3 < idx){
+                                            var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text';
+                                            if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; }
+                                        }
+                                    });
+                                    qIndex = beforeCount + 1;
+                                } catch(_){ qIndex = (idx+1); }
+                                var numPrefix = (p.numbered !== false ? (qIndex + '. ') : '');
                                 var sanitized = sanitizeQuestionHtml(showQ || '');
                                 qNode.innerHTML = showQ ? (numPrefix + sanitized) : '';
                                 try { if (typeof console !== 'undefined') console.log('[ARSH] applyPreviewFrom pvQuestion.innerHTML:', qNode.innerHTML); } catch(_){ }
@@ -1632,9 +1710,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         function addNewField(formId, fieldType){
             dlog('addNewField:start', { formId: formId, fieldType: fieldType });
             var ft = fieldType || 'short_text';
-            var defaultProps = (ARSH && ARSH.Tools && ARSH.Tools.getDefaults(ft))
-                || (ARSH && ARSH.Tools && ARSH.Tools.getDefaults('short_text'))
-                || { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
             fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
@@ -1643,12 +1718,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
                     var insertAt = hasThank ? (arr.length - 1) : arr.length;
                     if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
-                    arr.splice(insertAt, 0, defaultProps);
-                    dlog('addNewField:inserting-at', insertAt, 'payload-size', arr.length);
-                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
-                        .then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return { ok: true, index: insertAt }; });
+                    // Stash pending creating context to survive any routing/hash re-entry
+                    try { window._arPendingEditor = { id: formId, index: insertAt, creating: true, intendedInsert: insertAt, newType: ft, ts: Date.now() }; } catch(_){ }
+                    // Open editor in creating mode at intended index; do NOT persist yet
+                    renderFormEditor(formId, { index: insertAt, creating: true, intendedInsert: insertAt, newType: ft });
                 })
-                .then(function(obj){ renderFormEditor(formId, { index: obj.index }); })
                 .catch(function(){ notify('افزودن فیلد ناموفق بود', 'error'); });
         }
 
@@ -1668,9 +1742,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '<button id="arBuilderBack" class="ar-btn ar-btn--muted">بازگشت</button>'
                 + '</div>'
                 + '</div>'
+                + '<style>.ar-tabs .ar-btn.active{background:var(--primary, #eef2ff);border-color:var(--primary, #4338ca);color:#111827}</style>'
+                + '<div class="ar-tabs" role="tablist" aria-label="Form Sections" style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;">'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arFormFieldsList" data-tab="builder">ساخت</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arDesignPanel" data-tab="design">طراحی</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arSettingsPanel" data-tab="settings">تنظیمات</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arSharePanel" data-tab="share">ارسال</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arReportsPanel" data-tab="reports">گزارش</button>'
+                + '</div>'
                 + '<div style="display:flex;gap:1rem;align-items:flex-start;">'
                 + '<div id="arFormSide" style="flex:1;">'
-                + '<div class="title" style="margin-bottom:.6rem;">پیش‌نمایش فرم</div>'
+                + '<div id="arSectionTitle" class="title" style="margin-bottom:.6rem;">پیش‌نمایش فرم</div>'
                 + '<div id="arBulkToolbar" style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem;">'
                 + '<label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;">'
                 + '<input id="arSelectAll" type="checkbox" />'
@@ -1679,6 +1761,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '<button id="arBulkDelete" class="ar-btn" disabled>حذف انتخاب‌شده‌ها</button>'
                 + '</div>'
                 + '<div id="arFormFieldsList" style="display:flex;flex-direction:column;gap:.8rem;"></div>'
+                + '<div id="arDesignPanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;">'
+                + '    <div class="field" style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">'
+                + '      <span class="hint">رنگ اصلی</span><input id="arDesignPrimary" type="color" />'
+                + '      <span class="hint">پس‌زمینه</span><input id="arDesignBg" type="color" />'
+                + '      <span class="hint">ظاهر</span><select id="arDesignTheme" class="ar-select"><option value="light">روشن</option><option value="dark">تاریک</option></select>'
+                + '      <button id="arSaveDesign" class="ar-btn">ذخیره طراحی</button>'
+                + '    </div>'
+                + '  </div>'
+                + '</div>'
+                + '<div id="arSettingsPanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;">'
+                + '    <div class="hint">تنظیمات (زمان‌بندی و سایر موارد) بعداً افزوده می‌شود.</div>'
+                + '  </div>'
+                + '</div>'
+                + '<div id="arSharePanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">'
+                + '    <span class="hint">لینک عمومی فرم:</span><input id="arShareLink" class="ar-input" style="min-width:340px" readonly />'
+                + '    <button id="arCopyLink" class="ar-btn">کپی لینک</button>'
+                + '  </div>'
+                + '</div>'
+                + '<div id="arReportsPanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;">'
+                + '    <div class="title" style="margin-bottom:.6rem;">ارسال‌ها</div>'
+                + '    <div id="arSubmissionsList" style="display:flex;flex-direction:column;gap:.5rem"></div>'
+                + '  </div>'
+                + '</div>'
                 + '</div>'
                 + '<div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">'
                 + '<div class="title" style="margin-bottom:.6rem;">ابزارها</div>'
@@ -1730,6 +1839,118 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(function(data){
                     dlog('renderFormBuilder:loaded-fields', (data&&data.fields)?data.fields.length:0);
                     var list = document.getElementById('arFormFieldsList');
+                    // Setup tabs
+                    try {
+                        var tabs = Array.from(content.querySelectorAll('.ar-tabs [data-tab]'));
+                        function showPanel(which){
+                            var title = document.getElementById('arSectionTitle');
+                            var panels = {
+                                builder: document.getElementById('arFormFieldsList'),
+                                design: document.getElementById('arDesignPanel'),
+                                settings: document.getElementById('arSettingsPanel'),
+                                share: document.getElementById('arSharePanel'),
+                                reports: document.getElementById('arReportsPanel'),
+                            };
+                            Object.keys(panels).forEach(function(k){ panels[k].style.display = (k===which)?'block':'none'; });
+                            document.getElementById('arBulkToolbar').style.display = (which==='builder')?'flex':'none';
+                            var tools = document.getElementById('arToolsSide'); if (tools) tools.style.display = (which==='builder')?'block':'none';
+                            title.textContent = (which==='builder'?'پیش‌نمایش فرم': which==='design'?'طراحی فرم': which==='settings'?'تنظیمات فرم': which==='share'?'ارسال/اشتراک‌گذاری': 'گزارشات فرم');
+                            // When entering Share panel, ensure input shows the latest URL
+                            if (which === 'share'){
+                                try {
+                                    var sl = document.getElementById('arShareLink');
+                                    if (sl && typeof publicUrl === 'string' && publicUrl){ sl.value = publicUrl; sl.setAttribute('value', publicUrl); }
+                                } catch(_){ }
+                            }
+                        }
+                        function setActive(btn){ tabs.forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); }); btn.classList.add('active'); btn.setAttribute('aria-selected','true'); }
+                        tabs.forEach(function(btn, idx){
+                            btn.setAttribute('tabindex', idx===0? '0' : '-1');
+                            btn.addEventListener('click', function(){ setActive(btn); showPanel(btn.getAttribute('data-tab')); });
+                            btn.addEventListener('keydown', function(e){
+                                var i = tabs.indexOf(btn);
+                                if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+                                    e.preventDefault();
+                                    var ni = (e.key==='ArrowRight') ? (i+1) % tabs.length : (i-1+tabs.length) % tabs.length;
+                                    tabs[ni].focus();
+                                }
+                                if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); setActive(btn); showPanel(btn.getAttribute('data-tab')); }
+                            });
+                        });
+                        // default active
+                        var def = content.querySelector('.ar-tabs [data-tab="builder"]'); if (def){ setActive(def); }
+                        showPanel('builder');
+                        // init design values from meta
+                        var meta = data.meta || {};
+                        var dPrim = document.getElementById('arDesignPrimary'); if (dPrim) dPrim.value = meta.design_primary || '#1e40af';
+                        var dBg = document.getElementById('arDesignBg'); if (dBg) dBg.value = meta.design_bg || '#f5f7fb';
+                        var dTheme = document.getElementById('arDesignTheme'); if (dTheme) dTheme.value = meta.design_theme || 'light';
+                        // apply to builder preview area
+                        try {
+                            document.documentElement.style.setProperty('--ar-primary', dPrim.value);
+                            var side = document.getElementById('arFormSide'); if (side) side.style.background = dBg.value;
+                        } catch(_){ }
+                        var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
+                        // share link (prefer token now that we ensured it exists)
+                        var publicUrl = '';
+                        try {
+                            var token = (data && data.token) ? String(data.token) : '';
+                            if (token) {
+                                if (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase) {
+                                    publicUrl = ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', token);
+                                } else {
+                                    publicUrl = window.location.origin + '/?arshline=' + encodeURIComponent(token);
+                                }
+                            } else {
+                                var base = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicBase) || '';
+                                publicUrl = base ? base.replace('%ID%', String(id)) : (window.location.origin + '/?arshline_form='+id);
+                            }
+                        } catch(_){
+                            publicUrl = window.location.origin + '/?arshline_form='+id;
+                        }
+                        var shareLink = document.getElementById('arShareLink'); if (shareLink){ shareLink.value = publicUrl; shareLink.setAttribute('value', publicUrl); }
+                        function copyText(text){
+                            if (navigator.clipboard && navigator.clipboard.writeText){
+                                return navigator.clipboard.writeText(text);
+                            }
+                            return new Promise(function(res, rej){
+                                try {
+                                    var ta = document.createElement('textarea');
+                                    ta.value = text; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.opacity='0';
+                                    document.body.appendChild(ta); ta.select();
+                                    var ok = document.execCommand('copy');
+                                    document.body.removeChild(ta);
+                                    ok ? res() : rej(new Error('execCommand failed'));
+                                } catch(e){ rej(e); }
+                            });
+                        }
+                        var copyBtn = document.getElementById('arCopyLink'); if (copyBtn){ copyBtn.onclick = function(){ copyText(publicUrl).then(function(){ notify('کپی شد', 'success'); }).catch(function(){ notify('کپی ناموفق بود', 'error'); }); }; }
+
+                        // Fallback: if token wasn't present initially, refetch once and update link if token appears
+                        if (!token) {
+                            setTimeout(function(){
+                                fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                   .then(function(r){ return r.json(); })
+                                   .then(function(d2){
+                                       try {
+                                           var t2 = (d2 && d2.token) ? String(d2.token) : '';
+                                           if (t2) {
+                                               var url2 = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase)
+                                                   ? ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', t2)
+                                                   : (window.location.origin + '/?arshline=' + encodeURIComponent(t2));
+                                               if (shareLink) { shareLink.value = url2; shareLink.setAttribute('value', url2); }
+                                               publicUrl = url2;
+                                           }
+                                       } catch(_){ }
+                                   }).catch(function(){ /* ignore */ });
+                            }, 250);
+                        }
+                        // reports fetch
+                        var repWrap = document.getElementById('arSubmissionsList'); if (repWrap){ fetch(ARSHLINE_REST+'forms/'+id+'/submissions', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json(); }).then(function(rows){ repWrap.innerHTML = (rows||[]).map(function(s){ return '<div class="card" style="padding:.5rem;display:flex;justify-content:space-between;">\
+                            <span>#'+String(s.id)+' — '+String(s.status||'')+'</span>\
+                            <span class="hint">'+String(s.created_at||'')+'</span>\
+                        </div>'; }).join('') || '<div class="hint">ارسالی وجود ندارد</div>'; }).catch(function(){ repWrap.innerHTML = '<div class="hint">خطا در بارگذاری گزارشات</div>'; }); }
+                    } catch(_){ }
                     // Guard to prevent duplicate add when both click and drag/drop occur nearly simultaneously
                     var lastAddClickTs = 0;
                     var fields = data.fields || [];
@@ -2288,14 +2509,39 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var titleEl = document.getElementById('arNewFormTitle');
                     var title = (titleEl && titleEl.value.trim()) || 'فرم جدید';
                     fetch(ARSHLINE_REST + 'forms', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) })
-                        .then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-            .then(function(obj){ notify('فرم ایجاد شد', 'success'); if (obj && obj.id){ renderFormBuilder(parseInt(obj.id)); } else { renderTab('forms'); } })
-                        .catch(function(){ notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); });
+                        .then(async function(r){
+                            if (!r.ok){
+                                if (r.status===401){ if (typeof handle401 === 'function') handle401(); }
+                                var t=await r.text(); throw new Error(t||('HTTP '+r.status));
+                            }
+                            return r.json();
+                        })
+                        .then(function(obj){
+                            if (obj && obj.id){
+                                notify('فرم ایجاد شد', 'success');
+                                renderFormBuilder(parseInt(obj.id));
+                            } else {
+                                notify('ایجاد فرم ناموفق بود. لطفاً دسترسی و دیتابیس را بررسی کنید.', 'error');
+                                // stay on forms tab and keep inline create visible
+                                if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); }
+                            }
+                        })
+                        .catch(function(e){
+                            try { console.error('[ARSH] create_form failed:', e); } catch(_){ }
+                            notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error');
+                            if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); }
+                        });
                 });
+                // Allow pressing Enter in title input to submit
+                (function(){ try { var inp=document.getElementById('arNewFormTitle'); if (inp){ inp.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); if (submitBtn) submitBtn.click(); } }); } } catch(_){ } })();
                 // load forms list
                 fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
                     var box = document.getElementById('arFormsList'); if (!box) return;
-                    if (!forms || forms.length===0){ box.textContent = 'هنوز فرمی ندارید.'; return; }
+                    var isEmpty = !forms || forms.length===0;
+                    if (isEmpty){
+                        // Show a friendly hint, but do NOT return early; inline create stays closed until user clicks "+ فرم جدید"
+                        box.innerHTML = '<div class="hint">هنوز فرمی ندارید. برای شروع روی «+ فرم جدید» کلیک کنید.</div>';
+                    }
                     var html = (forms||[]).map(function(f){
                         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
                             <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'</div>\
@@ -2307,14 +2553,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             </div>\
                         </div>';
                     }).join('');
-                    box.innerHTML = html;
-                    box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); });
-                    box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
-                    box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; window._pendingFormSelectId = id; renderTab('submissions'); }); });
-                    if (ARSHLINE_CAN_MANAGE) {
-                        box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
+                    if (!isEmpty){
+                        box.innerHTML = html;
+                        box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); });
+                        box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
+                        box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; window._pendingFormSelectId = id; renderTab('submissions'); }); });
+                        if (ARSHLINE_CAN_MANAGE) {
+                            box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
+                        }
                     }
-                    // If header create was requested before arriving here, open inline create now
+                    // If header create was requested before arriving here, open inline create now (even if list is empty)
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
             } else if (tab === 'submissions') {
