@@ -16,6 +16,20 @@ $fields = FieldRepository::listByForm((int)$sub['form_id']);
 $labels = [];
 foreach ($fields as $fr){ $p = $fr['props'] ?? []; $labels[$fr['id']] = $p['question'] ?? ('فیلد #'.$fr['id']); }
 
+// Build choices map: field_id => [ value => label ] to translate stored option values (e.g., opt_1) into human labels
+$choices = [];
+foreach ($fields as $fr){
+  $fid = (int)$fr['id'];
+  $p = isset($fr['props']) ? $fr['props'] : [];
+  if (!empty($p['options']) && is_array($p['options'])){
+    foreach ($p['options'] as $opt){
+      $val = (string)($opt['value'] ?? $opt['label'] ?? '');
+      $lab = (string)($opt['label'] ?? $val);
+      if ($val !== ''){ $choices[$fid][$val] = $lab; }
+    }
+  }
+}
+
 // Prepare rows for export (label, value)
 $rows = [];
 if (!empty($sub['values'])){
@@ -23,6 +37,10 @@ if (!empty($sub['values'])){
     $fid = (int)$val['field_id'];
     $raw = (string)($val['value'] ?? '');
     $decoded = wp_specialchars_decode($raw, ENT_QUOTES);
+    // Translate choice values to labels if applicable
+    if (isset($choices[$fid]) && isset($choices[$fid][$decoded])){
+      $decoded = $choices[$fid][$decoded];
+    }
     // For CSV/Excel, export plain text (tags removed)
     $plain = wp_strip_all_tags($decoded);
     $rows[] = [ 'label' => $labels[$fid] ?? ('فیلد #'.$fid), 'value' => $plain ];
@@ -85,10 +103,10 @@ $allowed = [
         </div>
       </div>
       <div class="arsh-answers">
-        <?php if (!empty($sub['values'])): foreach ($sub['values'] as $val): $fid=(int)$val['field_id']; $raw=(string)($val['value']??''); $decoded=wp_specialchars_decode($raw, ENT_QUOTES); ?>
+        <?php if (!empty($sub['values'])): foreach ($sub['values'] as $val): $fid=(int)$val['field_id']; $raw=(string)($val['value']??''); $decoded=wp_specialchars_decode($raw, ENT_QUOTES); $isChoice = isset($choices[$fid]); if ($isChoice && isset($choices[$fid][$decoded])) { $decoded = $choices[$fid][$decoded]; } ?>
           <div class="arsh-item">
             <div class="q"><?php echo esc_html($labels[$fid] ?? ('فیلد #'.$fid)); ?></div>
-            <div class="a"><?php echo wp_kses($decoded, $allowed); ?></div>
+            <div class="a"><?php echo $isChoice ? esc_html($decoded) : wp_kses($decoded, $allowed); ?></div>
           </div>
         <?php endforeach; else: ?>
           <div class="hint">پاسخی ثبت نشده است.</div>

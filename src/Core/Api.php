@@ -226,17 +226,86 @@ class Api
     public static function get_submissions(WP_REST_Request $request)
     {
         $form_id = (int)$request['form_id'];
-        if ($form_id <= 0) return new WP_REST_Response([], 200);
-        $rows = SubmissionRepository::listByForm($form_id, 100);
-        $data = array_map(function ($r) {
+        if ($form_id <= 0) return new WP_REST_Response(['total'=>0, 'rows'=>[]], 200);
+        // optional pagination & filters
+        $page = (int)($request->get_param('page') ?? 1);
+        $per_page = (int)($request->get_param('per_page') ?? 20);
+        $filters = [
+            'status' => $request->get_param('status') ?: null,
+            'from' => $request->get_param('from') ?: null,
+            'to' => $request->get_param('to') ?: null,
+            'search' => $request->get_param('search') !== null ? (string)$request->get_param('search') : null,
+        ];
+        $include = (string)($request->get_param('include') ?? ''); // values,fields
+        // export all as CSV when format=csv
+        $format = (string)($request->get_param('format') ?? '');
+        if ($format === 'csv') {
+            $all = SubmissionRepository::listByFormAll($form_id, $filters);
+            // Optional: include answers as separate columns (wide CSV)
+            $fields = FieldRepository::listByForm($form_id);
+            $fieldOrder = [];
+            $fieldLabels = [];
+            $choices = [];
+            foreach ($fields as $f){
+                $fid = (int)$f['id']; $p = is_array($f['props'])? $f['props'] : [];
+                $fieldOrder[] = $fid; $fieldLabels[$fid] = $p['question'] ?? ('فیلد #'.$fid);
+                if (!empty($p['options']) && is_array($p['options'])){
+                    foreach ($p['options'] as $opt){ $val = (string)($opt['value'] ?? $opt['label'] ?? ''); $lab = (string)($opt['label'] ?? $val); if ($val !== ''){ $choices[$fid][$val] = $lab; } }
+                }
+            }
+            $ids = array_map(function($r){ return (int)$r['id']; }, $all);
+            $valsMap = SubmissionRepository::listValuesBySubmissionIds($ids);
+            $out = [];
+            $header = ['id','status','created_at','summary'];
+            foreach ($fieldOrder as $fid){ $header[] = $fieldLabels[$fid]; }
+            $out[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $header));
+            foreach ($all as $r){
+                $summary = '';
+                if (is_array($r['meta']) && isset($r['meta']['summary'])){ $summary = (string)$r['meta']['summary']; }
+                $row = [ $r['id'], (string)$r['status'], (string)($r['created_at'] ?? ''), $summary ];
+                $answers = [];
+                $vals = isset($valsMap[$r['id']]) ? $valsMap[$r['id']] : [];
+                // Map field_id => value (first occurrence)
+                $byField = [];
+                foreach ($vals as $v){ $fid = (int)$v['field_id']; if (!isset($byField[$fid])){ $byField[$fid] = (string)$v['value']; } }
+                foreach ($fieldOrder as $fid){
+                    $ans = isset($byField[$fid]) ? $byField[$fid] : '';
+                    if (isset($choices[$fid]) && isset($choices[$fid][$ans])){ $ans = $choices[$fid][$ans]; }
+                    $answers[] = $ans;
+                }
+                $row = array_merge($row, $answers);
+                $out[] = implode(',', array_map(function($v){ $v = (string)$v; return '"'.str_replace('"','""',$v).'"'; }, $row));
+            }
+            $csv = "\xEF\xBB\xBF" . implode("\r\n", $out);
+            $resp = new WP_REST_Response($csv, 200);
+            $resp->header('Content-Type', 'text/csv; charset=utf-8');
+            $resp->header('Content-Disposition', 'attachment; filename="submissions-'.$form_id.'.csv"');
+            return $resp;
+        }
+        $res = SubmissionRepository::listByFormPaged($form_id, $page, $per_page, $filters);
+        $rows = array_map(function ($r) {
             return [
                 'id' => $r['id'],
                 'status' => $r['status'],
                 'created_at' => $r['created_at'],
                 'summary' => is_array($r['meta']) ? ($r['meta']['summary'] ?? null) : null,
             ];
-        }, $rows ?: []);
-        return new WP_REST_Response($data, 200);
+        }, $res['rows'] ?: []);
+        // include values (and fields) when requested, so the dashboard can render full grid
+        if ($include === 'values' || $include === 'values,fields' || $include === 'fields,values'){
+            $ids = array_map(function($r){ return (int)$r['id']; }, $rows);
+            $valsMap = SubmissionRepository::listValuesBySubmissionIds($ids);
+            foreach ($rows as &$row){ $row['values'] = isset($valsMap[$row['id']]) ? $valsMap[$row['id']] : []; }
+            unset($row);
+        }
+        $payload = [
+            'total' => (int)$res['total'],
+            'rows' => $rows,
+            'page' => (int)$res['page'],
+            'per_page' => (int)$res['per_page'],
+        ];
+        if (strpos($include, 'fields') !== false){ $payload['fields'] = FieldRepository::listByForm($form_id); }
+        return new WP_REST_Response($payload, 200);
     }
 
     public static function get_submission(WP_REST_Request $request)
@@ -369,7 +438,9 @@ class Api
                 $hx = (string)($request->get_header('hx-request') ?: $request->get_header('HX-Request'));
             }
             $isSubmit = ($route && strpos($route, '/arshline/v1/public/forms/') === 0 && strpos($route, '/submit') !== false) || strtolower($hx) === 'true';
-            if (!$isSubmit) { return $served; }
+            // Also allow raw CSV passthrough for submissions export
+            $isCsv = ($route && preg_match('#/arshline/v1/forms/\d+/submissions$#', $route) && isset($_GET['format']) && $_GET['format'] === 'csv');
+            if (!$isSubmit && !$isCsv) { return $served; }
             // Extract string content from response
             if ($result instanceof \WP_REST_Response) {
                 $data = $result->get_data();
@@ -381,8 +452,10 @@ class Api
             if (!is_string($data)) { return $served; }
             // Serve as text/html
             if (method_exists($server, 'send_header')) {
-                $server->send_header('Content-Type', 'text/html; charset=utf-8');
+                $ctype = $isCsv ? 'text/csv; charset=utf-8' : 'text/html; charset=utf-8';
+                $server->send_header('Content-Type', $ctype);
                 $server->send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+                if ($isCsv) { $server->send_header('Content-Disposition', 'attachment; filename="submissions.csv"'); }
             }
             if (method_exists($server, 'set_status')) { $server->set_status($status); }
             echo $data;

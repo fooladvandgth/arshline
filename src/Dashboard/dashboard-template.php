@@ -2568,37 +2568,139 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
             } else if (tab === 'submissions') {
                 content.innerHTML = '<div class="card glass" style="padding:1rem;">\
-                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
+                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
                       <span class="title">پاسخ‌ها</span>\
                       <select id="arFormSelect" style="margin-inline-start:auto;padding:.35rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></select>\
+                      <input id="arSubSearch" class="ar-input" placeholder="جستجو (شناسه/خلاصه)" style="min-width:200px"/>\
+                      <select id="arSubStatus" class="ar-select"><option value="">همه وضعیت‌ها</option><option value="pending">در انتظار</option><option value="approved">تایید شده</option><option value="rejected">رد شده</option></select>\
+                      <input id="arDateFrom" type="date" class="ar-input"/>\
+                      <input id="arDateTo" type="date" class="ar-input"/>\
+                      <button id="arSubExport" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
                     </div>\
-                    <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
+                    <div id="arSubsList">\
+                      <div class="hint">فرمی انتخاب کنید...</div>\
+                    </div>\
                 </div>';
                 fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
                     var sel = document.getElementById('arFormSelect');
                     if (!sel) return;
                     sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
-                    sel.addEventListener('change', function(){
-                        var id = parseInt(sel.value||'0');
-                        var list = document.getElementById('arSubsList');
-                        if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
-                        list.textContent = 'در حال بارگذاری...';
-                        fetch(ARSHLINE_REST + 'forms/'+id+'/submissions', { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+                    var q = document.getElementById('arSubSearch');
+                    var st = document.getElementById('arSubStatus');
+                    var df = document.getElementById('arDateFrom');
+                    var dt = document.getElementById('arDateTo');
+                    var exp = document.getElementById('arSubExport');
+                    var state = { page: 1, per_page: 10 };
+                    function buildQuery(){
+                        var p = new URLSearchParams();
+                        p.set('page', String(state.page||1)); p.set('per_page', String(state.per_page||10));
+                        var sv = (st && st.value)||''; if (sv) p.set('status', sv);
+                        var qv = (q && q.value.trim())||''; if (qv) p.set('search', qv);
+                        var fv = (df && df.value)||''; if (fv) p.set('from', fv);
+                        var tv = (dt && dt.value)||''; if (tv) p.set('to', tv);
+                        return p.toString();
+                    }
+                    function buildRestUrl(path, qs){
+                        try {
+                            var base = ARSHLINE_REST || '';
+                            // Ensure path has no leading slash (rest_url already includes trailing slash)
+                            if (path.charAt(0) === '/') path = path.slice(1);
+                            var u = new URL(base, window.location.origin);
+                            if (u.searchParams.has('rest_route')){
+                                var rr = u.searchParams.get('rest_route') || '';
+                                if (rr && rr.charAt(rr.length-1) !== '/') rr += '/';
+                                rr += path;
+                                u.searchParams.set('rest_route', rr);
+                            } else {
+                                // Append to pathname (ensure single slash)
+                                if (u.pathname && u.pathname.charAt(u.pathname.length-1) !== '/') u.pathname += '/';
+                                u.pathname += path;
+                            }
+                            if (qs){
+                                var extra = new URLSearchParams(qs);
+                                extra.forEach(function(v,k){ u.searchParams.set(k, v); });
+                            }
+                            return u.toString();
+                        } catch(_) {
+                            // Fallback: naive concatenation
+                            return (ARSHLINE_REST||'') + path + (qs? ('?'+qs) : '');
+                        }
+                    }
+                                        function renderTable(resp){
+                        var list = document.getElementById('arSubsList'); if (!list) return; if (!resp) { list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
+                                                var rows = Array.isArray(resp) ? resp : (resp.rows||[]);
+                                                var total = Array.isArray(resp) ? rows.length : (resp.total||0);
+                                                // Build dynamic columns from fields when present
+                                                var fields = resp.fields || [];
+                                                var fieldOrder = [];
+                                                var fieldLabels = {};
+                                                var choices = {};
+                                                if (Array.isArray(fields) && fields.length){
+                                                        fields.forEach(function(f){ var fid = parseInt(f.id||0); if (!fid) return; fieldOrder.push(fid); var p = f.props||{}; fieldLabels[fid] = p.question || ('فیلد #'+fid); if (Array.isArray(p.options)){ p.options.forEach(function(opt){ var v = String(opt.value||opt.label||''); var l = String(opt.label||v); if (!choices[fid]) choices[fid] = {}; if (v) choices[fid][v] = l; }); } });
+                                                }
+                        if (!rows || rows.length===0){ list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
+                                                var html = '<div style="overflow:auto">\
+                                                    <table class="ar-table" style="width:100%;border-collapse:collapse">\
+                                                        <thead><tr>\
+                                                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">شناسه</th>\
+                                                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">وضعیت</th>\
+                                                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">تاریخ</th>';
+                                                // dynamic question columns
+                                                fieldOrder.forEach(function(fid){ html += '<th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">'+(fieldLabels[fid]||('فیلد #'+fid))+'</th>'; });
+                                                html += '<th style="border-bottom:1px solid var(--border);padding:.5rem">اقدام</th>\
+                                                        </tr></thead><tbody>';
+                                                html += rows.map(function(it){
+                                                        var viewUrl = (ARSHLINE_SUB_VIEW_BASE||'').replace('%ID%', String(it.id));
+                                                        var byField = {};
+                                                        if (Array.isArray(it.values)){
+                                                                it.values.forEach(function(v){ var fid = parseInt(v.field_id||0); if (!fid) return; if (byField[fid] == null) byField[fid] = String(v.value||''); });
+                                                        }
+                                                        var tr = '\
+                                                    <tr>\
+                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">#'+it.id+'</td>\
+                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.status||'')+'</td>\
+                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.created_at||'')+'</td>';
+                                                        fieldOrder.forEach(function(fid){ var val = byField[fid] || ''; if (choices[fid] && choices[fid][val]) val = choices[fid][val]; tr += '<td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+escapeHtml(String(val))+'</td>'; });
+                                                        tr += '\
+                                                        <td style="padding:.5rem;border-bottom:1px dashed var(--border);text-align:left"><a href="'+viewUrl+'" target="_blank" rel="noopener" class="ar-btn ar-btn--soft">مشاهده پاسخ</a></td>\
+                                                    </tr>';
+                                                        return tr;
+                                                }).join('');
+                        html += '</tbody></table></div>';
+                        // pagination
+                                                if (!Array.isArray(resp)){
+                            var page = resp.page||1, per = resp.per_page||10; var pages = Math.max(1, Math.ceil(total/per));
+                            html += '<div style="display:flex;gap:.5rem;align-items:center;justify-content:center;margin-top:.6rem">';
+                            html += '<button class="ar-btn" data-page="prev" '+(page<=1?'disabled':'')+'>قبلی</button>';
+                            html += '<span class="hint">صفحه '+page+' از '+pages+' — '+total+' رکورد</span>';
+                            html += '<button class="ar-btn" data-page="next" '+(page>=pages?'disabled':'')+'>بعدی</button>';
+                            html += '</div>';
+                        }
+                        list.innerHTML = html;
+                        // bind pager
+                        if (!Array.isArray(resp)){
+                            var prev = list.querySelector('button[data-page="prev"]'); var next = list.querySelector('button[data-page="next"]');
+                            if (prev) prev.onclick = function(){ state.page = Math.max(1, (resp.page||1)-1); load(); };
+                            if (next) next.onclick = function(){ var pages = Math.max(1, Math.ceil((resp.total||0)/(resp.per_page||10))); state.page = Math.min(pages, (resp.page||1)+1); load(); };
+                        }
+                    }
+                    function load(){
+                        var id = parseInt(sel.value||'0'); var list = document.getElementById('arSubsList'); if (!id){ list.innerHTML='<div class="hint">فرمی انتخاب کنید...</div>'; return; }
+                        list.innerHTML = '<div class="hint">در حال بارگذاری...</div>';
+                        var qs = buildQuery();
+                        var url = buildRestUrl('forms/'+id+'/submissions', (qs? (qs+'&') : '') + 'include=values,fields');
+                        fetch(url, { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
                         .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                        .then(function(rows){
-                            if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
-                            var html = rows.map(function(it){
-                                var viewUrl = (ARSHLINE_SUB_VIEW_BASE || '').replace('%ID%', String(it.id));
-                                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
-                                    <div>#'+it.id+' · '+(it.status)+'<span class="hint" style="margin-inline-start:.6rem">'+(it.created_at||'')+'</span></div>\
-                                    <a href="'+viewUrl+'" target="_blank" rel="noopener" class="ar-btn ar-btn--soft">مشاهده فرم</a>\
-                                </div>';
-                            }).join('');
-                            list.innerHTML = html;
-                        }).catch(function(){ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
-                    });
-                // If a form id was requested before arriving here, select it and trigger load
-                if (window._pendingFormSelectId){ sel.value = String(window._pendingFormSelectId); var evt = new Event('change'); sel.dispatchEvent(evt); window._pendingFormSelectId = null; }
+                        .then(function(resp){ renderTable(resp); }).catch(function(){ list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
+                    }
+                    sel.addEventListener('change', function(){ state.page = 1; load(); });
+                    if (q) q.addEventListener('input', function(){ state.page = 1; clearTimeout(q._t); q._t = setTimeout(load, 300); });
+                    if (st) st.addEventListener('change', function(){ state.page = 1; load(); });
+                    if (df) df.addEventListener('change', function(){ state.page = 1; load(); });
+                    if (dt) dt.addEventListener('change', function(){ state.page = 1; load(); });
+                    if (exp) exp.addEventListener('click', function(){ var id = parseInt(sel.value||'0'); if (!id) return; var qs = buildQuery(); var url = buildRestUrl('forms/'+id+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(url, '_blank'); });
+                    // If a form id was requested before arriving here, select it and trigger load
+                    if (window._pendingFormSelectId){ sel.value = String(window._pendingFormSelectId); state.page = 1; load(); window._pendingFormSelectId = null; }
                 });
             } else if (tab === 'reports') {
                 content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
