@@ -182,7 +182,8 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
   wrap.classList.add('ar-field');
   wrap.setAttribute('data-field-id', String(f.id));
   wrap.setAttribute('data-index', String(idx));
-  var label = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '') + (f.question||'');
+  var req = f.required ? ' <span style="color:#b91c1c">*</span>' : '';
+  var label = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '') + (f.question||'') + req;
   wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+label+'</div>';
     var body = document.createElement('div');
     // known types

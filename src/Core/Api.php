@@ -271,12 +271,19 @@ class Api
             $all = SubmissionRepository::listByFormAll($form_id, $filters);
             // Optional: include answers as separate columns (wide CSV)
             $fields = FieldRepository::listByForm($form_id);
+            // Only include answerable field types
+            $allowedTypes = ['short_text','long_text','multiple_choice','dropdown','rating'];
+            $fields = array_values(array_filter($fields, function($f) use ($allowedTypes){
+                $p = is_array($f['props']) ? $f['props'] : [];
+                $t = isset($p['type']) ? (string)$p['type'] : '';
+                return in_array($t, $allowedTypes, true);
+            }));
             $fieldOrder = [];
             $fieldLabels = [];
             $choices = [];
             foreach ($fields as $f){
                 $fid = (int)$f['id']; $p = is_array($f['props'])? $f['props'] : [];
-                $fieldOrder[] = $fid; $fieldLabels[$fid] = $p['question'] ?? ('فیلد #'.$fid);
+                $fieldOrder[] = $fid; $fieldLabels[$fid] = (string)($p['question'] ?? $p['label'] ?? ('فیلد #'.$fid));
                 if (!empty($p['options']) && is_array($p['options'])){
                     foreach ($p['options'] as $opt){ $val = (string)($opt['value'] ?? $opt['label'] ?? ''); $lab = (string)($opt['label'] ?? $val); if ($val !== ''){ $choices[$fid][$val] = $lab; } }
                 }
@@ -339,7 +346,15 @@ class Api
             'page' => (int)$res['page'],
             'per_page' => (int)$res['per_page'],
         ];
-        if (strpos($include, 'fields') !== false){ $payload['fields'] = FieldRepository::listByForm($form_id); }
+        if (strpos($include, 'fields') !== false){
+            $allFields = FieldRepository::listByForm($form_id);
+            $allowedTypes = ['short_text','long_text','multiple_choice','dropdown','rating'];
+            $payload['fields'] = array_values(array_filter($allFields, function($f) use ($allowedTypes){
+                $p = is_array($f['props']) ? $f['props'] : [];
+                $t = isset($p['type']) ? (string)$p['type'] : '';
+                return in_array($t, $allowedTypes, true);
+            }));
+        }
         // Optional debug details for admins/editors only
         if ($debugFlag && self::user_can_manage_forms()){
             global $wpdb;
@@ -481,9 +496,10 @@ class Api
                 $hx = (string)($request->get_header('hx-request') ?: $request->get_header('HX-Request'));
             }
             $isSubmit = ($route && strpos($route, '/arshline/v1/public/forms/') === 0 && strpos($route, '/submit') !== false) || strtolower($hx) === 'true';
-            // Also allow raw CSV passthrough for submissions export
-            $isCsv = ($route && preg_match('#/arshline/v1/forms/\d+/submissions$#', $route) && isset($_GET['format']) && $_GET['format'] === 'csv');
-            if (!$isSubmit && !$isCsv) { return $served; }
+            // Also allow raw CSV/Excel passthrough for submissions export
+            $fmt = isset($_GET['format']) ? (string)$_GET['format'] : '';
+            $isExport = ($route && preg_match('#/arshline/v1/forms/\d+/submissions$#', $route) && in_array($fmt, ['csv','excel'], true));
+            if (!$isSubmit && !$isExport) { return $served; }
             // Extract string content from response
             if ($result instanceof \WP_REST_Response) {
                 $data = $result->get_data();
@@ -495,10 +511,16 @@ class Api
             if (!is_string($data)) { return $served; }
             // Serve as text/html
             if (method_exists($server, 'send_header')) {
-                $ctype = $isCsv ? 'text/csv; charset=utf-8' : 'text/html; charset=utf-8';
+                $ctype = $isExport ? ($fmt==='excel' ? 'application/vnd.ms-excel; charset=utf-8' : 'text/csv; charset=utf-8') : 'text/html; charset=utf-8';
                 $server->send_header('Content-Type', $ctype);
                 $server->send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-                if ($isCsv) { $server->send_header('Content-Disposition', 'attachment; filename="submissions.csv"'); }
+                if ($isExport) {
+                    // Try extracting form_id from route for filename
+                    $fid = null; if (preg_match('#/forms/(\d+)/submissions$#', $route, $m)) { $fid = (int)$m[1]; }
+                    $ext = ($fmt==='excel') ? 'xls' : 'csv';
+                    $name = 'submissions' . ($fid?('-'.$fid):'') . '.' . $ext;
+                    $server->send_header('Content-Disposition', 'attachment; filename="'.$name.'"');
+                }
             }
             if (method_exists($server, 'set_status')) { $server->set_status($status); }
             echo $data;
