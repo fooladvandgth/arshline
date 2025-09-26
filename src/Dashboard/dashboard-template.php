@@ -2058,8 +2058,28 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '  </div>'
                 + '</div>'
                 + '<div id="arSettingsPanel" style="display:none;">'
-                + '  <div class="card" style="padding:.8rem;">'
-                + '    <div class="hint">تنظیمات (زمان‌بندی و سایر موارد) بعداً افزوده می‌شود.</div>'
+                + '  <div class="card" style="padding:.8rem;display:flex;flex-direction:column;gap:.8rem;">'
+                + '    <div class="title" style="margin-bottom:.2rem;">تنظیمات فرم</div>'
+                + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
+                + '      <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;"><input type="checkbox" id="arSetHoneypot" /> <span>فعال‌سازی Honeypot (ضدربات ساده)</span></label>'
+                + '    </div>'
+                + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
+                + '      <span class="hint">حداقل زمان تکمیل فرم (ثانیه)</span><input id="arSetMinSec" type="number" min="0" step="1" class="ar-input" style="width:120px" placeholder="مثلاً 5" />'
+                + '    </div>'
+                + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
+                + '      <span class="hint">محدودیت نرخ (ارسال در دقیقه)</span><input id="arSetRatePerMin" type="number" min="0" step="1" class="ar-input" style="width:120px" placeholder="مثلاً 10" />'
+                + '      <span class="hint">پنجره زمانی (دقیقه)</span><input id="arSetRateWindow" type="number" min="1" step="1" class="ar-input" style="width:120px" placeholder="مثلاً 5" />'
+                + '    </div>'
+                + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
+                + '      <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;"><input type="checkbox" id="arSetCaptchaEnabled" /> <span>فعالسازی reCAPTCHA</span></label>'
+                + '      <span class="hint">Site Key</span><input id="arSetCaptchaSite" type="text" class="ar-input" style="min-width:220px" />'
+                + '      <span class="hint">Secret</span><input id="arSetCaptchaSecret" type="password" class="ar-input" style="min-width:220px" />'
+                + '      <span class="hint">نسخه</span><select id="arSetCaptchaVersion" class="ar-select"><option value="v2">v2 (checkbox)</option><option value="v3">v3 (score)</option></select>'
+                + '    </div>'
+                + '    <div style="display:flex;gap:.5rem;">'
+                + '      <button id="arSaveSettings" class="ar-btn">ذخیره تنظیمات</button>'
+                + '    </div>'
+                + '    <div class="hint">توجه: همه این قابلیت‌ها فلگ‌پذیر و ماژولارند و می‌توانید بر اساس هر فرم آن‌ها را فعال/غیرفعال کنید.</div>'
                 + '  </div>'
                 + '</div>'
                 + '<div id="arSharePanel" style="display:none;">'
@@ -2177,6 +2197,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var side = document.getElementById('arFormSide'); if (side) side.style.background = dBg.value;
                         } catch(_){ }
                         var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
+                        // init settings values from meta
+                        try {
+                            var hp = document.getElementById('arSetHoneypot'); if (hp) hp.checked = !!meta.anti_spam_honeypot;
+                            var ms = document.getElementById('arSetMinSec'); if (ms) ms.value = (typeof meta.min_submit_seconds === 'number') ? String(meta.min_submit_seconds) : '';
+                            var rpm = document.getElementById('arSetRatePerMin'); if (rpm) rpm.value = (typeof meta.rate_limit_per_min === 'number') ? String(meta.rate_limit_per_min) : '';
+                            var rwin = document.getElementById('arSetRateWindow'); if (rwin) rwin.value = (typeof meta.rate_limit_window_min === 'number') ? String(meta.rate_limit_window_min) : '';
+                            var ce = document.getElementById('arSetCaptchaEnabled'); if (ce) ce.checked = !!meta.captcha_enabled;
+                            var cs = document.getElementById('arSetCaptchaSite'); if (cs) cs.value = meta.captcha_site_key || '';
+                            var ck = document.getElementById('arSetCaptchaSecret'); if (ck) ck.value = meta.captcha_secret_key || '';
+                            var cv = document.getElementById('arSetCaptchaVersion'); if (cv) cv.value = meta.captcha_version || 'v2';
+                            var saveS = document.getElementById('arSaveSettings'); if (saveS){ saveS.onclick = function(){
+                                var payload = { meta: {
+                                    anti_spam_honeypot: !!(hp && hp.checked),
+                                    min_submit_seconds: Math.max(0, parseInt((ms && ms.value) ? ms.value : '0') || 0),
+                                    rate_limit_per_min: Math.max(0, parseInt((rpm && rpm.value) ? rpm.value : '0') || 0),
+                                    rate_limit_window_min: Math.max(1, parseInt((rwin && rwin.value) ? rwin.value : '1') || 1),
+                                    captcha_enabled: !!(ce && ce.checked),
+                                    captcha_site_key: (cs && cs.value) ? String(cs.value) : '',
+                                    captcha_secret_key: (ck && ck.value) ? String(ck.value) : '',
+                                    captcha_version: (cv && cv.value) ? String(cv.value) : 'v2'
+                                } };
+                                fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
+                                    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                                    .then(function(){ notify('تنظیمات ذخیره شد', 'success'); })
+                                    .catch(function(){ notify('ذخیره تنظیمات ناموفق بود', 'error'); });
+                            }; }
+                        } catch(_){ }
                         // share link (prefer token now that we ensured it exists)
                         var publicUrl = '';
                         try {

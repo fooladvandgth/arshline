@@ -14,6 +14,11 @@ use Arshline\Modules\Forms\FieldRepository;
 
 class Api
 {
+    protected static function flag(array $meta, string $key, bool $default=false): bool
+    {
+        if (!array_key_exists($key, $meta)) return $default;
+        return (bool)$meta[$key];
+    }
     public static function boot()
     {
         add_action('rest_api_init', [self::class, 'register_routes']);
@@ -384,6 +389,62 @@ class Api
     {
         $form_id = (int)$request['form_id'];
         if ($form_id <= 0) return new WP_REST_Response(['error' => 'invalid_form_id'], 400);
+        // Load form to access meta settings
+        $form = FormRepository::find($form_id);
+        if (!$form) return new WP_REST_Response(['error' => 'invalid_form_id'], 400);
+        $meta = is_array($form->meta) ? $form->meta : [];
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $now = time();
+        // 1) Honeypot: reject if value present
+        if (!empty($meta['anti_spam_honeypot'])){
+            $hp = (string)($request->get_param('hp') ?? '');
+            if ($hp !== ''){ return new WP_REST_Response(['error'=>'rejected', 'reason'=>'honeypot'], 429); }
+        }
+        // 2) Minimum seconds from render to submit
+        $minSec = isset($meta['min_submit_seconds']) ? max(0, (int)$meta['min_submit_seconds']) : 0;
+        if ($minSec > 0){
+            $ts = (int)($request->get_param('ts') ?? 0);
+            if ($ts > 0 && ($now - $ts) < $minSec){ return new WP_REST_Response(['error'=>'rejected', 'reason'=>'too_fast'], 429); }
+        }
+        // 3) Optional reCAPTCHA validation
+        if (!empty($meta['captcha_enabled'])){
+            $site = (string)($meta['captcha_site_key'] ?? '');
+            $secret = (string)($meta['captcha_secret_key'] ?? '');
+            $version = (string)($meta['captcha_version'] ?? 'v2');
+            // Tokens come in params: g-recaptcha-response (v2) or ar_recaptcha_token (v3)
+            $token = (string)($request->get_param('g-recaptcha-response') ?? $request->get_param('ar_recaptcha_token') ?? '');
+            if ($secret && $token){
+                // Server-side verify (best-effort; avoid external call if blocked)
+                $ok = false; $scoreOk = true;
+                $resp = wp_remote_post('https://www.google.com/recaptcha/api/siteverify', [
+                    'timeout' => 5,
+                    'body' => [ 'secret' => $secret, 'response' => $token, 'remoteip' => $ip ],
+                ]);
+                if (!is_wp_error($resp)){
+                    $body = wp_remote_retrieve_body($resp);
+                    $j = json_decode($body, true);
+                    if (is_array($j) && !empty($j['success'])){
+                        $ok = true;
+                        if ($version === 'v3' && isset($j['score'])){ $scoreOk = ((float)$j['score'] >= 0.5); }
+                    }
+                }
+                if (!$ok || !$scoreOk){ return new WP_REST_Response(['error'=>'captcha_failed'], 429); }
+            } else {
+                return new WP_REST_Response(['error'=>'captcha_missing'], 400);
+            }
+        }
+        // 4) Rate limiting per IP + form
+        $perMin = isset($meta['rate_limit_per_min']) ? max(0, (int)$meta['rate_limit_per_min']) : 0;
+        $windowMin = isset($meta['rate_limit_window_min']) ? max(1, (int)$meta['rate_limit_window_min']) : 1;
+        if ($perMin > 0){
+            $key = 'arsh_rl_'.md5($form_id.'|'.$ip);
+            $entry = get_transient($key);
+            $data = is_array($entry) ? $entry : ['count'=>0,'reset'=>$now + ($windowMin*60)];
+            if ($now >= (int)$data['reset']){ $data = ['count'=>0,'reset'=>$now + ($windowMin*60)]; }
+            if ((int)$data['count'] >= $perMin){ return new WP_REST_Response(['error'=>'rate_limited','retry_after'=>max(0, (int)$data['reset'] - $now)], 429); }
+            $data['count'] = (int)$data['count'] + 1;
+            set_transient($key, $data, $windowMin * 60);
+        }
         $values = $request->get_param('values');
         if (!is_array($values)) $values = [];
         // Load schema for validation
@@ -395,7 +456,7 @@ class Api
         $submissionData = [
             'form_id' => $form_id,
             'user_id' => get_current_user_id(),
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'ip' => $ip,
             'status' => 'pending',
             'meta' => [ 'summary' => 'ایجاد از REST' ],
             'values' => $values,
@@ -429,6 +490,49 @@ class Api
     {
         $form_id = (int)$request['form_id'];
         if ($form_id <= 0) return new WP_REST_Response('<div class="ar-alert ar-alert--err">شناسه فرم نامعتبر است.</div>', 200);
+        $form = FormRepository::find($form_id);
+        if (!$form) return new WP_REST_Response('<div class="ar-alert ar-alert--err">فرم یافت نشد.</div>', 200);
+        $meta = is_array($form->meta) ? $form->meta : [];
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $now = time();
+        // Honeypot (htmx submit may include hp/ts fields)
+        if (!empty($meta['anti_spam_honeypot'])){
+            $hp = (string)($request->get_param('hp') ?? '');
+            if ($hp !== ''){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">درخواست نامعتبر است.</div>', 200); }
+        }
+        // Min seconds
+        $minSec = isset($meta['min_submit_seconds']) ? max(0, (int)$meta['min_submit_seconds']) : 0;
+        if ($minSec > 0){
+            $ts = (int)($request->get_param('ts') ?? 0);
+            if ($ts > 0 && ($now - $ts) < $minSec){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">ارسال خیلی سریع بود. لطفاً کمی صبر کنید.</div>', 200); }
+        }
+        // Optional captcha
+        if (!empty($meta['captcha_enabled'])){
+            $secret = (string)($meta['captcha_secret_key'] ?? '');
+            $version = (string)($meta['captcha_version'] ?? 'v2');
+            $token = (string)($request->get_param('g-recaptcha-response') ?? $request->get_param('ar_recaptcha_token') ?? '');
+            if ($secret && $token){
+                $ok = false; $scoreOk = true;
+                $resp = wp_remote_post('https://www.google.com/recaptcha/api/siteverify', [ 'timeout'=>5, 'body'=>[ 'secret'=>$secret, 'response'=>$token, 'remoteip'=>$ip ] ]);
+                if (!is_wp_error($resp)){
+                    $body = wp_remote_retrieve_body($resp); $j = json_decode($body, true);
+                    if (is_array($j) && !empty($j['success'])){ $ok = true; if ($version==='v3' && isset($j['score'])) $scoreOk = ((float)$j['score'] >= 0.5); }
+                }
+                if (!$ok || !$scoreOk){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">احراز انسان بودن شکست خورد.</div>', 200); }
+            } else {
+                return new WP_REST_Response('<div class="ar-alert ar-alert--err">احراز هویت ربات فعال است اما توکن دریافت نشد.</div>', 200);
+            }
+        }
+        // Rate limit
+        $perMin = isset($meta['rate_limit_per_min']) ? max(0, (int)$meta['rate_limit_per_min']) : 0;
+        $windowMin = isset($meta['rate_limit_window_min']) ? max(1, (int)$meta['rate_limit_window_min']) : 1;
+        if ($perMin > 0){
+            $key = 'arsh_rl_'.md5($form_id.'|'.$ip); $entry = get_transient($key);
+            $data = is_array($entry) ? $entry : ['count'=>0,'reset'=>$now + ($windowMin*60)];
+            if ($now >= (int)$data['reset']){ $data = ['count'=>0,'reset'=>$now + ($windowMin*60)]; }
+            if ((int)$data['count'] >= $perMin){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">محدودیت نرخ ارسال فعال شد. لطفاً بعداً دوباره تلاش کنید.</div>', 200); }
+            $data['count'] = (int)$data['count'] + 1; set_transient($key, $data, $windowMin*60);
+        }
 
         // Load schema for validation
         $fields = FieldRepository::listByForm($form_id);
@@ -453,7 +557,7 @@ class Api
         $submissionData = [
             'form_id' => $form_id,
             'user_id' => get_current_user_id(),
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'ip' => $ip,
             'status' => 'pending',
             'meta' => [ 'summary' => 'ایجاد از HTMX' ],
             'values' => $values,

@@ -253,12 +253,36 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
     form.setAttribute('hx-target', '#arAlert');
     form.setAttribute('hx-swap', 'innerHTML');
   }
+  // Anti-spam hidden fields based on settings (honeypot + submit timestamp)
+  var hpEnabled = !!meta.anti_spam_honeypot;
+  var minSec = (typeof meta.min_submit_seconds === 'number') ? meta.min_submit_seconds : 0;
+  var tsInit = Math.floor(Date.now()/1000);
+  var tsInput = document.createElement('input'); tsInput.type='hidden'; tsInput.name='ts'; tsInput.value=String(tsInit); form.appendChild(tsInput);
+  if (hpEnabled){ var hp=document.createElement('input'); hp.type='text'; hp.name='hp'; hp.value=''; hp.autocomplete='off'; hp.style.cssText='display:none !important; position:absolute; left:-9999px;'; form.appendChild(hp); }
+  // Optional reCAPTCHA integration
+  var captchaEnabled = !!meta.captcha_enabled;
+  var captchaVersion = meta.captcha_version || 'v2';
+  var captchaSite = meta.captcha_site_key || '';
+  var captchaToken = '';
     // Render only supported question fields with proper numbering
     var qIdx = 0;
     (state.questions||[]).forEach(function(f){ form.appendChild(renderField(f, qIdx)); qIdx++; });
   var foot = document.createElement('div'); foot.style.marginTop='12px';
   var submit = document.createElement('button'); submit.type='submit'; submit.className='arsh-btn'; submit.textContent='ارسال'; foot.appendChild(submit);
   var alert = document.createElement('div'); alert.id='arAlert'; foot.appendChild(alert);
+  // Render captcha widget if enabled
+  if (captchaEnabled && captchaSite){
+    var capWrap = document.createElement('div'); capWrap.style.cssText='margin:.5rem 0';
+    if (captchaVersion === 'v2'){
+      capWrap.innerHTML = '<div id="arCaptchaV2" class="g-recaptcha" data-sitekey="'+captchaSite+'"></div>';
+      foot.insertBefore(capWrap, submit);
+      // Load v2 script
+      var s2 = document.createElement('script'); s2.src='https://www.google.com/recaptcha/api.js'; s2.defer=true; document.head.appendChild(s2);
+    } else {
+      // v3: execute on submit; load script with site key
+      var s3 = document.createElement('script'); s3.src='https://www.google.com/recaptcha/api.js?render='+encodeURIComponent(captchaSite); s3.defer=true; document.head.appendChild(s3);
+    }
+  }
     form.appendChild(foot);
     function validateAll(){
       var errors = [];
@@ -293,8 +317,21 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
   if (useHtmx && window.htmx) { return; }
       e.preventDefault(); submit.disabled = true; alert.style.display='none';
       var fd = new FormData(form); var vals = []; (state.questions||[]).forEach(function(f){ var k='field_'+f.id; if (fd.has(k)){ vals.push({ field_id: f.id, value: fd.get(k) }); } });
-  var postUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN) + '/submissions') : (AR_REST + 'forms/'+FORM_ID+'/submissions');
-  fetch(postUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) })
+  // If captcha v3 enabled, execute to get token before submit
+  function doSubmit(){
+    var payload = { values: vals };
+    // include anti-spam fields in JSON submission as well
+    payload.ts = tsInit; if (hpEnabled) payload.hp = '';
+    if (captchaEnabled){
+      if (captchaVersion === 'v2'){
+        var resp = (window.grecaptcha && window.grecaptcha.getResponse) ? window.grecaptcha.getResponse() : '';
+        payload['g-recaptcha-response'] = resp || '';
+      } else {
+        payload['ar_recaptcha_token'] = captchaToken || '';
+      }
+    }
+    var postUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN) + '/submissions') : (AR_REST + 'forms/'+FORM_ID+'/submissions');
+    fetch(postUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
         .then(function(r){
           if (r.status === 422) { return r.json().then(function(j){ throw { code:422, data:j }; }); }
           if (!r.ok) { throw { code:r.status }; }
@@ -310,6 +347,10 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
           }
           alert.style.display='block'; submit.disabled=false;
         });
+  }
+  if (captchaEnabled && captchaVersion === 'v3' && window.grecaptcha && window.grecaptcha.execute){
+    try { window.grecaptcha.ready(function(){ window.grecaptcha.execute(captchaSite, { action: 'submit' }).then(function(token){ captchaToken = token; doSubmit(); }).catch(function(){ doSubmit(); }); }); } catch(_){ doSubmit(); }
+  } else { doSubmit(); }
     });
     mount.appendChild(form);
 
