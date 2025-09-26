@@ -17,6 +17,8 @@ class Api
     public static function boot()
     {
         add_action('rest_api_init', [self::class, 'register_routes']);
+        // Serve raw HTML for HTMX routes (avoid JSON-encoding the HTML fragment)
+        add_filter('rest_pre_serve_request', [self::class, 'serve_htmx_html'], 10, 4);
     }
 
     public static function user_can_manage_forms(): bool
@@ -337,6 +339,39 @@ class Api
         }
         $request['form_id'] = $form->id;
         return self::create_submission_htmx($request);
+    }
+
+    /**
+     * Output HTML directly for HTMX submit endpoints so that the response is not JSON-encoded.
+     * This intercepts REST serving for our specific /public/forms/.../submit routes.
+     */
+    public static function serve_htmx_html($served, $result, $request, $server)
+    {
+        try {
+            $route = is_object($request) && method_exists($request, 'get_route') ? (string)$request->get_route() : '';
+            // Match both by-id and by-token submit routes
+            $isSubmit = $route && strpos($route, '/arshline/v1/public/forms/') === 0 && substr($route, -7) === '/submit';
+            if (!$isSubmit) { return $served; }
+            // Extract string content from response
+            if ($result instanceof \WP_REST_Response) {
+                $data = $result->get_data();
+                $status = (int)$result->get_status();
+            } else {
+                $data = $result;
+                $status = 200;
+            }
+            if (!is_string($data)) { return $served; }
+            // Serve as text/html
+            if (method_exists($server, 'send_header')) {
+                $server->send_header('Content-Type', 'text/html; charset=utf-8');
+                $server->send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+            }
+            if (method_exists($server, 'set_status')) { $server->set_status($status); }
+            echo $data;
+            return true;
+        } catch (\Throwable $e) {
+            return $served;
+        }
     }
 
     public static function delete_form(WP_REST_Request $request)
