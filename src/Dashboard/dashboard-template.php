@@ -574,7 +574,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             }
             // Persist route
             try { setHash('results/'+formId); } catch(_){ }
-                        content.innerHTML = '<div class="card glass" style="padding:1rem;">\
+                                    content.innerHTML = '<div class="card glass" style="padding:1rem;">\
                 <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
                   <span class="title">نتایج فرم #'+formId+'</span>\
                                     <input id="arSubSearch" class="ar-input" placeholder="جستجو (شناسه/خلاصه)" style="min-width:200px;margin-inline-start:auto"/>\
@@ -584,7 +584,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                   <input id="arDateTo" type="date" class="ar-input"/>\
                   <button id="arSubExport" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
                 </div>\
-                                <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem"></div>\
+                                            <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">\
+                                                <select id="arFieldSelect" class="ar-select" style="min-width:220px"><option value="">انتخاب سوال...</option></select>\
+                                                <select id="arFieldOp" class="ar-select"><option value="eq">دقیقا برابر</option><option value="neq">اصلا این نباشد</option><option value="like">شامل باشد</option></select>\
+                                                <input id="arFieldVal" class="ar-input" placeholder="مقدار فیلتر" style="min-width:240px"/>\
+                                                <button id="arFieldApply" class="ar-btn ar-btn--soft">اعمال فیلتر</button>\
+                                                <button id="arFieldClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>\
+                                            </div>\
                                 <div id="arSubsList"></div>\
             </div>';
             var q = document.getElementById('arSubSearch');
@@ -593,6 +599,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var df = document.getElementById('arDateFrom');
             var dt = document.getElementById('arDateTo');
             var exp = document.getElementById('arSubExport');
+            var selField = document.getElementById('arFieldSelect');
+            var selOp = document.getElementById('arFieldOp');
+            var inpVal = document.getElementById('arFieldVal');
+            var btnApply = document.getElementById('arFieldApply');
+            var btnClear = document.getElementById('arFieldClear');
             var state = { page: 1, per_page: 10 };
             function buildQuery(){
                 var p = new URLSearchParams();
@@ -602,11 +613,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var av = (ans && ans.value.trim())||''; if (av) p.set('answers', av);
                 var fv = (df && df.value)||''; if (fv) p.set('from', fv);
                 var tv = (dt && dt.value)||''; if (tv) p.set('to', tv);
-                // gather per-field filters
-                try {
-                    var ff = document.querySelectorAll('#arFieldFilters input[data-fid]');
-                    ff.forEach(function(inp){ var v = inp.value.trim(); if (v) p.set('f['+inp.getAttribute('data-fid')+']', v); });
-                } catch(_){ }
+                // single per-field filter with operator
+                var fid = (selField && parseInt(selField.value||'0'))||0;
+                var vv = (inpVal && inpVal.value.trim())||'';
+                var op = (selOp && selOp.value)||'like';
+                if (fid>0 && vv){ p.set('f['+fid+']', vv); if (op && op!=='like') p.set('op['+fid+']', op); }
                 return p.toString();
             }
             function buildRestUrl(path, qs){
@@ -641,13 +652,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 if (Array.isArray(fields) && fields.length){
                     fields.forEach(function(f){ var fid = parseInt(f.id||0); if (!fid) return; fieldOrder.push(fid); var p = f.props||{}; fieldLabels[fid] = p.question || ('فیلد #'+fid); if (Array.isArray(p.options)){ p.options.forEach(function(opt){ var v = String(opt.value||opt.label||''); var l = String(opt.label||v); if (!choices[fid]) choices[fid] = {}; if (v) choices[fid][v] = l; }); } });
                 }
-                // render per-field filter inputs if empty
-                var ffWrap = document.getElementById('arFieldFilters');
-                if (ffWrap && ffWrap.childElementCount === 0 && fieldOrder.length){
-                    var ffHtml = fieldOrder.map(function(fid){ return '<input class="ar-input" data-fid="'+fid+'" placeholder="فیلتر '+(fieldLabels[fid]||('فیلد #'+fid))+'" style="min-width:180px"/>'; }).join('');
-                    ffWrap.innerHTML = ffHtml;
-                    ffWrap.querySelectorAll('input[data-fid]').forEach(function(inp){ inp.addEventListener('input', function(){ state.page = 1; clearTimeout(inp._t); inp._t = setTimeout(load, 300); }); });
-                }
+                // populate select with fields once
+                if (selField && selField.children.length<=1 && fieldOrder.length){ selField.innerHTML = '<option value="">انتخاب سوال...</option>' + fieldOrder.map(function(fid){ return '<option value="'+fid+'">'+(fieldLabels[fid]||('فیلد #'+fid))+'</option>'; }).join(''); }
                 if (!rows || rows.length===0){ list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
                 var html = '<div style="overflow:auto">\
                     <table class="ar-table" style="width:100%;border-collapse:collapse">\
@@ -706,6 +712,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             if (df) df.addEventListener('change', function(){ state.page = 1; load(); });
             if (dt) dt.addEventListener('change', function(){ state.page = 1; load(); });
             if (exp) exp.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(url, '_blank'); });
+            if (btnApply) btnApply.addEventListener('click', function(){ state.page = 1; load(); });
+            if (btnClear) btnClear.addEventListener('click', function(){ if (selField) selField.value=''; if (inpVal) inpVal.value=''; if (selOp) selOp.value='like'; state.page = 1; load(); });
             load();
         }
 

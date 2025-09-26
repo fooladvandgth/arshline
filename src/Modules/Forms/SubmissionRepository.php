@@ -84,10 +84,20 @@ class SubmissionRepository
         }
         // per-field filters: each must match in its own EXISTS
         if (!empty($filters['field_filters']) && is_array($filters['field_filters'])){
+            $ops = is_array($filters['field_ops'] ?? null) ? $filters['field_ops'] : [];
             foreach ($filters['field_filters'] as $fid => $val){
                 $fid = (int)$fid; $val = (string)$val; if ($fid<=0 || $val==='') continue;
-                $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
-                $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
+                $op = isset($ops[$fid]) ? $ops[$fid] : 'like';
+                if ($op === 'eq'){
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value = %s)";
+                    $params[] = $fid; $params[] = $val;
+                } else if ($op === 'neq'){
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value <> %s)";
+                    $params[] = $fid; $params[] = $val;
+                } else { // like
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
+                    $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
+                }
             }
         }
         $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
@@ -137,10 +147,20 @@ class SubmissionRepository
             $params[] = $ans;
         }
         if (!empty($filters['field_filters']) && is_array($filters['field_filters'])){
+            $ops = is_array($filters['field_ops'] ?? null) ? $filters['field_ops'] : [];
             foreach ($filters['field_filters'] as $fid => $val){
                 $fid = (int)$fid; $val = (string)$val; if ($fid<=0 || $val==='') continue;
-                $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
-                $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
+                $op = isset($ops[$fid]) ? $ops[$fid] : 'like';
+                if ($op === 'eq'){
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value = %s)";
+                    $params[] = $fid; $params[] = $val;
+                } else if ($op === 'neq'){
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value <> %s)";
+                    $params[] = $fid; $params[] = $val;
+                } else {
+                    $where[] = "EXISTS (SELECT 1 FROM {$vals} svf WHERE svf.submission_id = {$table}.id AND svf.field_id = %d AND svf.value LIKE %s)";
+                    $params[] = $fid; $params[] = '%' . $wpdb->esc_like($val) . '%';
+                }
             }
         }
         $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';

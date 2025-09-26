@@ -247,6 +247,16 @@ class Api
                 }
                 return [];
             })(),
+            // New: per-field operators op[field_id] => eq|neq|like
+            'field_ops' => (function(){
+                $o = $request->get_param('op');
+                if (is_array($o)){
+                    $out = [];
+                    foreach ($o as $k => $v){ $fid = (int)$k; $sv = is_scalar($v) ? strtolower((string)$v) : ''; if ($fid>0 && in_array($sv, ['eq','neq','like'], true)) $out[$fid] = $sv; }
+                    return $out;
+                }
+                return [];
+            })(),
         ];
         $include = (string)($request->get_param('include') ?? ''); // values,fields
         // export all as CSV when format=csv
