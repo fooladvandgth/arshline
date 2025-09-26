@@ -267,6 +267,7 @@ class Api
         // export all as CSV when format=csv, or Excel-compatible when format=excel
         $format = (string)($request->get_param('format') ?? '');
         if ($format === 'csv' || $format === 'excel') {
+            // For exports, always fetch all (listByFormAll already respects filters and ignores pagination)
             $all = SubmissionRepository::listByFormAll($form_id, $filters);
             // Optional: include answers as separate columns (wide CSV)
             $fields = FieldRepository::listByForm($form_id);
@@ -283,13 +284,14 @@ class Api
             $ids = array_map(function($r){ return (int)$r['id']; }, $all);
             $valsMap = SubmissionRepository::listValuesBySubmissionIds($ids);
             $out = [];
-            $header = ['id','status','created_at','summary'];
+            // Drop status per request; include id, created_at, and summary
+            $header = ['id','created_at','summary'];
             foreach ($fieldOrder as $fid){ $header[] = $fieldLabels[$fid]; }
             $out[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $header));
             foreach ($all as $r){
                 $summary = '';
                 if (is_array($r['meta']) && isset($r['meta']['summary'])){ $summary = (string)$r['meta']['summary']; }
-                $row = [ $r['id'], (string)$r['status'], (string)($r['created_at'] ?? ''), $summary ];
+                $row = [ $r['id'], (string)($r['created_at'] ?? ''), $summary ];
                 $answers = [];
                 $vals = isset($valsMap[$r['id']]) ? $valsMap[$r['id']] : [];
                 // Map field_id => value (first occurrence)

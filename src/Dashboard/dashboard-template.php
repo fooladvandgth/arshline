@@ -162,6 +162,21 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
+        /* Table styling */
+        .ar-table { width:100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+        .ar-table thead th { position: sticky; top: 0; background: #f8fafc; color: #0b1220; font-weight: 700; font-size: .98rem; text-align: right; padding: .6rem .75rem; border-bottom: 1px solid var(--border); }
+        body.dark .ar-table thead th { background:#0f172a; color: #e5e7eb; }
+        .ar-table tbody td { font-size: .95rem; color: var(--text); padding: .55rem .75rem; border-bottom: 1px dashed var(--border); }
+        .ar-table tbody tr:nth-child(even) { background: rgba(2, 6, 23, .02); }
+        body.dark .ar-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .03); }
+        .ar-table tbody tr:hover { background: rgba(30, 64, 175, .06); }
+        body.dark .ar-table tbody tr:hover { background: rgba(30, 64, 175, .14); }
+        .ar-table .actions { text-align: left; white-space: nowrap; }
+        /* Density controls */
+        .ar-density--compact .ar-table thead th { padding: .4rem .55rem; font-size: .92rem; }
+        .ar-density--compact .ar-table tbody td { padding: .35rem .55rem; font-size: .9rem; }
+        .ar-density--comfortable .ar-table thead th { padding: .8rem 1rem; font-size: 1rem; }
+        .ar-density--comfortable .ar-table tbody td { padding: .8rem 1rem; font-size: 1rem; }
     /* Standard toggle switch */
     .toggle-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
     .toggle-switch input { display:none; }
@@ -582,7 +597,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
                                     <span class="title">نتایج فرم #'+formId+'</span>\
                                 </div>\
-                                            <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">\
+                                            <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem;align-items:center">\
                                                 <select id="arFieldSelect" class="ar-select" style="min-width:220px"><option value="">انتخاب سوال...</option></select>\
                                                 <select id="arFieldOp" class="ar-select"><option value="eq">دقیقا برابر</option><option value="neq">اصلا این نباشد</option><option value="like">شامل باشد</option></select>\
                                                 <span id="arFieldValWrap" style="display:inline-flex;min-width:240px">\
@@ -590,6 +605,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 </span>\
                                                 <button id="arFieldApply" class="ar-btn ar-btn--soft">اعمال فیلتر</button>\
                                                 <button id="arFieldClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>\
+                                                <label class="hint" style="margin-inline-start:1rem">چگالی:</label>\
+                                                <select id="arDensity" class="ar-select">\
+                                                    <option value="normal">عادی</option>\
+                                                    <option value="compact">فشرده</option>\
+                                                    <option value="comfortable">راحت</option>\
+                                                </select>\
                                                                                                 <span style="flex:1 1 auto"></span>\
                                                                                                 <button id="arSubExportCsv" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
                                                                                                 <button id="arSubExportXls" class="ar-btn ar-btn--outline" title="خروجی Excel">خروجی Excel</button>\
@@ -607,6 +628,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var btnApply = document.getElementById('arFieldApply');
             var btnClear = document.getElementById('arFieldClear');
             var state = { page: 1, per_page: 10 };
+            var densitySel = document.getElementById('arDensity');
             // metadata populated after first load
             var fieldMeta = { choices: {}, labels: {}, types: {}, options: {} };
             function buildQuery(){
@@ -673,10 +695,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 if (selField && selField.children.length<=1 && fieldOrder.length){ selField.innerHTML = '<option value="">انتخاب سوال...</option>' + fieldOrder.map(function(fid){ return '<option value="'+fid+'">'+(fieldLabels[fid]||('فیلد #'+fid))+'</option>'; }).join(''); }
                 if (!rows || rows.length===0){ list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
                 var html = '<div style="overflow:auto">\
-                    <table class="ar-table" style="width:100%;border-collapse:collapse">\
+                    <table class="ar-table">\
                         <thead><tr>\
                             <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">شناسه</th>\
-                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">وضعیت</th>\
                             <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">تاریخ</th>';
                 fieldOrder.forEach(function(fid){ html += '<th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">'+(fieldLabels[fid]||('فیلد #'+fid))+'</th>'; });
                 html += '<th style="border-bottom:1px solid var(--border);padding:.5rem">اقدام</th>\
@@ -689,12 +710,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     }
                     var tr = '\
                     <tr>\
-                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">#'+it.id+'</td>\
-                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.status||'')+'</td>\
-                        <td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+(it.created_at||'')+'</td>';
+                        <td>#'+it.id+'</td>\
+                        <td>'+(it.created_at||'')+'</td>';
                     fieldOrder.forEach(function(fid){ var val = byField[fid] || ''; if (choices[fid] && choices[fid][val]) val = choices[fid][val]; tr += '<td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+escapeHtml(String(val))+'</td>'; });
                     tr += '\
-                        <td style="padding:.5rem;border-bottom:1px dashed var(--border);text-align:left"><a href="'+viewUrl+'" target="_blank" rel="noopener" class="ar-btn ar-btn--soft">مشاهده پاسخ</a></td>\
+                        <td class="actions"><a href="'+viewUrl+'" target="_blank" rel="noopener" class="ar-btn ar-btn--soft">مشاهده پاسخ</a></td>\
                     </tr>';
                     return tr;
                 }).join('');
@@ -769,8 +789,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(function(resp){ renderTable(resp); })
                 .catch(function(err){ try { cerror('results:render:error', err && (err.message||err)); } catch(_){ } list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
             }
-            if (expCsv) expCsv.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(url, '_blank'); });
-            if (expXls) expXls.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=excel'); window.open(url, '_blank'); });
+            function addNonce(url){ try { var u = new URL(url); u.searchParams.set('_wpnonce', ARSHLINE_NONCE); return u.toString(); } catch(_){ return url + (url.indexOf('?')>0?'&':'?') + '_wpnonce=' + encodeURIComponent(ARSHLINE_NONCE); } }
+            if (expCsv) expCsv.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(addNonce(url), '_blank'); });
+            if (expXls) expXls.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=excel'); window.open(addNonce(url), '_blank'); });
+            if (densitySel) densitySel.addEventListener('change', function(){ var root = document.querySelector('.arshline-main'); if(!root) return; root.classList.remove('ar-density--compact','ar-density--comfortable'); if (densitySel.value==='compact') root.classList.add('ar-density--compact'); else if (densitySel.value==='comfortable') root.classList.add('ar-density--comfortable'); });
             if (btnApply) btnApply.addEventListener('click', function(){ state.page = 1; load(); });
             if (btnClear) btnClear.addEventListener('click', function(){ if (selField) selField.value=''; if (inpVal) inpVal.value=''; if (selOp) selOp.value='like'; state.page = 1; load(); });
             load();
