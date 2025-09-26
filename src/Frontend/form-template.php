@@ -126,9 +126,9 @@ get_header();
     // Render only supported question fields with proper numbering
     var qIdx = 0;
     (state.questions||[]).forEach(function(f){ form.appendChild(renderField(f, qIdx)); qIdx++; });
-    var foot = document.createElement('div'); foot.style.marginTop='12px';
-    var submit = document.createElement('button'); submit.type='submit'; submit.className='arsh-btn'; submit.textContent='ارسال'; foot.appendChild(submit);
-    var alert = document.createElement('div'); alert.id='arAlert'; alert.style.display='none'; foot.appendChild(alert);
+  var foot = document.createElement('div'); foot.style.marginTop='12px';
+  var submit = document.createElement('button'); submit.type='submit'; submit.className='arsh-btn'; submit.textContent='ارسال'; foot.appendChild(submit);
+  var alert = document.createElement('div'); alert.id='arAlert'; foot.appendChild(alert);
     form.appendChild(foot);
     form.addEventListener('submit', function(e){
       // If HTMX is present, let HTMX handle submission
