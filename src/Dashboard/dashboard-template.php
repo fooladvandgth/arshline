@@ -162,21 +162,24 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
-        /* Table styling */
-        .ar-table { width:100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-        .ar-table thead th { position: sticky; top: 0; background: #f8fafc; color: #0b1220; font-weight: 700; font-size: .98rem; text-align: right; padding: .6rem .75rem; border-bottom: 1px solid var(--border); }
+    /* Table styling with clear gridlines */
+    .ar-table { width:100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; table-layout: fixed; }
+    .ar-table thead th { position: sticky; top: 0; background: #f8fafc; color: #0b1220; font-weight: 700; font-size: .98rem; text-align: right; padding: .6rem .75rem; border-bottom: 1px solid var(--border); user-select: none; }
         body.dark .ar-table thead th { background:#0f172a; color: #e5e7eb; }
-        .ar-table tbody td { font-size: .95rem; color: var(--text); padding: .55rem .75rem; border-bottom: 1px dashed var(--border); }
+    .ar-table thead th, .ar-table tbody td { border-inline-end: 1px solid var(--border); }
+    .ar-table thead th:last-child, .ar-table tbody td:last-child { border-inline-end: none; }
+    .ar-table tbody td { font-size: .95rem; color: var(--text); padding: .55rem .75rem; border-bottom: 1px solid var(--border); }
         .ar-table tbody tr:nth-child(even) { background: rgba(2, 6, 23, .02); }
         body.dark .ar-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .03); }
         .ar-table tbody tr:hover { background: rgba(30, 64, 175, .06); }
         body.dark .ar-table tbody tr:hover { background: rgba(30, 64, 175, .14); }
         .ar-table .actions { text-align: left; white-space: nowrap; }
-        /* Density controls */
-        .ar-density--compact .ar-table thead th { padding: .4rem .55rem; font-size: .92rem; }
-        .ar-density--compact .ar-table tbody td { padding: .35rem .55rem; font-size: .9rem; }
-        .ar-density--comfortable .ar-table thead th { padding: .8rem 1rem; font-size: 1rem; }
-        .ar-density--comfortable .ar-table tbody td { padding: .8rem 1rem; font-size: 1rem; }
+    /* Wrap toggle */
+    .ar-nowrap .ar-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ar-wrap .ar-table td { white-space: normal; overflow: visible; text-overflow: clip; }
+    /* Draggable headers (for question columns) */
+    .ar-th-draggable { cursor: move; }
+    .ar-th-drag-over { outline: 2px dashed var(--primary); }
     /* Standard toggle switch */
     .toggle-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
     .toggle-switch input { display:none; }
@@ -345,6 +348,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         var sidebar = document.querySelector('.arshline-sidebar');
         var sidebarToggle = document.getElementById('arSidebarToggle');
         // Debug helpers
+        // Allow enabling debug via URL: ?arshdbg=1 (or disable with ?arshdbg=0)
+        try {
+            var _dbgQS = new URLSearchParams(window.location.search).get('arshdbg');
+            if (_dbgQS === '1' || _dbgQS === 'true') { localStorage.setItem('arshDebug', '1'); }
+            else if (_dbgQS === '0' || _dbgQS === 'false') { localStorage.removeItem('arshDebug'); }
+        } catch(_){ }
         var AR_DEBUG = false;
         try { AR_DEBUG = (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
     // Optional capture mode: set localStorage.arshDebugCapture = '1' to enable
@@ -392,9 +401,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             })();
         }
     } catch(_){ }
-        function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-        function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-        function cerror(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    // Always print errors to console, regardless of AR_DEBUG
+    function cerror(){ if (typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
         try { window.arshSetDebug = function(v){ try { localStorage.setItem('arshDebug', v ? '1' : '0'); } catch(_){ } }; } catch(_){ }
 
         function setSidebarClosed(closed, persist){
@@ -583,6 +593,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             // Results diagnostics: pick up optional debug toggles from localStorage
             var REST_DEBUG = false;
             try { REST_DEBUG = (localStorage.getItem('arshRestDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+            // Ensure log functions are active while REST debug is on
+            AR_DEBUG = !!(REST_DEBUG || AR_DEBUG);
             try { clog('results:init', { formId: formId, restBase: ARSHLINE_REST, debug: REST_DEBUG }); } catch(_){ }
             // Header actions: back to forms
             var headerActions = document.getElementById('arHeaderActions');
@@ -605,12 +617,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 </span>\
                                                 <button id="arFieldApply" class="ar-btn ar-btn--soft">اعمال فیلتر</button>\
                                                 <button id="arFieldClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>\
-                                                <label class="hint" style="margin-inline-start:1rem">چگالی:</label>\
-                                                <select id="arDensity" class="ar-select">\
-                                                    <option value="normal">عادی</option>\
-                                                    <option value="compact">فشرده</option>\
-                                                    <option value="comfortable">راحت</option>\
-                                                </select>\
+                                                <label class="hint" style="margin-inline-start:1rem">شکستن خطوط:</label>\
+                                                <input id="arWrapToggle" type="checkbox" class="ar-input" />\
                                                                                                 <span style="flex:1 1 auto"></span>\
                                                                                                 <button id="arSubExportCsv" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
                                                                                                 <button id="arSubExportXls" class="ar-btn ar-btn--outline" title="خروجی Excel">خروجی Excel</button>\
@@ -628,7 +636,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var btnApply = document.getElementById('arFieldApply');
             var btnClear = document.getElementById('arFieldClear');
             var state = { page: 1, per_page: 10 };
-            var densitySel = document.getElementById('arDensity');
+            var wrapToggle = document.getElementById('arWrapToggle');
+            // Apply persisted wrap preference
+            try {
+                var pref = localStorage.getItem('arWrap:'+formId);
+                if (wrapToggle) { wrapToggle.checked = (pref === '1'); }
+                var container = document.querySelector('.arshline-main');
+                if (container){ container.classList.remove('ar-wrap','ar-nowrap'); container.classList.add((wrapToggle && wrapToggle.checked) ? 'ar-wrap' : 'ar-nowrap'); }
+            } catch(_){ }
             // metadata populated after first load
             var fieldMeta = { choices: {}, labels: {}, types: {}, options: {} };
             function buildQuery(){
@@ -689,6 +704,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         }
                     });
                 }
+                // Apply saved column order before rendering to avoid re-render loops
+                try {
+                    var savedOrder = [];
+                    try { savedOrder = JSON.parse(localStorage.getItem('arColsOrder:'+formId) || '[]'); } catch(_){ savedOrder = []; }
+                    if (Array.isArray(savedOrder) && savedOrder.length){
+                        var filtered = savedOrder.map(function(x){ return parseInt(x); }).filter(function(fid){ return fieldOrder.indexOf(fid) >= 0; });
+                        if (filtered.length){ fieldOrder = filtered.concat(fieldOrder.filter(function(fid){ return filtered.indexOf(fid) < 0; })); }
+                    }
+                } catch(_){ }
                 // cache meta for filter UI
                 fieldMeta.choices = choices; fieldMeta.labels = fieldLabels; fieldMeta.types = typesMap; fieldMeta.options = optionsMap;
                 // populate select with fields once
@@ -697,9 +721,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 var html = '<div style="overflow:auto">\
                     <table class="ar-table">\
                         <thead><tr>\
-                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">شناسه</th>\
-                            <th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">تاریخ</th>';
-                fieldOrder.forEach(function(fid){ html += '<th style="text-align:right;border-bottom:1px solid var(--border);padding:.5rem">'+(fieldLabels[fid]||('فیلد #'+fid))+'</th>'; });
+                            <th>شناسه</th>\
+                            <th>تاریخ</th>';
+                fieldOrder.forEach(function(fid){ html += '<th class="ar-th-draggable" draggable="true" data-fid="'+fid+'">'+(fieldLabels[fid]||('فیلد #'+fid))+'</th>'; });
                 html += '<th style="border-bottom:1px solid var(--border);padding:.5rem">اقدام</th>\
                         </tr></thead><tbody>';
                 html += rows.map(function(it){
@@ -728,7 +752,23 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     html += '</div>';
                 }
                 list.innerHTML = html;
+                // Wrap toggle apply
+                try {
+                    var container = document.querySelector('.arshline-main');
+                    container.classList.remove('ar-wrap','ar-nowrap');
+                    container.classList.add((wrapToggle && wrapToggle.checked) ? 'ar-wrap' : 'ar-nowrap');
+                } catch(_){ }
                 // Update field value control if needed (dropdown for choice fields)
+                // Enable dragging of question columns
+                (function(){
+                    var thead = list.querySelector('thead'); if (!thead) return;
+                    var draggingFid = null;
+                    function saveOrder(order){ try { localStorage.setItem('arColsOrder:'+formId, JSON.stringify(order)); } catch(_){ } }
+                    thead.addEventListener('dragstart', function(ev){ var th = ev.target.closest('th[data-fid]'); if (!th) return; draggingFid = parseInt(th.getAttribute('data-fid')||'0'); if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'; });
+                    thead.addEventListener('dragover', function(ev){ var th = ev.target.closest('th[data-fid]'); if (!th) return; ev.preventDefault(); th.classList.add('ar-th-drag-over'); if (ev.dataTransfer) ev.dataTransfer.dropEffect='move'; });
+                    thead.addEventListener('dragleave', function(ev){ var th = ev.target.closest('th[data-fid]'); if (th) th.classList.remove('ar-th-drag-over'); });
+                    thead.addEventListener('drop', function(ev){ var th = ev.target.closest('th[data-fid]'); if (!th) return; ev.preventDefault(); th.classList.remove('ar-th-drag-over'); var targetFid = parseInt(th.getAttribute('data-fid')||'0'); if (!draggingFid || !targetFid || draggingFid===targetFid) return; var from = fieldOrder.indexOf(draggingFid), to = fieldOrder.indexOf(targetFid); if (from<0||to<0) return; var tmp = fieldOrder.splice(from,1)[0]; fieldOrder.splice(to,0,tmp); saveOrder(fieldOrder); renderTable(resp); });
+                })();
                 function updateFieldValueControl(){
                     if (!valWrap) return;
                     var fid = (selField && parseInt(selField.value||'0'))||0;
@@ -787,12 +827,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     return data;
                 })
                 .then(function(resp){ renderTable(resp); })
-                .catch(function(err){ try { cerror('results:render:error', err && (err.message||err)); } catch(_){ } list.innerHTML='<div class="hint">خطا در بارگذاری پاسخ‌ها</div>'; });
+                .catch(function(err){
+                    try { cerror('results:render:error', err && (err.message||err)); } catch(_){ }
+                    try { console.error('[ARSH] results:render:error', err); } catch(_){ }
+                    var msg = (err && (err.message||'')) || '';
+                    list.innerHTML = '<div class="hint">خطا در بارگذاری پاسخ‌ها'+(msg?(' — '+escapeHtml(String(msg))):'')+'</div>';
+                });
             }
             function addNonce(url){ try { var u = new URL(url); u.searchParams.set('_wpnonce', ARSHLINE_NONCE); return u.toString(); } catch(_){ return url + (url.indexOf('?')>0?'&':'?') + '_wpnonce=' + encodeURIComponent(ARSHLINE_NONCE); } }
             if (expCsv) expCsv.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(addNonce(url), '_blank'); });
             if (expXls) expXls.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=excel'); window.open(addNonce(url), '_blank'); });
-            if (densitySel) densitySel.addEventListener('change', function(){ var root = document.querySelector('.arshline-main'); if(!root) return; root.classList.remove('ar-density--compact','ar-density--comfortable'); if (densitySel.value==='compact') root.classList.add('ar-density--compact'); else if (densitySel.value==='comfortable') root.classList.add('ar-density--comfortable'); });
+            if (wrapToggle) wrapToggle.addEventListener('change', function(){ try { localStorage.setItem('arWrap:'+formId, wrapToggle.checked ? '1' : '0'); } catch(_){ } var root = document.querySelector('.arshline-main'); if(!root) return; root.classList.remove('ar-wrap','ar-nowrap'); root.classList.add(wrapToggle.checked ? 'ar-wrap' : 'ar-nowrap'); });
             if (btnApply) btnApply.addEventListener('click', function(){ state.page = 1; load(); });
             if (btnClear) btnClear.addEventListener('click', function(){ if (selField) selField.value=''; if (inpVal) inpVal.value=''; if (selOp) selOp.value='like'; state.page = 1; load(); });
             load();

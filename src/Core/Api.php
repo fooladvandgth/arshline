@@ -291,14 +291,12 @@ class Api
             $ids = array_map(function($r){ return (int)$r['id']; }, $all);
             $valsMap = SubmissionRepository::listValuesBySubmissionIds($ids);
             $out = [];
-            // Drop status per request; include id, created_at, and summary
-            $header = ['id','created_at','summary'];
+            // Drop status per request; include only id and created_at (requested)
+            $header = ['id','created_at'];
             foreach ($fieldOrder as $fid){ $header[] = $fieldLabels[$fid]; }
             $out[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $header));
             foreach ($all as $r){
-                $summary = '';
-                if (is_array($r['meta']) && isset($r['meta']['summary'])){ $summary = (string)$r['meta']['summary']; }
-                $row = [ $r['id'], (string)($r['created_at'] ?? ''), $summary ];
+                $row = [ $r['id'], (string)($r['created_at'] ?? '') ];
                 $answers = [];
                 $vals = isset($valsMap[$r['id']]) ? $valsMap[$r['id']] : [];
                 // Map field_id => value (first occurrence)
@@ -313,16 +311,21 @@ class Api
                 $out[] = implode(',', array_map(function($v){ $v = (string)$v; return '"'.str_replace('"','""',$v).'"'; }, $row));
             }
             $csv = "\xEF\xBB\xBF" . implode("\r\n", $out);
-            $resp = new WP_REST_Response($csv, 200);
-            if ($format === 'excel') {
-                // Excel-friendly headers; we still send CSV content for simplicity/compatibility
-                $resp->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
-                $resp->header('Content-Disposition', 'attachment; filename="submissions-'.$form_id.'.xls"');
-            } else {
-                $resp->header('Content-Type', 'text/csv; charset=utf-8');
-                $resp->header('Content-Disposition', 'attachment; filename="submissions-'.$form_id.'.csv"');
+            // Stream directly to avoid JSON encoding
+            if (!headers_sent()) {
+                if ($format === 'excel') {
+                    header('Content-Type: application/vnd.ms-excel; charset=utf-8');
+                    header('Content-Disposition: attachment; filename="submissions-'.$form_id.'.xls"');
+                } else {
+                    header('Content-Type: text/csv; charset=utf-8');
+                    header('Content-Disposition: attachment; filename="submissions-'.$form_id.'.csv"');
+                }
+                header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
             }
-            return $resp;
+            // Clear any buffered output to prevent stray bytes
+            while (ob_get_level() > 0) { ob_end_clean(); }
+            echo $csv;
+            exit;
         }
         $res = SubmissionRepository::listByFormPaged($form_id, $page, $per_page, $filters);
         $rows = array_map(function ($r) {
@@ -490,16 +493,32 @@ class Api
     {
         try {
             $route = is_object($request) && method_exists($request, 'get_route') ? (string)$request->get_route() : '';
+            $rr = isset($_GET['rest_route']) ? (string)$_GET['rest_route'] : '';
+            // Normalize route
+            $route = is_string($route) ? $route : '';
+            if ($route && $route[0] !== '/') { $route = '/'.$route; }
+            $route = rtrim($route, '/');
+            $rr = is_string($rr) ? $rr : '';
+            if ($rr && $rr[0] !== '/') { $rr = '/'.$rr; }
+            $rr = rtrim($rr, '/');
+
             // Detect HTMX header and/or our submit routes
             $hx = '';
             if (is_object($request) && method_exists($request, 'get_header')) {
                 $hx = (string)($request->get_header('hx-request') ?: $request->get_header('HX-Request'));
             }
-            $isSubmit = ($route && strpos($route, '/arshline/v1/public/forms/') === 0 && strpos($route, '/submit') !== false) || strtolower($hx) === 'true';
-            // Also allow raw CSV/Excel passthrough for submissions export
-            $fmt = isset($_GET['format']) ? (string)$_GET['format'] : '';
-            $isExport = ($route && preg_match('#/arshline/v1/forms/\d+/submissions$#', $route) && in_array($fmt, ['csv','excel'], true));
+            $isSubmit = ((($route && strpos($route, '/arshline/v1/public/forms/') === 0) || ($rr && strpos($rr, '/arshline/v1/public/forms/') === 0))
+                        && (strpos($route, '/submit') !== false || strpos($rr, '/submit') !== false))
+                        || strtolower($hx) === 'true';
+
+            // Also allow raw CSV/Excel passthrough for exports when format param is present
+            $fmt = '';
+            if (isset($_GET['format'])) { $fmt = (string)$_GET['format']; }
+            elseif (is_object($request) && method_exists($request, 'get_param')) { $fmt = (string)($request->get_param('format') ?? ''); }
+            $fmt = strtolower($fmt);
+            $isExport = in_array($fmt, ['csv','excel'], true);
             if (!$isSubmit && !$isExport) { return $served; }
+
             // Extract string content from response
             if ($result instanceof \WP_REST_Response) {
                 $data = $result->get_data();
@@ -509,14 +528,17 @@ class Api
                 $status = 200;
             }
             if (!is_string($data)) { return $served; }
-            // Serve as text/html
+
+            // Serve as text/html or CSV/Excel directly
             if (method_exists($server, 'send_header')) {
                 $ctype = $isExport ? ($fmt==='excel' ? 'application/vnd.ms-excel; charset=utf-8' : 'text/csv; charset=utf-8') : 'text/html; charset=utf-8';
                 $server->send_header('Content-Type', $ctype);
                 $server->send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
                 if ($isExport) {
-                    // Try extracting form_id from route for filename
-                    $fid = null; if (preg_match('#/forms/(\d+)/submissions$#', $route, $m)) { $fid = (int)$m[1]; }
+                    // Try extracting form_id from either route for filename
+                    $fid = null;
+                    if ($route && preg_match('#/forms/(\d+)/submissions$#', $route, $m)) { $fid = (int)$m[1]; }
+                    elseif ($rr && preg_match('#/forms/(\d+)/submissions$#', $rr, $m)) { $fid = (int)$m[1]; }
                     $ext = ($fmt==='excel') ? 'xls' : 'csv';
                     $name = 'submissions' . ($fid?('-'.$fid):'') . '.' . $ext;
                     $server->send_header('Content-Disposition', 'attachment; filename="'.$name.'"');
