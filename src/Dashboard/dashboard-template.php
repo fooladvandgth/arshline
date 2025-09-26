@@ -2582,7 +2582,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         var list = document.getElementById('arSubsList');
                         if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
                         list.textContent = 'در حال بارگذاری...';
-                        fetch(ARSHLINE_REST + 'forms/'+id+'/submissions').then(r=>r.json()).then(function(rows){
+                        fetch(ARSHLINE_REST + 'forms/'+id+'/submissions', { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+                        .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                        .then(function(rows){
                             if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
                             var html = rows.map(function(it){
                                 return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
@@ -2591,7 +2593,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 </div>';
                             }).join('');
                             list.innerHTML = html;
-                        }).catch(()=>{ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
+                        }).catch(function(){ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
                     });
                 // If a form id was requested before arriving here, select it and trigger load
                 if (window._pendingFormSelectId){ sel.value = String(window._pendingFormSelectId); var evt = new Event('change'); sel.dispatchEvent(evt); window._pendingFormSelectId = null; }
