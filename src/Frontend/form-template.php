@@ -13,6 +13,9 @@ if (!$form_id && !$token) { wp_die(__('Invalid form.', 'arshline')); }
 
 get_header();
 ?>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 .arsh-public-wrap{max-width:800px;margin:40px auto;padding:16px}
 .arsh-public-card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 4px 24px rgba(0,0,0,.08)}
@@ -23,6 +26,12 @@ get_header();
 .ar-alert{margin-top:12px;padding:10px;border-radius:8px}
 .ar-alert--ok{background:#ecfdf5;color:#065f46}
 .ar-alert--err{background:#fef2f2;color:#991b1b}
+/* font */
+html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"}
+/* validation styles */
+.ar-field.ar-invalid{border-color:#ef4444 !important;background:#fff7f7}
+.ar-field .ar-err{color:#b91c1c;font-size:12px;margin-top:4px;display:none}
+.ar-field.ar-invalid .ar-err{display:block}
 </style>
 
 <div class="arsh-public-wrap">
@@ -56,13 +65,125 @@ get_header();
 
   function h(html){ var d=document.createElement('div'); d.innerHTML=html; return d.firstChild; }
 
+  // normalize Persian/Arabic digits to ASCII
+  function normalizeDigits(s){
+    if (!s) return '';
+    var fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
+    var out = '';
+    for (var i=0;i<s.length;i++){
+      var ch = s[i]; var p = fa.indexOf(ch); if (p>=0){ out += String(p); continue; }
+      p = ar.indexOf(ch); if (p>=0){ out += String(p); continue; }
+      out += ch;
+    }
+    return out;
+  }
+
+  function validateValue(f, raw){
+    var v = normalizeDigits(String(raw||'').trim());
+    var label = f.question || 'فیلد';
+    if (f.type === 'multiple_choice'){
+      if (f.required && (v === '' || v == null)) return label + ' الزامی است.';
+      return '';
+    }
+    if (f.type === 'dropdown'){
+      if (f.required && (v === '' || v == null)) return label + ' الزامی است.';
+      return '';
+    }
+    if (f.type === 'rating'){
+      if (f.required && (v === '' || v === '0')) return label + ' الزامی است.';
+      return '';
+    }
+    // text-based
+    if (f.required && v === '') return label + ' الزامی است.';
+    if (v === '') return '';
+    var fmt = f.format || 'free_text';
+    switch (fmt){
+      case 'email': if (!/^\S+@\S+\.\S+$/.test(v)) return 'ایمیل نامعتبر است.'; break;
+      case 'mobile_ir': if (!/^(\+98|0)?9\d{9}$/.test(v)) return 'شماره موبایل ایران نامعتبر است.'; break;
+      case 'mobile_intl': if (!/^\+?[1-9]\d{7,14}$/.test(v)) return 'شماره موبایل بین‌المللی نامعتبر است.'; break;
+      case 'tel': if (!/^[0-9\-\+\s\(\)]{5,20}$/.test(v)) return 'شماره تلفن نامعتبر است.'; break;
+      case 'numeric': if (!/^\d+$/.test(v)) return 'فقط اعداد مجاز است.'; break;
+      case 'national_id_ir':
+        if (!/^\d{10}$/.test(v)) return 'کد ملی نامعتبر است.';
+        if (/^(\d)\1{9}$/.test(v)) return 'کد ملی نامعتبر است.';
+        var sum=0; for (var i=0;i<9;i++){ sum += parseInt(v[i],10)*(10-i);} var r=sum%11; var c=parseInt(v[9],10);
+        if (!((r<2 && c===r) || (r>=2 && c===(11-r)))) return 'کد ملی نامعتبر است.';
+        break;
+      case 'postal_code_ir':
+        if (!/^\d{10}$/.test(v)) return 'کد پستی نامعتبر است.';
+        if (/^(\d)\1{9}$/.test(v)) return 'کد پستی نامعتبر است.';
+        break;
+      case 'fa_letters': if (!/^[\u0600-\u06FF\s]+$/.test(v)) return 'فقط حروف فارسی مجاز است.'; break;
+      case 'en_letters': if (!/^[A-Za-z\s]+$/.test(v)) return 'فقط حروف انگلیسی مجاز است.'; break;
+      case 'ip': if (!/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v) && !/^[0-9A-Fa-f:]+$/.test(v)) return 'آی‌پی نامعتبر است.'; break;
+      case 'time': if (!/^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(v)) return 'زمان نامعتبر است.'; break;
+      case 'date_jalali': if (!/^\d{4}\/(0[1-6]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(v)) return 'تاریخ شمسی نامعتبر است.'; break;
+      case 'date_greg': if (!/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/.test(v)) return 'تاریخ میلادی نامعتبر است.'; break;
+      case 'regex':
+        if (f.regex) {
+          try { var re = new RegExp(f.regex); if (!re.test(v)) return 'مقدار با الگوی دلخواه تطابق ندارد.'; } catch(e) { /* ignore invalid pattern */ }
+        }
+        break;
+      case 'free_text':
+      default: break;
+    }
+    return '';
+  }
+
+  function showFieldError(wrap, msg){
+    if (!wrap) return;
+    wrap.classList.toggle('ar-invalid', !!msg);
+    var err = wrap.querySelector('.ar-err'); if (err){ err.textContent = String(msg||''); }
+  }
+
+  function attachValidationHandlers(wrap, f){
+    var controlSelector = '[name="field_'+f.id+'"]';
+    var controls = wrap.querySelectorAll(controlSelector);
+    function currentValue(){
+      if (f.type === 'multiple_choice'){
+        var checked = wrap.querySelector(controlSelector+':checked'); return checked ? checked.value : '';
+      }
+      var el = controls[0]; return el ? el.value : '';
+    }
+    function run(){ var msg = validateValue(f, currentValue()); showFieldError(wrap, msg); return msg; }
+    controls.forEach(function(el){
+      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.tagName === 'SELECT'){
+        el.addEventListener('blur', run);
+        el.addEventListener('input', function(){ if (wrap.classList.contains('ar-invalid')) run(); });
+        if (el.type === 'radio') { el.addEventListener('change', run); }
+        // Enter to move next (not for textarea)
+        if (el.tagName !== 'TEXTAREA'){
+          el.addEventListener('keydown', function(ev){
+            if (ev.key === 'Enter'){
+              ev.preventDefault(); focusNextField(f);
+            }
+          });
+        }
+      }
+    });
+    return { run: run };
+  }
+
+  function focusNextField(f){
+    var idx = (state.questions||[]).findIndex(function(x){ return x && x.id === f.id; });
+    var next = (state.questions||[])[idx+1];
+    if (!next) { return; }
+    var nextWrap = document.querySelector('.ar-field[data-field-id="'+next.id+'"]');
+    if (!nextWrap) return;
+    var ctl = nextWrap.querySelector('[name="field_'+next.id+'"]');
+    if (ctl) { try { ctl.focus(); } catch(_){} }
+  }
+
   function renderField(f, idx){
     // Simple public-side renderer, mirrors admin preview where possible
     var wrap = document.createElement('div');
     wrap.className = 'card';
     wrap.style.cssText = 'padding:.6rem;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:.6rem;';
-    var label = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '') + (f.question||'');
-    wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+label+'</div>';
+  wrap.classList.add('ar-field');
+  wrap.setAttribute('data-field-id', String(f.id));
+  wrap.setAttribute('data-index', String(idx));
+  var label = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '') + (f.question||'');
+  wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+label+'</div>';
     var body = document.createElement('div');
     // known types
     if (f.type === 'short_text' || f.type === 'long_text'){
@@ -100,7 +221,12 @@ get_header();
     } else {
       body.innerHTML = '<div class="arsh-hint">نوع پشتیبانی‌نشده</div>';
     }
+    // per-field error holder
+    var err = document.createElement('div'); err.className='ar-err'; err.setAttribute('aria-live','polite');
     wrap.appendChild(body);
+    wrap.appendChild(err);
+    // attach validators
+    attachValidationHandlers(wrap, f);
     return wrap;
   }
 
@@ -133,16 +259,56 @@ get_header();
   var submit = document.createElement('button'); submit.type='submit'; submit.className='arsh-btn'; submit.textContent='ارسال'; foot.appendChild(submit);
   var alert = document.createElement('div'); alert.id='arAlert'; foot.appendChild(alert);
     form.appendChild(foot);
+    function validateAll(){
+      var errors = [];
+      (state.questions||[]).forEach(function(f){
+        var wrap = document.querySelector('.ar-field[data-field-id="'+f.id+'"]');
+        if (!wrap) return;
+        var val = (function(){
+          if (f.type === 'multiple_choice'){
+            var c = wrap.querySelector('[name="field_'+f.id+'"]:checked'); return c? c.value : '';
+          }
+          var el = wrap.querySelector('[name="field_'+f.id+'"]'); return el? el.value : '';
+        })();
+        var msg = validateValue(f, val);
+        showFieldError(wrap, msg);
+        if (msg) { errors.push({ f:f, msg:msg, wrap:wrap }); }
+      });
+      return errors;
+    }
     form.addEventListener('submit', function(e){
+      var errs = validateAll();
+      if (errs.length){
+        e.preventDefault();
+        alert.className='ar-alert ar-alert--err';
+        alert.innerHTML = '<div>لطفا خطاهای زیر را برطرف کنید:</div><ul style="margin:6px 0">'+errs.map(function(x){ return '<li>'+x.msg+'</li>'; }).join('')+'</ul>';
+        alert.style.display='block';
+        var first = errs[0];
+        try { first.wrap.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_){ }
+        var ctl = first.wrap.querySelector('[name^="field_"]'); if (ctl) { try { ctl.focus(); } catch(_){ } }
+        return;
+      }
   // If HTMX is enabled and present, let HTMX handle submission
   if (useHtmx && window.htmx) { return; }
       e.preventDefault(); submit.disabled = true; alert.style.display='none';
       var fd = new FormData(form); var vals = []; (state.questions||[]).forEach(function(f){ var k='field_'+f.id; if (fd.has(k)){ vals.push({ field_id: f.id, value: fd.get(k) }); } });
   var postUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN) + '/submissions') : (AR_REST + 'forms/'+FORM_ID+'/submissions');
   fetch(postUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) })
-        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(function(r){
+          if (r.status === 422) { return r.json().then(function(j){ throw { code:422, data:j }; }); }
+          if (!r.ok) { throw { code:r.status }; }
+          return r.json();
+        })
         .then(function(){ alert.className='ar-alert ar-alert--ok'; alert.textContent='با موفقیت ثبت شد.'; alert.style.display='block'; form.reset(); submit.disabled=false; })
-        .catch(function(){ alert.className='ar-alert ar-alert--err'; alert.textContent='خطا در ارسال فرم.'; alert.style.display='block'; submit.disabled=false; });
+        .catch(function(err){
+          alert.className='ar-alert ar-alert--err';
+          if (err && err.code === 422 && err.data && Array.isArray(err.data.messages)) {
+            alert.innerHTML = '<div>خطا در اعتبارسنجی:</div><ul style="margin:6px 0">' + err.data.messages.map(function(m){ return '<li>'+String(m)+'</li>'; }).join('') + '</ul>';
+          } else {
+            alert.textContent='خطا در ارسال فرم.';
+          }
+          alert.style.display='block'; submit.disabled=false;
+        });
     });
     mount.appendChild(form);
 
@@ -166,6 +332,8 @@ get_header();
         type: p.type || '',
         question: p.question || '',
         placeholder: p.placeholder || '',
+        format: p.format || 'free_text',
+        regex: p.regex || '',
         options: Array.isArray(p.options)? p.options : [],
         numbered: (p.numbered !== false),
         alpha_sort: !!p.alpha_sort,

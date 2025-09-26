@@ -19,7 +19,14 @@ foreach ($fields as $fr){ $p = $fr['props'] ?? []; $labels[$fr['id']] = $p['ques
 // Prepare rows for export (label, value)
 $rows = [];
 if (!empty($sub['values'])){
-  foreach ($sub['values'] as $val){ $fid = (int)$val['field_id']; $rows[] = [ 'label' => $labels[$fid] ?? ('فیلد #'.$fid), 'value' => (string)($val['value'] ?? '') ]; }
+  foreach ($sub['values'] as $val){
+    $fid = (int)$val['field_id'];
+    $raw = (string)($val['value'] ?? '');
+    $decoded = wp_specialchars_decode($raw, ENT_QUOTES);
+    // For CSV/Excel, export plain text (tags removed)
+    $plain = wp_strip_all_tags($decoded);
+    $rows[] = [ 'label' => $labels[$fid] ?? ('فیلد #'.$fid), 'value' => $plain ];
+  }
 }
 
 // Allowed minimal HTML in answers (bold/italic/underline, line breaks, basic lists, links)
@@ -27,7 +34,7 @@ $allowed = [
   'b' => [], 'strong' => [], 'i' => [], 'em' => [], 'u' => [],
   'br' => [], 'p' => [], 'ul' => [], 'ol' => [], 'li' => [],
   'a' => [ 'href' => [], 'title' => [], 'target' => [], 'rel' => [] ],
-  // 'span' => [ 'style' => [] ], // intentionally disabled for safety
+  'span' => [ 'style' => [] ], // style is filtered by WP safecss (color etc.)
 ];
 ?><!doctype html>
 <html lang="fa" dir="rtl">
@@ -43,7 +50,7 @@ $allowed = [
       --bg:#f7f8fb; --surface:#fff; --text:#0f172a; --muted:#6b7280; --border:#e5e7eb; --primary:#1e3a8a;
     }
     html, body { height: 100%; }
-    body{ margin:0; background:var(--bg); color:var(--text); font-family: 'IRANSans','IRANSansX','Vazirmatn','Tahoma','Segoe UI',sans-serif; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Helvetica Neue', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; }
     .arsh-btn{ background:var(--primary); color:#fff; border:none; border-radius:10px; padding:.55rem .9rem; cursor:pointer; }
     .arsh-btn:focus{ outline:2px solid #93c5fd; outline-offset:2px; }
     .arsh-print-wrap{ max-width:960px; margin:28px auto; padding:16px; }
@@ -78,10 +85,10 @@ $allowed = [
         </div>
       </div>
       <div class="arsh-answers">
-        <?php if (!empty($sub['values'])): foreach ($sub['values'] as $val): $fid=(int)$val['field_id']; ?>
+        <?php if (!empty($sub['values'])): foreach ($sub['values'] as $val): $fid=(int)$val['field_id']; $raw=(string)($val['value']??''); $decoded=wp_specialchars_decode($raw, ENT_QUOTES); ?>
           <div class="arsh-item">
             <div class="q"><?php echo esc_html($labels[$fid] ?? ('فیلد #'.$fid)); ?></div>
-            <div class="a"><?php echo wp_kses((string)($val['value'] ?? ''), $allowed); ?></div>
+            <div class="a"><?php echo wp_kses($decoded, $allowed); ?></div>
           </div>
         <?php endforeach; else: ?>
           <div class="hint">پاسخی ثبت نشده است.</div>
