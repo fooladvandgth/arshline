@@ -349,8 +349,12 @@ class Api
     {
         try {
             $route = is_object($request) && method_exists($request, 'get_route') ? (string)$request->get_route() : '';
-            // Match both by-id and by-token submit routes
-            $isSubmit = $route && strpos($route, '/arshline/v1/public/forms/') === 0 && substr($route, -7) === '/submit';
+            // Detect HTMX header and/or our submit routes
+            $hx = '';
+            if (is_object($request) && method_exists($request, 'get_header')) {
+                $hx = (string)($request->get_header('hx-request') ?: $request->get_header('HX-Request'));
+            }
+            $isSubmit = ($route && strpos($route, '/arshline/v1/public/forms/') === 0 && strpos($route, '/submit') !== false) || strtolower($hx) === 'true';
             if (!$isSubmit) { return $served; }
             // Extract string content from response
             if ($result instanceof \WP_REST_Response) {

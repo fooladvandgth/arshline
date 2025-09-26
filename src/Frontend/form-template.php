@@ -116,13 +116,16 @@ get_header();
     if (titleEl) { titleEl.textContent = meta.title || titleEl.textContent || 'فرم'; }
     if (hintEl) { /* keep site description as hint by default */ }
   var form = document.createElement('form'); form.id='arPublicForm'; form.style.marginTop = '8px';
-  // Attach hx-* attributes unconditionally; activate once HTMX is available
-  var hxUrl = TOKEN
-    ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN) + '/submit')
-    : <?php echo json_encode( rest_url('arshline/v1/public/forms/'.$form_id.'/submit') ); ?>;
-  form.setAttribute('hx-post', hxUrl);
+  // Optionally enable HTMX if meta.use_htmx === true; otherwise rely on JSON fetch
+  var useHtmx = !!meta.use_htmx;
+  if (useHtmx) {
+    var hxUrl = TOKEN
+      ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN) + '/submit')
+      : <?php echo json_encode( rest_url('arshline/v1/public/forms/'.$form_id.'/submit') ); ?>;
+    form.setAttribute('hx-post', hxUrl);
     form.setAttribute('hx-target', '#arAlert');
     form.setAttribute('hx-swap', 'innerHTML');
+  }
     // Render only supported question fields with proper numbering
     var qIdx = 0;
     (state.questions||[]).forEach(function(f){ form.appendChild(renderField(f, qIdx)); qIdx++; });
@@ -131,8 +134,8 @@ get_header();
   var alert = document.createElement('div'); alert.id='arAlert'; foot.appendChild(alert);
     form.appendChild(foot);
     form.addEventListener('submit', function(e){
-      // If HTMX is present, let HTMX handle submission
-      if (window.htmx) { return; }
+  // If HTMX is enabled and present, let HTMX handle submission
+  if (useHtmx && window.htmx) { return; }
       e.preventDefault(); submit.disabled = true; alert.style.display='none';
       var fd = new FormData(form); var vals = []; (state.questions||[]).forEach(function(f){ var k='field_'+f.id; if (fd.has(k)){ vals.push({ field_id: f.id, value: fd.get(k) }); } });
   var postUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN) + '/submissions') : (AR_REST + 'forms/'+FORM_ID+'/submissions');
