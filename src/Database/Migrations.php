@@ -11,9 +11,11 @@ class Migrations
                 schema_version VARCHAR(20) NOT NULL,
                 owner_id BIGINT UNSIGNED,
                 status VARCHAR(20) DEFAULT 'draft',
+                public_token VARCHAR(24) NULL,
                 meta JSON NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY public_token_unique (public_token)
             ) ENGINE=InnoDB;",
             'fields' => "CREATE TABLE IF NOT EXISTS {prefix}x_fields (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

@@ -3,7 +3,7 @@
  * Plugin Name: ?????? ?????? ??????? (Arshline Starter)
  * Plugin URI: https://example.com/
  * Description: ??? ???? ?????? ?????? ??????? ??? ? ???? ???? ????? ???????.
- * Version: 1.6.1
+ * Version: 2.0.0
  * Author: Your Name
  * Author URI: https://example.com/
  * License: GPL2
@@ -30,6 +30,35 @@ if (!defined('ARSHLINE_DEBUG_NONCE_KEY')) {
 }
 
 add_filter('template_include', static function ($template) {
+    // Printable submission view: ?arshline_submission=ID (admins/editors only)
+    if (isset($_GET['arshline_submission']) && (int) $_GET['arshline_submission'] > 0) {
+        if (current_user_can('manage_options') || current_user_can('edit_posts')) {
+            $sub_template = __DIR__ . '/src/Dashboard/submission-view.php';
+            if (file_exists($sub_template)) {
+                return $sub_template;
+            }
+        } else {
+            wp_die(__('دسترسی مجاز نیست.', 'arshline'));
+        }
+    }
+    // Public form rendering via query param
+    if (isset($_GET['arshline_form']) && (int) $_GET['arshline_form'] > 0) {
+        $public_template = __DIR__ . '/src/Frontend/form-template.php';
+        if (file_exists($public_template)) {
+            return $public_template;
+        }
+    }
+    // Public form rendering via short token (?arshline=TOKEN)
+    if (isset($_GET['arshline'])) {
+        $token = sanitize_text_field((string) $_GET['arshline']);
+        if ($token && preg_match('/^[A-Za-z0-9]{8,24}$/', $token)) {
+            $public_template = __DIR__ . '/src/Frontend/form-template.php';
+            if (file_exists($public_template)) {
+                return $public_template;
+            }
+        }
+    }
+
     if (arshline_is_dashboard_request()) {
         $plugin_template = __DIR__ . '/src/Dashboard/dashboard-template.php';
         if (file_exists($plugin_template)) {
@@ -138,12 +167,16 @@ add_action('wp_enqueue_scripts', static function () {
         'unauthorized' => __('دسترسی مجاز نیست.', 'arshline'),
     ];
 
+    $public_base = add_query_arg('arshline_form', '%ID%', home_url('/'));
+    $public_token_base = add_query_arg('arshline', '%TOKEN%', home_url('/'));
     wp_localize_script('arshline-dashboard', 'ARSHLINE_DASHBOARD', [
         'restUrl' => esc_url_raw(rest_url('arshline/v1/')),
         'restNonce' => wp_create_nonce('wp_rest'),
         'canManage' => current_user_can('edit_posts') || current_user_can('manage_options'),
         'loginUrl' => esc_url_raw(wp_login_url(get_permalink())),
         'strings' => $strings,
+        'publicBase' => esc_url_raw($public_base),
+        'publicTokenBase' => esc_url_raw($public_token_base),
     ]);
 });
 

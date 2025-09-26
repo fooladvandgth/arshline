@@ -20,10 +20,12 @@ class FormValidator
     public static function validateSubmission(array $fields, array $values): array
     {
         $errors = [];
+        // Map schema by field_id (not by array index) to align with incoming payload
         $map = [];
-        foreach ($fields as $idx => $f) {
+        foreach ($fields as $f) {
+            $fid = isset($f['id']) ? (int)$f['id'] : 0;
             $props = isset($f['props']) ? $f['props'] : $f;
-            $map[$idx] = $props;
+            if ($fid > 0) { $map[$fid] = $props; }
         }
         $normalizeDigits = function(string $s): string {
             $fa = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
@@ -40,13 +42,17 @@ class FormValidator
             }
             return $out;
         };
+        // Track provided field_ids to later detect missing required fields
+        $provided = [];
         foreach ($values as $idx => $entry) {
-            $props = $map[$idx] ?? null;
+            $fid = (int)($entry['field_id'] ?? 0);
+            if ($fid > 0) { $provided[$fid] = true; }
+            $props = $map[$fid] ?? null;
             if (!$props) continue;
             $val = (string)($entry['value'] ?? '');
             $val = $normalizeDigits(trim($val));
             $required = !empty($props['required']);
-            if ($required && $val === '') { $errors[] = ($props['label'] ?? 'فیلد').' الزامی است.'; continue; }
+            if ($required && $val === '') { $errors[] = ($props['label'] ?? $props['question'] ?? 'فیلد').' الزامی است.'; continue; }
             if ($val === '') continue;
             $type = $props['type'] ?? 'short_text';
             $format = $props['format'] ?? 'free_text';
@@ -105,6 +111,16 @@ class FormValidator
                     default:
                         // no-op
                         break;
+                }
+            }
+        }
+        // Also mark required fields missing entirely from payload as errors (questions only)
+        $supported = ['short_text'=>1, 'long_text'=>1, 'multiple_choice'=>1, 'dropdown'=>1, 'rating'=>1];
+        foreach ($map as $fid => $props) {
+            if (!empty($props['required'])) {
+                $type = $props['type'] ?? '';
+                if (isset($supported[$type]) && empty($provided[$fid])) {
+                    $errors[] = ($props['label'] ?? $props['question'] ?? 'فیلد').' الزامی است.';
                 }
             }
         }

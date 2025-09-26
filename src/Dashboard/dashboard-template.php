@@ -162,6 +162,35 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
     .ar-draggable:active { cursor: grabbing; }
     .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
+    /* Table styling with clear gridlines */
+    .ar-table { width:100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; table-layout: fixed; }
+    .ar-table thead th { position: sticky; top: 0; background: #f8fafc; color: #0b1220; font-weight: 700; font-size: .98rem; text-align: right; padding: .6rem .75rem; border-bottom: 1px solid var(--border); user-select: none; }
+        body.dark .ar-table thead th { background:#0f172a; color: #e5e7eb; }
+    .ar-table thead th, .ar-table tbody td { border-inline-end: 1px solid var(--border); }
+    .ar-table thead th:last-child, .ar-table tbody td:last-child { border-inline-end: none; }
+    .ar-table tbody td { font-size: .95rem; color: var(--text); padding: .55rem .75rem; border-bottom: 1px solid var(--border); }
+        .ar-table tbody tr:nth-child(even) { background: rgba(2, 6, 23, .02); }
+        body.dark .ar-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .03); }
+        .ar-table tbody tr:hover { background: rgba(30, 64, 175, .06); }
+        body.dark .ar-table tbody tr:hover { background: rgba(30, 64, 175, .14); }
+        .ar-table .actions { text-align: left; white-space: nowrap; }
+    /* Wrap toggle */
+    .ar-nowrap .ar-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ar-wrap .ar-table td { white-space: normal; overflow: visible; text-overflow: clip; }
+    /* Draggable headers (for question columns) */
+    .ar-th-draggable { cursor: move; }
+    .ar-th-drag-over { outline: 2px dashed var(--primary); }
+    /* Standard toggle switch */
+    .toggle-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+    .toggle-switch input { display:none; }
+    .toggle-switch-background { position:absolute; inset:0; background: #cbd5e1; border-radius: 999px; transition: background .18s ease; }
+    .toggle-switch-handle { position:absolute; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform .18s ease; }
+    /* RTL and LTR handle placement */
+    [dir='rtl'] .toggle-switch-handle { left: 3px; }
+    [dir='rtl'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(22px); }
+    [dir='ltr'] .toggle-switch-handle { right: 3px; }
+    [dir='ltr'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(-22px); }
+    .toggle-switch input:checked ~ .toggle-switch-background { background: #22c55e; }
     /* Small type icon next to tools/questions */
     .ar-type-ic { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; color: var(--muted); }
     .ar-toolbtn { position: relative; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; width:100%; padding-inline-start: 40px; }
@@ -235,6 +264,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script>
     const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
     const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
+    const ARSHLINE_SUB_VIEW_BASE = '<?php echo esc_js( add_query_arg('arshline_submission', '%ID%', home_url('/')) ); ?>';
     const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
     const ARSHLINE_LOGIN_URL = '<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>';
     
@@ -295,11 +325,21 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         type: 'multiple_choice',
         defaults: { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true }
     });
+    ARSH.Tools.register({
+        type: 'dropdown',
+        defaults: { type:'dropdown', label:'لیست کشویی', question:'', required:false, numbered:true, show_description:false, description:'', placeholder:'', options:[{ label:'گزینه 1', value:'opt_1' }], randomize:false, alpha_sort:false }
+    });
+    ARSH.Tools.register({
+        type: 'rating',
+        defaults: { type:'rating', label:'امتیازدهی', question:'', required:false, numbered:true, show_description:false, description:'', max:5, icon:'star', media_upload:false }
+    });
     </script>
     <!-- Load external tool modules (must come after Tools registry) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/long_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/multiple_choice.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
@@ -308,6 +348,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         var sidebar = document.querySelector('.arshline-sidebar');
         var sidebarToggle = document.getElementById('arSidebarToggle');
         // Debug helpers
+        // Allow enabling debug via URL: ?arshdbg=1 (or disable with ?arshdbg=0)
+        try {
+            var _dbgQS = new URLSearchParams(window.location.search).get('arshdbg');
+            if (_dbgQS === '1' || _dbgQS === 'true') { localStorage.setItem('arshDebug', '1'); }
+            else if (_dbgQS === '0' || _dbgQS === 'false') { localStorage.removeItem('arshDebug'); }
+        } catch(_){ }
         var AR_DEBUG = false;
         try { AR_DEBUG = (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
     // Optional capture mode: set localStorage.arshDebugCapture = '1' to enable
@@ -355,9 +401,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             })();
         }
     } catch(_){ }
-        function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-        function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-        function cerror(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    // Always print errors to console, regardless of AR_DEBUG
+    function cerror(){ if (typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
         try { window.arshSetDebug = function(v){ try { localStorage.setItem('arshDebug', v ? '1' : '0'); } catch(_){ } }; } catch(_){ }
 
         function setSidebarClosed(closed, persist){
@@ -471,10 +518,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var raw = (location.hash||'').replace('#','').trim();
             if (!raw){ renderTab('dashboard'); return; }
             var parts = raw.split('/');
-            if (['dashboard','forms','submissions','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
+            // Backward-compat: if someone navigates to old #submissions, redirect to forms
+            if (parts[0]==='submissions'){ renderTab('forms'); return; }
+            if (['dashboard','forms','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
             if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
             if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
             if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
+            if (parts[0]==='results' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormResults(id); return; } }
             renderTab('dashboard');
         }
         window.addEventListener('hashchange', function(){ if (_arNavSilence>0) return; routeFromHash(); });
@@ -507,6 +557,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 case 'long_text': return 'newspaper-outline'; // document-like
                 case 'multiple_choice':
                 case 'multiple-choice': return 'list-outline';
+                case 'dropdown': return 'chevron-down-outline';
                 case 'welcome': return 'happy-outline';
                 case 'thank_you': return 'checkmark-done-outline';
                 default: return 'help-circle-outline';
@@ -518,6 +569,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 case 'long_text': return 'پاسخ طولانی';
                 case 'multiple_choice':
                 case 'multiple-choice': return 'چندگزینه‌ای';
+                case 'dropdown': return 'لیست کشویی';
                 case 'welcome': return 'پیام خوش‌آمد';
                 case 'thank_you': return 'پیام تشکر';
                 default: return 'نامشخص';
@@ -534,6 +586,263 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             </div>';
         }
 
+        // Per-form results page (moved from standalone submissions)
+        function renderFormResults(formId){
+            var content = document.getElementById('arshlineDashboardContent');
+            if (!content) return;
+            // Results diagnostics: pick up optional debug toggles from localStorage
+            var REST_DEBUG = false;
+            try { REST_DEBUG = (localStorage.getItem('arshRestDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+            // Ensure log functions are active while REST debug is on
+            AR_DEBUG = !!(REST_DEBUG || AR_DEBUG);
+            try { clog('results:init', { formId: formId, restBase: ARSHLINE_REST, debug: REST_DEBUG }); } catch(_){ }
+            // Header actions: back to forms
+            var headerActions = document.getElementById('arHeaderActions');
+            if (headerActions) {
+                headerActions.innerHTML = '<button id="arBackToForms" class="ar-btn ar-btn--outline">بازگشت به فرم‌ها</button>';
+                var backBtn = document.getElementById('arBackToForms');
+                if (backBtn) backBtn.addEventListener('click', function(){ renderTab('forms'); });
+            }
+                        // Persist route
+            try { setHash('results/'+formId); } catch(_){ }
+                                    content.innerHTML = '<div class="card glass" style="padding:1rem;">\
+                                <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
+                                    <span class="title">نتایج فرم #'+formId+'</span>\
+                                </div>\
+                                            <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem;align-items:center">\
+                                                <select id="arFieldSelect" class="ar-select" style="min-width:220px"><option value="">انتخاب سوال...</option></select>\
+                                                <select id="arFieldOp" class="ar-select"><option value="eq">دقیقا برابر</option><option value="neq">اصلا این نباشد</option><option value="like">شامل باشد</option></select>\
+                                                <span id="arFieldValWrap" style="display:inline-flex;min-width:240px">\
+                                                    <input id="arFieldVal" class="ar-input" placeholder="مقدار فیلتر" style="min-width:240px"/>\
+                                                </span>\
+                                                <button id="arFieldApply" class="ar-btn ar-btn--soft">اعمال فیلتر</button>\
+                                                <button id="arFieldClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>\
+                                                <label class="hint" style="margin-inline-start:1rem">شکستن خطوط:</label>\
+                                                <input id="arWrapToggle" type="checkbox" class="ar-input" />\
+                                                                                                <span style="flex:1 1 auto"></span>\
+                                                                                                <button id="arSubExportCsv" class="ar-btn ar-btn--outline" title="خروجی CSV">خروجی CSV</button>\
+                                                                                                <button id="arSubExportXls" class="ar-btn ar-btn--outline" title="خروجی Excel">خروجی Excel</button>\
+                                            </div>\
+                                <div id="arSubsList"></div>\
+            </div>';
+                        // simplified header: no global search/status/date filters
+                        var q = null, st = null, ans = null, df = null, dt = null;
+                        var expCsv = document.getElementById('arSubExportCsv');
+                        var expXls = document.getElementById('arSubExportXls');
+            var selField = document.getElementById('arFieldSelect');
+            var selOp = document.getElementById('arFieldOp');
+            var inpVal = document.getElementById('arFieldVal');
+            var valWrap = document.getElementById('arFieldValWrap');
+            var btnApply = document.getElementById('arFieldApply');
+            var btnClear = document.getElementById('arFieldClear');
+            var state = { page: 1, per_page: 10 };
+            var wrapToggle = document.getElementById('arWrapToggle');
+            // Apply persisted wrap preference
+            try {
+                var pref = localStorage.getItem('arWrap:'+formId);
+                if (wrapToggle) { wrapToggle.checked = (pref === '1'); }
+                var container = document.querySelector('.arshline-main');
+                if (container){ container.classList.remove('ar-wrap','ar-nowrap'); container.classList.add((wrapToggle && wrapToggle.checked) ? 'ar-wrap' : 'ar-nowrap'); }
+            } catch(_){ }
+            // metadata populated after first load
+            var fieldMeta = { choices: {}, labels: {}, types: {}, options: {} };
+            function buildQuery(){
+                var p = new URLSearchParams();
+                p.set('page', String(state.page||1)); p.set('per_page', String(state.per_page||10));
+                var sv = '';
+                var qv = '';
+                var av = '';
+                var fv = '';
+                var tv = '';
+                // single per-field filter with operator
+                var fid = (selField && parseInt(selField.value||'0'))||0;
+                var vv = (inpVal && inpVal.value.trim())||'';
+                var op = (selOp && selOp.value)||'like';
+                if (fid>0 && vv){ p.set('f['+fid+']', vv); if (op && op!=='like') p.set('op['+fid+']', op); }
+                try { clog('results:filters', { search:qv, answers:av, status:sv, from:fv, to:tv, fieldFilter: { fid: fid, op: op, value: vv } }); } catch(_){ }
+                return p.toString();
+            }
+            function buildRestUrl(path, qs){
+                try {
+                    var base = ARSHLINE_REST || '';
+                    if (path.charAt(0) === '/') path = path.slice(1);
+                    var u = new URL(base, window.location.origin);
+                    if (u.searchParams.has('rest_route')){
+                        var rr = u.searchParams.get('rest_route') || '';
+                        if (rr && rr.charAt(rr.length-1) !== '/') rr += '/';
+                        rr += path;
+                        u.searchParams.set('rest_route', rr);
+                    } else {
+                        if (u.pathname && u.pathname.charAt(u.pathname.length-1) !== '/') u.pathname += '/';
+                        u.pathname += path;
+                    }
+                    if (qs){
+                        var extra = new URLSearchParams(qs);
+                        extra.forEach(function(v,k){ u.searchParams.set(k, v); });
+                    }
+                    return u.toString();
+                } catch(_) {
+                    return (ARSHLINE_REST||'') + path + (qs? ('?'+qs) : '');
+                }
+            }
+            function renderTable(resp){
+                var list = document.getElementById('arSubsList'); if (!list) return; if (!resp) { list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
+                var rows = Array.isArray(resp) ? resp : (resp.rows||[]);
+                var total = Array.isArray(resp) ? rows.length : (resp.total||0);
+                var fields = resp.fields || [];
+                var fieldOrder = []; var fieldLabels = {}; var choices = {}; var typesMap = {}; var optionsMap = {};
+                if (Array.isArray(fields) && fields.length){
+                    fields.forEach(function(f){
+                        var fid = parseInt(f.id||0); if (!fid) return;
+                        fieldOrder.push(fid);
+                        var p = f.props||{};
+                        fieldLabels[fid] = p.question || ('فیلد #'+fid);
+                        typesMap[fid] = (p.type||'');
+                        if (Array.isArray(p.options)){
+                            optionsMap[fid] = (p.options||[]).map(function(opt){ return { value: String(opt.value||opt.label||''), label: String(opt.label||String(opt.value||'')) }; });
+                            p.options.forEach(function(opt){ var v = String(opt.value||opt.label||''); var l = String(opt.label||v); if (!choices[fid]) choices[fid] = {}; if (v) choices[fid][v] = l; });
+                        }
+                    });
+                }
+                // Apply saved column order before rendering to avoid re-render loops
+                try {
+                    var savedOrder = [];
+                    try { savedOrder = JSON.parse(localStorage.getItem('arColsOrder:'+formId) || '[]'); } catch(_){ savedOrder = []; }
+                    if (Array.isArray(savedOrder) && savedOrder.length){
+                        var filtered = savedOrder.map(function(x){ return parseInt(x); }).filter(function(fid){ return fieldOrder.indexOf(fid) >= 0; });
+                        if (filtered.length){ fieldOrder = filtered.concat(fieldOrder.filter(function(fid){ return filtered.indexOf(fid) < 0; })); }
+                    }
+                } catch(_){ }
+                // cache meta for filter UI
+                fieldMeta.choices = choices; fieldMeta.labels = fieldLabels; fieldMeta.types = typesMap; fieldMeta.options = optionsMap;
+                // populate select with fields once
+                if (selField && selField.children.length<=1 && fieldOrder.length){ selField.innerHTML = '<option value="">انتخاب سوال...</option>' + fieldOrder.map(function(fid){ return '<option value="'+fid+'">'+(fieldLabels[fid]||('فیلد #'+fid))+'</option>'; }).join(''); }
+                if (!rows || rows.length===0){ list.innerHTML = '<div class="hint">پاسخی ثبت نشده است.</div>'; return; }
+                var html = '<div style="overflow:auto">\
+                    <table class="ar-table">\
+                        <thead><tr>\
+                            <th>شناسه</th>\
+                            <th>تاریخ</th>';
+                fieldOrder.forEach(function(fid){ html += '<th class="ar-th-draggable" draggable="true" data-fid="'+fid+'">'+(fieldLabels[fid]||('فیلد #'+fid))+'</th>'; });
+                html += '<th style="border-bottom:1px solid var(--border);padding:.5rem">اقدام</th>\
+                        </tr></thead><tbody>';
+                html += rows.map(function(it){
+                    var viewUrl = (ARSHLINE_SUB_VIEW_BASE||'').replace('%ID%', String(it.id));
+                    var byField = {};
+                    if (Array.isArray(it.values)){
+                        it.values.forEach(function(v){ var fid = parseInt(v.field_id||0); if (!fid) return; if (byField[fid] == null) byField[fid] = String(v.value||''); });
+                    }
+                    var tr = '\
+                    <tr>\
+                        <td>#'+it.id+'</td>\
+                        <td>'+(it.created_at||'')+'</td>';
+                    fieldOrder.forEach(function(fid){ var val = byField[fid] || ''; if (choices[fid] && choices[fid][val]) val = choices[fid][val]; tr += '<td style="padding:.5rem;border-bottom:1px dashed var(--border)">'+escapeHtml(String(val))+'</td>'; });
+                    tr += '\
+                        <td class="actions"><a href="'+viewUrl+'" target="_blank" rel="noopener" class="ar-btn ar-btn--soft">مشاهده پاسخ</a></td>\
+                    </tr>';
+                    return tr;
+                }).join('');
+                html += '</tbody></table></div>';
+                if (!Array.isArray(resp)){
+                    var page = resp.page||1, per = resp.per_page||10; var pages = Math.max(1, Math.ceil(total/per));
+                    html += '<div style="display:flex;gap:.5rem;align-items:center;justify-content:center;margin-top:.6rem">';
+                    html += '<button class="ar-btn" data-page="prev" '+(page<=1?'disabled':'')+'>قبلی</button>';
+                    html += '<span class="hint">صفحه '+page+' از '+pages+' — '+total+' رکورد</span>';
+                    html += '<button class="ar-btn" data-page="next" '+(page>=pages?'disabled':'')+'>بعدی</button>';
+                    html += '</div>';
+                }
+                list.innerHTML = html;
+                // Wrap toggle apply
+                try {
+                    var container = document.querySelector('.arshline-main');
+                    container.classList.remove('ar-wrap','ar-nowrap');
+                    container.classList.add((wrapToggle && wrapToggle.checked) ? 'ar-wrap' : 'ar-nowrap');
+                } catch(_){ }
+                // Update field value control if needed (dropdown for choice fields)
+                // Enable dragging of question columns
+                (function(){
+                    var thead = list.querySelector('thead'); if (!thead) return;
+                    var draggingFid = null;
+                    function saveOrder(order){ try { localStorage.setItem('arColsOrder:'+formId, JSON.stringify(order)); } catch(_){ } }
+                    thead.addEventListener('dragstart', function(ev){ var th = ev.target.closest('th[data-fid]'); if (!th) return; draggingFid = parseInt(th.getAttribute('data-fid')||'0'); if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'; });
+                    thead.addEventListener('dragover', function(ev){ var th = ev.target.closest('th[data-fid]'); if (!th) return; ev.preventDefault(); th.classList.add('ar-th-drag-over'); if (ev.dataTransfer) ev.dataTransfer.dropEffect='move'; });
+                    thead.addEventListener('dragleave', function(ev){ var th = ev.target.closest('th[data-fid]'); if (th) th.classList.remove('ar-th-drag-over'); });
+                    thead.addEventListener('drop', function(ev){ var th = ev.target.closest('th[data-fid]'); if (!th) return; ev.preventDefault(); th.classList.remove('ar-th-drag-over'); var targetFid = parseInt(th.getAttribute('data-fid')||'0'); if (!draggingFid || !targetFid || draggingFid===targetFid) return; var from = fieldOrder.indexOf(draggingFid), to = fieldOrder.indexOf(targetFid); if (from<0||to<0) return; var tmp = fieldOrder.splice(from,1)[0]; fieldOrder.splice(to,0,tmp); saveOrder(fieldOrder); renderTable(resp); });
+                })();
+                function updateFieldValueControl(){
+                    if (!valWrap) return;
+                    var fid = (selField && parseInt(selField.value||'0'))||0;
+                    var prevValEl = document.getElementById('arFieldVal');
+                    var current = prevValEl ? prevValEl.value : '';
+                    var hasChoices = !!(fid && fieldMeta && fieldMeta.options && Array.isArray(fieldMeta.options[fid]) && fieldMeta.options[fid].length);
+                    var newEl;
+                    if (hasChoices){
+                        var sel = document.createElement('select');
+                        sel.id = 'arFieldVal';
+                        sel.className = 'ar-select';
+                        sel.style.minWidth = '240px';
+                        sel.innerHTML = '<option value="">انتخاب مقدار...</option>' + fieldMeta.options[fid].map(function(o){ return '<option value="'+escapeAttr(String(o.value||''))+'">'+escapeHtml(String(o.label||o.value||''))+'</option>'; }).join('');
+                        newEl = sel;
+                    } else {
+                        var inp = document.createElement('input');
+                        inp.id = 'arFieldVal'; inp.className = 'ar-input'; inp.placeholder = 'مقدار فیلتر'; inp.style.minWidth = '240px';
+                        newEl = inp;
+                    }
+                    // replace
+                    if (prevValEl){ valWrap.replaceChild(newEl, prevValEl); }
+                    // rebind reference
+                    inpVal = newEl;
+                    // restore value if exists
+                    try { if (current) newEl.value = current; } catch(_){ }
+                }
+                if (selField){ selField.removeEventListener && selField.removeEventListener('change', updateFieldValueControl); selField.addEventListener('change', updateFieldValueControl); }
+                if (!Array.isArray(resp)){
+                    var prev = list.querySelector('button[data-page="prev"]'); var next = list.querySelector('button[data-page="next"]');
+                    if (prev) prev.onclick = function(){ state.page = Math.max(1, (resp.page||1)-1); load(); };
+                    if (next) next.onclick = function(){ var pages = Math.max(1, Math.ceil((resp.total||0)/(resp.per_page||10))); state.page = Math.min(pages, (resp.page||1)+1); load(); };
+                }
+            }
+            function load(){
+                var list = document.getElementById('arSubsList'); if (!list) return;
+                list.innerHTML = '<div class="hint">در حال بارگذاری...</div>';
+                var qs = buildQuery();
+                var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'include=values,fields' + (REST_DEBUG ? '&debug=1' : ''));
+                try { clog('results:fetch:url', url); } catch(_){ }
+                fetch(url, { credentials: 'same-origin', headers: { 'X-WP-Nonce': ARSHLINE_NONCE } })
+                .then(async function(r){
+                    try { clog('results:fetch:status', r.status); } catch(_){ }
+                    var txt = '';
+                    try { txt = await r.clone().text(); } catch(_){ }
+                    if(!r.ok){
+                        try { cerror('results:fetch:error', { status: r.status, body: (txt||'').slice(0, 2000) }); } catch(_){ }
+                        if(r.status===401){ if (typeof handle401 === 'function') handle401(); }
+                        throw new Error('HTTP '+r.status);
+                    }
+                    var data;
+                    try { data = txt ? JSON.parse(txt) : await r.json(); } catch(e){ try { cerror('results:parse:error', e, 'body:', (txt||'').slice(0, 2000)); } catch(_){ } throw e; }
+                    try {
+                        if (data && data.debug){ cwarn('results:debug', data.debug); }
+                        clog('results:fetch:ok', { total: data.total, rows: (data.rows||[]).length });
+                    } catch(_){ }
+                    return data;
+                })
+                .then(function(resp){ renderTable(resp); })
+                .catch(function(err){
+                    try { cerror('results:render:error', err && (err.message||err)); } catch(_){ }
+                    try { console.error('[ARSH] results:render:error', err); } catch(_){ }
+                    var msg = (err && (err.message||'')) || '';
+                    list.innerHTML = '<div class="hint">خطا در بارگذاری پاسخ‌ها'+(msg?(' — '+escapeHtml(String(msg))):'')+'</div>';
+                });
+            }
+            function addNonce(url){ try { var u = new URL(url); u.searchParams.set('_wpnonce', ARSHLINE_NONCE); return u.toString(); } catch(_){ return url + (url.indexOf('?')>0?'&':'?') + '_wpnonce=' + encodeURIComponent(ARSHLINE_NONCE); } }
+            if (expCsv) expCsv.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=csv'); window.open(addNonce(url), '_blank'); });
+            if (expXls) expXls.addEventListener('click', function(){ var qs = buildQuery(); var url = buildRestUrl('forms/'+formId+'/submissions', (qs? (qs+'&') : '') + 'format=excel'); window.open(addNonce(url), '_blank'); });
+            if (wrapToggle) wrapToggle.addEventListener('change', function(){ try { localStorage.setItem('arWrap:'+formId, wrapToggle.checked ? '1' : '0'); } catch(_){ } var root = document.querySelector('.arshline-main'); if(!root) return; root.classList.remove('ar-wrap','ar-nowrap'); root.classList.add(wrapToggle.checked ? 'ar-wrap' : 'ar-nowrap'); });
+            if (btnApply) btnApply.addEventListener('click', function(){ state.page = 1; load(); });
+            if (btnClear) btnClear.addEventListener('click', function(){ if (selField) selField.value=''; if (inpVal) inpVal.value=''; if (selOp) selOp.value='like'; state.page = 1; load(); });
+            load();
+        }
+
         function suggestPlaceholder(fmt){
             switch(fmt){
                 case 'email': return 'example@mail.com';
@@ -541,7 +850,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 case 'mobile_intl': return '+14155552671';
                 case 'tel': return '021-12345678';
                 case 'numeric': return '123456';
-                case 'national_id_ir': return '0012345678';
+                case 'rating': return 'star-outline'; // Added case for rating
                 case 'postal_code_ir': return '1234567890';
                 case 'fa_letters': return 'مثال فارسی';
                 case 'en_letters': return 'Sample text';
@@ -568,6 +877,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var builder = document.getElementById('arBuilder');
             var id = parseInt(builder.dataset.formId||'0');
             var idx = parseInt(builder.dataset.fieldIndex||'-1');
+            var creating = (builder && builder.getAttribute('data-creating') === '1');
+            var intendedInsert = builder ? parseInt(builder.getAttribute('data-intended-insert')||'-1') : -1;
             dlog('saveFields:start', { id: id, idx: idx });
             var canvas = document.getElementById('arCanvas');
             var edited = Array.from(canvas.children).map(function(el){ return JSON.parse(el.dataset.props||'{}'); })[0] || {};
@@ -587,8 +898,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(function(data){
                     dlog('saveFields:loaded-current-fields', (data&&data.fields)?data.fields.length:0);
                     var arr = (data && data.fields) ? data.fields.slice() : [];
-                    if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
-                    else { arr.push(edited); }
+                    if (creating){
+                        var at = (!isNaN(intendedInsert) && intendedInsert >= 0 && intendedInsert <= arr.length) ? intendedInsert : arr.length;
+                        // If there is a thank_you at the end and intendedInsert equals arr.length, insert before it
+                        try { var last = arr[arr.length-1]; var lp = last && (last.props||last); if (lp && (lp.type||last.type)==='thank_you' && at >= arr.length) at = arr.length - 1; } catch(_){ }
+                        arr.splice(at, 0, edited);
+                    } else {
+                        if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
+                        else { arr.push(edited); }
+                    }
                     try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - sending field.question (sample):', String(edited.question||'').slice(0,200)); } catch(_){ }
                     try { if (typeof console !== 'undefined') console.log('[ARSH] saveFields - full payload fields count:', arr.length); } catch(_){ }
                     dlog('saveFields:payload', arr);
@@ -628,7 +946,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 <div id="arFormPreviewFields" style="display:flex;flex-direction:column;gap:.8rem;"></div>\
                 <div style="margin-top:1rem;text-align:left;"><button id="arPreviewSubmit" class="ar-btn">ارسال</button></div>\
             </div>';
-            fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+            // First, ensure token exists for this form
+            fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                .then(function(){ return fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }); })
                 .then(r=>r.json())
                 .then(function(data){
                     var fwrap = document.getElementById('arFormPreviewFields');
@@ -680,6 +1000,38 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             html += '</div>';
                             row.innerHTML = questionBlock + html +
                                 (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
+                        } else if (type === 'dropdown') {
+                            var dOpts = (p.options || []).slice();
+                            if (p.alpha_sort){ dOpts.sort(function(a,b){ return String(a.label||'').localeCompare(String(b.label||''), 'fa'); }); }
+                            if (p.randomize){ for (var z=dOpts.length-1; z>0; z--){ var j=Math.floor(Math.random()*(z+1)); var tmp=dOpts[z]; dOpts[z]=dOpts[j]; dOpts[j]=tmp; } }
+                            var selHtml = '<select id="'+inputId+'" class="ar-input" style="width:100%" data-field-id="'+f.id+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'">';
+                            selHtml += '<option value="">'+escapeHtml(p.placeholder || 'انتخاب کنید')+'</option>';
+                            dOpts.forEach(function(o){ selHtml += '<option value="'+escapeAttr(o.value||'')+'">'+escapeHtml(o.label||'')+'</option>'; });
+                            selHtml += '</select>';
+                            row.innerHTML = questionBlock + selHtml + (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
+                        } else if (type === 'rating') {
+                            var count = parseInt(p.max||5); if (isNaN(count) || count<1) count=1; if (count>20) count=20;
+                            var key = String(p.icon||'star');
+                            function mapIcon(k){
+                                switch(k){
+                                    case 'heart': return { solid:'heart', outline:'heart-outline' };
+                                    case 'thumb': return { solid:'thumbs-up', outline:'thumbs-up-outline' };
+                                    case 'medal': return { solid:'ribbon', outline:'ribbon-outline' };
+                                    case 'smile': return { solid:'happy', outline:'happy-outline' };
+                                    case 'sad': return { solid:'sad', outline:'sad-outline' };
+                                    default: return { solid:'star', outline:'star-outline' };
+                                }
+                            }
+                            var names = mapIcon(key);
+                            var icons = '';
+                            for (var ri=1; ri<=count; ri++){
+                                icons += '<span class="ar-rating-icon" data-value="'+ri+'" style="cursor:pointer;font-size:1.5rem;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;margin-inline-start:.15rem;">'
+                                    + '<ion-icon name="'+names.outline+'"></ion-icon>'
+                                    + '</span>';
+                            }
+                            var ratingHtml = '<div class="ar-rating-wrap" data-icon-solid="'+names.solid+'" data-icon-outline="'+names.outline+'" data-field-id="'+f.id+'" role="radiogroup" aria-label="امتیاز" style="display:flex;align-items:center;gap:.1rem;">'+icons+'</div>'
+                                + '<input type="hidden" id="'+inputId+'" data-field-id="'+f.id+'" value="" />';
+                            row.innerHTML = questionBlock + ratingHtml + (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
                         } else {
                             row.innerHTML = questionBlock +
                                 '<input id="'+inputId+'" class="ar-input" style="width:100%" '+(attrs.type?('type="'+attrs.type+'"'):'')+' '+(attrs.inputmode?('inputmode="'+attrs.inputmode+'"'):'')+' '+(attrs.pattern?('pattern="'+attrs.pattern+'"'):'')+' placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'" />' +
@@ -696,6 +1048,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             try { jQuery(inp).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){}
                         }
                     });
+                    // Wire up rating interactions: click to set value and update icons
+                    try {
+                        Array.from(fwrap.querySelectorAll('.ar-rating-wrap')).forEach(function(wrap){
+                            var solid = wrap.getAttribute('data-icon-solid') || 'star';
+                            var outline = wrap.getAttribute('data-icon-outline') || 'star-outline';
+                            var hidden = wrap.nextElementSibling;
+                            var items = Array.from(wrap.querySelectorAll('.ar-rating-icon'));
+                            function update(v){ items.forEach(function(el, idx){ var ion = el.querySelector('ion-icon'); if (ion){ ion.setAttribute('name', idx < v ? solid : outline); } el.style.color = idx < v ? 'var(--primary)' : 'var(--muted)'; }); if (hidden) hidden.value = String(v||''); }
+                            items.forEach(function(el){
+                                el.addEventListener('click', function(){ var v = parseInt(el.getAttribute('data-value')||'0')||0; update(v); });
+                                el.setAttribute('tabindex','0');
+                                el.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' '){ e.preventDefault(); var v = parseInt(el.getAttribute('data-value')||'0')||0; update(v); } });
+                            });
+                            update(0);
+                        });
+                    } catch(_){ }
                     document.getElementById('arPreviewSubmit').onclick = function(){
                         var vals = [];
                         // include both inputs and textareas
@@ -722,13 +1090,27 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderFormEditor(id, opts){
             dlog('renderFormEditor:start', { id: id, opts: opts });
+            // Merge any pending creating context (set by addNewField) to survive routing re-entry
+            try {
+                if (!opts || !opts.creating) {
+                    var pend = (typeof window !== 'undefined') ? window._arPendingEditor : null;
+                    if (pend && pend.id === id) {
+                        opts = Object.assign({}, opts||{}, pend);
+                        try { window._arPendingEditor = null; } catch(_){ }
+                        dlog('renderFormEditor:merged-pending-opts', opts);
+                    }
+                }
+            } catch(_){ }
             if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); renderTab('forms'); return; }
             try { setSidebarClosed(true, false); } catch(_){ }
             try {
                 var idxHashRaw = (opts && typeof opts.index!=='undefined') ? opts.index : 0;
                 var idxHash = parseInt(idxHashRaw);
                 if (isNaN(idxHash)) idxHash = 0;
-                setHash('editor/'+id+'/'+idxHash);
+                // Important: avoid changing hash in creating mode to prevent routeFromHash re-entry
+                if (!(opts && opts.creating)) {
+                    setHash('editor/'+id+'/'+idxHash);
+                }
             } catch(_){ }
             document.body.classList.remove('preview-only');
             var content = document.getElementById('arshlineDashboardContent');
@@ -867,12 +1249,53 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (titleEl) titleEl.textContent = creating ? ('ایجاد فرم — ' + (formTitle||(' #' + id))) : ('ویرایش فرم #' + id + (formTitle?(' — ' + formTitle):''));
                     var fields = data.fields || [];
                     var idx = fieldIndex;
-                    if (isNaN(idx) || idx < 0 || idx >= fields.length) idx = 0;
-                    // Keep builder dataset in sync so saveFields updates proper index
-                    try { var b = document.getElementById('arBuilder'); if (b) b.setAttribute('data-field-index', String(idx)); } catch(_){ }
+                    var creating = !!(opts && opts.creating);
+                    var pendCtx = (typeof window !== 'undefined') ? window._arPendingEditor : null;
+                    var pendType = (pendCtx && pendCtx.id === id) ? (pendCtx.newType || null) : null;
+                    var newTypeFromOpts = (opts && opts.newType) ? String(opts.newType) : null;
+                    var newTypeEffective = newTypeFromOpts || pendType || null;
+                    // Resolve target index: in creating mode honor the intended insert; if idx is out-of-range treat as creating
+                    if (creating){
+                        var fi = parseInt(fieldIndex);
+                        if (isNaN(fi) || fi < 0){
+                            // fallback: insert at end (before thank_you if present)
+                            var hasThankIdx = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type) === 'thank_you'; });
+                            idx = (hasThankIdx !== -1) ? hasThankIdx : fields.length;
+                        } else {
+                            idx = fi;
+                        }
+                    } else {
+                        // Editing existing field: if index invalid -> 0; if out-of-range -> switch to creating-at-end
+                        if (isNaN(idx) || idx < 0) idx = 0;
+                        else if (idx >= fields.length){
+                            creating = true;
+                            var hasThankIdx2 = fields.findIndex(function(x){ var p=x.props||x; return (p.type||x.type) === 'thank_you'; });
+                            idx = (hasThankIdx2 !== -1) ? hasThankIdx2 : fields.length;
+                        }
+                    }
+                    dlog('renderFormEditor:flags', { fieldIndex: fieldIndex, creating: creating, newType: newTypeEffective, fieldsLen: fields.length });
+                    // Keep builder dataset in sync so saveFields updates proper index and mode
+                    try {
+                        var b = document.getElementById('arBuilder');
+                        if (b) {
+                            b.setAttribute('data-field-index', String(idx));
+                            b.setAttribute('data-creating', creating ? '1' : '0');
+                            if (creating && typeof opts.intendedInsert !== 'undefined') b.setAttribute('data-intended-insert', String(opts.intendedInsert));
+                            if (creating && typeof opts.newType !== 'undefined') b.setAttribute('data-new-type', String(opts.newType));
+                        }
+                    } catch(_){ }
                     dlog('renderFormEditor:resolved-index', idx);
-                    var base = fields[idx] || defaultProps;
+                    // Choose defaults by requested newType when creating
+                    var newType = newTypeEffective;
+                    var typeDefaults = (newType && ARSH && ARSH.Tools && ARSH.Tools.getDefaults(newType))
+                        || (newType === 'long_text' ? longTextDefaults : null)
+                        || (ARSH && ARSH.Tools && ARSH.Tools.getDefaults('short_text'))
+                        || defaultProps;
+                    // In creating mode we always render the editor with defaults for newType
+                    var base = creating ? typeDefaults : (fields[idx] || typeDefaults);
                     var field = base.props || base || defaultProps;
+                    // Force requested type when creating if defaults didn't carry it
+                    if (creating && newType && (field.type||'') !== newType){ field.type = newType; }
                     var fType = field.type || base.type || 'short_text';
                     dlog('renderFormEditor:field-type', fType);
                     // Try tool module first (if provided)
@@ -1237,7 +1660,19 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             if (qNode){
                                 var showQ = (p.question && String(p.question).trim());
                                 qNode.style.display = showQ ? 'block' : 'none';
-                                var numPrefix = (p.numbered !== false ? '1. ' : '');
+                                // Compute the real visible question index (skip welcome/thank_you before this idx)
+                                var qIndex = 1;
+                                try {
+                                    var beforeCount = 0;
+                                    (fields||[]).forEach(function(ff, i3){
+                                        if (i3 < idx){
+                                            var pp = ff.props || ff; var t = pp.type || ff.type || 'short_text';
+                                            if (t !== 'welcome' && t !== 'thank_you'){ beforeCount += 1; }
+                                        }
+                                    });
+                                    qIndex = beforeCount + 1;
+                                } catch(_){ qIndex = (idx+1); }
+                                var numPrefix = (p.numbered !== false ? (qIndex + '. ') : '');
                                 var sanitized = sanitizeQuestionHtml(showQ || '');
                                 qNode.innerHTML = showQ ? (numPrefix + sanitized) : '';
                                 try { if (typeof console !== 'undefined') console.log('[ARSH] applyPreviewFrom pvQuestion.innerHTML:', qNode.innerHTML); } catch(_){ }
@@ -1561,9 +1996,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         function addNewField(formId, fieldType){
             dlog('addNewField:start', { formId: formId, fieldType: fieldType });
             var ft = fieldType || 'short_text';
-            var defaultProps = (ARSH && ARSH.Tools && ARSH.Tools.getDefaults(ft))
-                || (ARSH && ARSH.Tools && ARSH.Tools.getDefaults('short_text'))
-                || { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
             fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                 .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
                 .then(function(data){
@@ -1572,12 +2004,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var hasThank = arr.findIndex(function(x){ var p=x.props||x; return (p.type||x.type)==='thank_you'; }) !== -1;
                     var insertAt = hasThank ? (arr.length - 1) : arr.length;
                     if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
-                    arr.splice(insertAt, 0, defaultProps);
-                    dlog('addNewField:inserting-at', insertAt, 'payload-size', arr.length);
-                    return fetch(ARSHLINE_REST + 'forms/'+formId+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
-                        .then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return { ok: true, index: insertAt }; });
+                    // Stash pending creating context to survive any routing/hash re-entry
+                    try { window._arPendingEditor = { id: formId, index: insertAt, creating: true, intendedInsert: insertAt, newType: ft, ts: Date.now() }; } catch(_){ }
+                    // Open editor in creating mode at intended index; do NOT persist yet
+                    renderFormEditor(formId, { index: insertAt, creating: true, intendedInsert: insertAt, newType: ft });
                 })
-                .then(function(obj){ renderFormEditor(formId, { index: obj.index }); })
                 .catch(function(){ notify('افزودن فیلد ناموفق بود', 'error'); });
         }
 
@@ -1597,9 +2028,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '<button id="arBuilderBack" class="ar-btn ar-btn--muted">بازگشت</button>'
                 + '</div>'
                 + '</div>'
+                + '<style>.ar-tabs .ar-btn.active{background:var(--primary, #eef2ff);border-color:var(--primary, #4338ca);color:#111827}</style>'
+                + '<div class="ar-tabs" role="tablist" aria-label="Form Sections" style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;">'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arFormFieldsList" data-tab="builder">ساخت</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arDesignPanel" data-tab="design">طراحی</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arSettingsPanel" data-tab="settings">تنظیمات</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arSharePanel" data-tab="share">ارسال</button>'
+                + '  <button class="ar-btn ar-btn--soft" role="tab" aria-selected="false" aria-controls="arReportsPanel" data-tab="reports">گزارش</button>'
+                + '</div>'
                 + '<div style="display:flex;gap:1rem;align-items:flex-start;">'
                 + '<div id="arFormSide" style="flex:1;">'
-                + '<div class="title" style="margin-bottom:.6rem;">پیش‌نمایش فرم</div>'
+                + '<div id="arSectionTitle" class="title" style="margin-bottom:.6rem;">پیش‌نمایش فرم</div>'
                 + '<div id="arBulkToolbar" style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem;">'
                 + '<label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;">'
                 + '<input id="arSelectAll" type="checkbox" />'
@@ -1608,6 +2047,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '<button id="arBulkDelete" class="ar-btn" disabled>حذف انتخاب‌شده‌ها</button>'
                 + '</div>'
                 + '<div id="arFormFieldsList" style="display:flex;flex-direction:column;gap:.8rem;"></div>'
+                + '<div id="arDesignPanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;">'
+                + '    <div class="field" style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">'
+                + '      <span class="hint">رنگ اصلی</span><input id="arDesignPrimary" type="color" />'
+                + '      <span class="hint">پس‌زمینه</span><input id="arDesignBg" type="color" />'
+                + '      <span class="hint">ظاهر</span><select id="arDesignTheme" class="ar-select"><option value="light">روشن</option><option value="dark">تاریک</option></select>'
+                + '      <button id="arSaveDesign" class="ar-btn">ذخیره طراحی</button>'
+                + '    </div>'
+                + '  </div>'
+                + '</div>'
+                + '<div id="arSettingsPanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;">'
+                + '    <div class="hint">تنظیمات (زمان‌بندی و سایر موارد) بعداً افزوده می‌شود.</div>'
+                + '  </div>'
+                + '</div>'
+                + '<div id="arSharePanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">'
+                + '    <span class="hint">لینک عمومی فرم:</span><input id="arShareLink" class="ar-input" style="min-width:340px" readonly />'
+                + '    <button id="arCopyLink" class="ar-btn">کپی لینک</button>'
+                + '  </div>'
+                + '</div>'
+                + '<div id="arReportsPanel" style="display:none;">'
+                + '  <div class="card" style="padding:.8rem;">'
+                + '    <div class="title" style="margin-bottom:.6rem;">ارسال‌ها</div>'
+                + '    <div id="arSubmissionsList" style="display:flex;flex-direction:column;gap:.5rem"></div>'
+                + '  </div>'
+                + '</div>'
                 + '</div>'
                 + '<div id="arToolsSide" style="width:300px;flex:0 0 300px;border-inline-start:1px solid var(--border);padding-inline-start:1rem;">'
                 + '<div class="title" style="margin-bottom:.6rem;">ابزارها</div>'
@@ -1624,6 +2090,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '<button id="arAddMultipleChoice" class="ar-btn ar-toolbtn" draggable="true">'
                 + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('multiple_choice')+'"></ion-icon></span>'
                 + '  <span>افزودن سؤال چندگزینه‌ای</span>'
+                + '</button>'
+                + '<div style="height:.5rem"></div>'
+                + '<button id="arAddRating" class="ar-btn ar-toolbtn" draggable="true">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('rating')+'"></ion-icon></span>'
+                + '  <span>افزودن امتیازدهی</span>'
+                + '</button>'
+                + '<div style="height:.5rem"></div>'
+                + '<button id="arAddDropdown" class="ar-btn ar-toolbtn" draggable="true">'
+                + '  <span class="ar-type-ic"><ion-icon name="'+getTypeIcon('dropdown')+'"></ion-icon></span>'
+                + '  <span>افزودن لیست کشویی</span>'
                 + '</button>'
                 + '<div style="height:.5rem"></div>'
                 + '<button id="arAddWelcome" class="ar-btn ar-toolbtn">'
@@ -1649,6 +2125,118 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 .then(function(data){
                     dlog('renderFormBuilder:loaded-fields', (data&&data.fields)?data.fields.length:0);
                     var list = document.getElementById('arFormFieldsList');
+                    // Setup tabs
+                    try {
+                        var tabs = Array.from(content.querySelectorAll('.ar-tabs [data-tab]'));
+                        function showPanel(which){
+                            var title = document.getElementById('arSectionTitle');
+                            var panels = {
+                                builder: document.getElementById('arFormFieldsList'),
+                                design: document.getElementById('arDesignPanel'),
+                                settings: document.getElementById('arSettingsPanel'),
+                                share: document.getElementById('arSharePanel'),
+                                reports: document.getElementById('arReportsPanel'),
+                            };
+                            Object.keys(panels).forEach(function(k){ panels[k].style.display = (k===which)?'block':'none'; });
+                            document.getElementById('arBulkToolbar').style.display = (which==='builder')?'flex':'none';
+                            var tools = document.getElementById('arToolsSide'); if (tools) tools.style.display = (which==='builder')?'block':'none';
+                            title.textContent = (which==='builder'?'پیش‌نمایش فرم': which==='design'?'طراحی فرم': which==='settings'?'تنظیمات فرم': which==='share'?'ارسال/اشتراک‌گذاری': 'گزارشات فرم');
+                            // When entering Share panel, ensure input shows the latest URL
+                            if (which === 'share'){
+                                try {
+                                    var sl = document.getElementById('arShareLink');
+                                    if (sl && typeof publicUrl === 'string' && publicUrl){ sl.value = publicUrl; sl.setAttribute('value', publicUrl); }
+                                } catch(_){ }
+                            }
+                        }
+                        function setActive(btn){ tabs.forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); }); btn.classList.add('active'); btn.setAttribute('aria-selected','true'); }
+                        tabs.forEach(function(btn, idx){
+                            btn.setAttribute('tabindex', idx===0? '0' : '-1');
+                            btn.addEventListener('click', function(){ setActive(btn); showPanel(btn.getAttribute('data-tab')); });
+                            btn.addEventListener('keydown', function(e){
+                                var i = tabs.indexOf(btn);
+                                if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+                                    e.preventDefault();
+                                    var ni = (e.key==='ArrowRight') ? (i+1) % tabs.length : (i-1+tabs.length) % tabs.length;
+                                    tabs[ni].focus();
+                                }
+                                if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); setActive(btn); showPanel(btn.getAttribute('data-tab')); }
+                            });
+                        });
+                        // default active
+                        var def = content.querySelector('.ar-tabs [data-tab="builder"]'); if (def){ setActive(def); }
+                        showPanel('builder');
+                        // init design values from meta
+                        var meta = data.meta || {};
+                        var dPrim = document.getElementById('arDesignPrimary'); if (dPrim) dPrim.value = meta.design_primary || '#1e40af';
+                        var dBg = document.getElementById('arDesignBg'); if (dBg) dBg.value = meta.design_bg || '#f5f7fb';
+                        var dTheme = document.getElementById('arDesignTheme'); if (dTheme) dTheme.value = meta.design_theme || 'light';
+                        // apply to builder preview area
+                        try {
+                            document.documentElement.style.setProperty('--ar-primary', dPrim.value);
+                            var side = document.getElementById('arFormSide'); if (side) side.style.background = dBg.value;
+                        } catch(_){ }
+                        var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
+                        // share link (prefer token now that we ensured it exists)
+                        var publicUrl = '';
+                        try {
+                            var token = (data && data.token) ? String(data.token) : '';
+                            if (token) {
+                                if (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase) {
+                                    publicUrl = ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', token);
+                                } else {
+                                    publicUrl = window.location.origin + '/?arshline=' + encodeURIComponent(token);
+                                }
+                            } else {
+                                var base = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicBase) || '';
+                                publicUrl = base ? base.replace('%ID%', String(id)) : (window.location.origin + '/?arshline_form='+id);
+                            }
+                        } catch(_){
+                            publicUrl = window.location.origin + '/?arshline_form='+id;
+                        }
+                        var shareLink = document.getElementById('arShareLink'); if (shareLink){ shareLink.value = publicUrl; shareLink.setAttribute('value', publicUrl); }
+                        function copyText(text){
+                            if (navigator.clipboard && navigator.clipboard.writeText){
+                                return navigator.clipboard.writeText(text);
+                            }
+                            return new Promise(function(res, rej){
+                                try {
+                                    var ta = document.createElement('textarea');
+                                    ta.value = text; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.opacity='0';
+                                    document.body.appendChild(ta); ta.select();
+                                    var ok = document.execCommand('copy');
+                                    document.body.removeChild(ta);
+                                    ok ? res() : rej(new Error('execCommand failed'));
+                                } catch(e){ rej(e); }
+                            });
+                        }
+                        var copyBtn = document.getElementById('arCopyLink'); if (copyBtn){ copyBtn.onclick = function(){ copyText(publicUrl).then(function(){ notify('کپی شد', 'success'); }).catch(function(){ notify('کپی ناموفق بود', 'error'); }); }; }
+
+                        // Fallback: if token wasn't present initially, refetch once and update link if token appears
+                        if (!token) {
+                            setTimeout(function(){
+                                fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                   .then(function(r){ return r.json(); })
+                                   .then(function(d2){
+                                       try {
+                                           var t2 = (d2 && d2.token) ? String(d2.token) : '';
+                                           if (t2) {
+                                               var url2 = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase)
+                                                   ? ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', t2)
+                                                   : (window.location.origin + '/?arshline=' + encodeURIComponent(t2));
+                                               if (shareLink) { shareLink.value = url2; shareLink.setAttribute('value', url2); }
+                                               publicUrl = url2;
+                                           }
+                                       } catch(_){ }
+                                   }).catch(function(){ /* ignore */ });
+                            }, 250);
+                        }
+                        // reports fetch
+                        var repWrap = document.getElementById('arSubmissionsList'); if (repWrap){ fetch(ARSHLINE_REST+'forms/'+id+'/submissions', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json(); }).then(function(rows){ repWrap.innerHTML = (rows||[]).map(function(s){ return '<div class="card" style="padding:.5rem;display:flex;justify-content:space-between;">\
+                            <span>#'+String(s.id)+' — '+String(s.status||'')+'</span>\
+                            <span class="hint">'+String(s.created_at||'')+'</span>\
+                        </div>'; }).join('') || '<div class="hint">ارسالی وجود ندارد</div>'; }).catch(function(){ repWrap.innerHTML = '<div class="hint">خطا در بارگذاری گزارشات</div>'; }); }
+                    } catch(_){ }
                     // Guard to prevent duplicate add when both click and drag/drop occur nearly simultaneously
                     var lastAddClickTs = 0;
                     var fields = data.fields || [];
@@ -1931,7 +2519,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 t = '';
                             }
                             dlog('drop:tool', t);
-                            if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || draggingTool) {
+                            if (t === 'short_text' || t === 'long_text' || t === 'multiple_choice' || t === 'multiple-choice' || t === 'dropdown' || t === 'rating' || draggingTool) {
                                 e.preventDefault();
                                 var insertAt = placeholderIndex();
                                 dlog('drop:insertAt', insertAt);
@@ -2047,6 +2635,38 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
                 addMcBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
             }
+            var addDdBtn = document.getElementById('arAddDropdown');
+            if (addDdBtn){
+                addDdBtn.setAttribute('draggable','true');
+                var newAddDdBtn = addDdBtn.cloneNode(true);
+                addDdBtn.parentNode.replaceChild(newAddDdBtn, addDdBtn);
+                addDdBtn = newAddDdBtn;
+                addDdBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'dropdown'); });
+                addDdBtn.addEventListener('dragstart', function(e){
+                    draggingTool = true;
+                    try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
+                    try { e.dataTransfer.setData('application/arshline-tool','dropdown'); } catch(_){ }
+                    try { e.dataTransfer.setData('text/plain','dropdown'); } catch(_){ }
+                    try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'لیست کشویی'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
+                });
+                addDdBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+            }
+            var addRatingBtn = document.getElementById('arAddRating');
+            if (addRatingBtn){
+                addRatingBtn.setAttribute('draggable','true');
+                var newAddRatingBtn = addRatingBtn.cloneNode(true);
+                addRatingBtn.parentNode.replaceChild(newAddRatingBtn, addRatingBtn);
+                addRatingBtn = newAddRatingBtn;
+                addRatingBtn.addEventListener('click', function(){ lastAddClickTs = Date.now(); addNewField(id, 'rating'); });
+                addRatingBtn.addEventListener('dragstart', function(e){
+                    draggingTool = true;
+                    try { e.dataTransfer.effectAllowed = 'copy'; } catch(_){ }
+                    try { e.dataTransfer.setData('application/arshline-tool','rating'); } catch(_){ }
+                    try { e.dataTransfer.setData('text/plain','rating'); } catch(_){ }
+                    try { var img = document.createElement('div'); img.className = 'ar-dnd-ghost-proxy'; img.textContent = 'امتیازدهی'; document.body.appendChild(img); e.dataTransfer.setDragImage(img, 0, 0); setTimeout(function(){ if (img && img.parentNode) img.parentNode.removeChild(img); }, 0); } catch(_){ }
+                });
+                addRatingBtn.addEventListener('dragend', function(){ draggingTool = false; if (toolPh && toolPh.parentNode) toolPh.parentNode.removeChild(toolPh); });
+            }
             var addWelcomeBtn = document.getElementById('arAddWelcome');
             if (addWelcomeBtn){
                 // Remove any existing event listeners by cloning the node
@@ -2098,13 +2718,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (t === 'short_text') addNewField(id);
                     else if (t === 'long_text') addNewField(id, 'long_text');
                     else if (t === 'multiple_choice' || t === 'multiple-choice') addNewField(id, 'multiple_choice');
+                    else if (t === 'dropdown') addNewField(id, 'dropdown');
+                    else if (t === 'rating') addNewField(id, 'rating');
                 });
             }
         }
 
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-            try { if (['dashboard','forms','submissions','reports','users'].includes(tab)) setHash(tab); } catch(_){ }
+            try { if (['dashboard','forms','reports','users'].includes(tab)) setHash(tab); } catch(_){ }
             try { setSidebarClosed(false, false); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
@@ -2140,25 +2762,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
                         </div>\
                     </div>';
-            } else if (tab === 'forms') {
+                        } else if (tab === 'forms') {
                 // header button already rendered globally
-                content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
-                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
-                      <span class="title">فرم‌ها</span>\
-                      <button id="arCreateFormBtn" class="ar-btn ar-btn--soft" style="margin-inline-start:auto;">+ فرم جدید</button>\
-                    </div>\
-                    <div id="arCreateInline" style="display:none;align-items:center;gap:.5rem;margin-bottom:.8rem;">\
-                      <input id="arNewFormTitle" class="ar-input" placeholder="عنوان فرم" style="min-width:220px"/>\
-                      <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
-                      <button id="arCreateFormCancel" class="ar-btn ar-btn--outline">انصراف</button>\
-                    </div>\
-                    <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
-                </div>';
+                                content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
+                                        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
+                                            <span class="title">فرم‌ها</span>\
+                                            <div style="display:flex;gap:.5rem;align-items:center;margin-inline-start:auto;flex-wrap:wrap">\
+                                                <input id="arFormSearch" class="ar-input" placeholder="جستجو عنوان/شناسه" style="min-width:220px"/>\
+                                                <input id="arFormDateFrom" type="date" class="ar-input" title="از تاریخ"/>\
+                                                <input id="arFormDateTo" type="date" class="ar-input" title="تا تاریخ"/>\
+                                                <button id="arCreateFormBtn" class="ar-btn ar-btn--soft">+ فرم جدید</button>\
+                                            </div>\
+                                        </div>\
+                                        <div id="arCreateInline" style="display:none;align-items:center;gap:.5rem;margin-bottom:.8rem;">\
+                                            <input id="arNewFormTitle" class="ar-input" placeholder="عنوان فرم" style="min-width:220px"/>\
+                                            <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
+                                            <button id="arCreateFormCancel" class="ar-btn ar-btn--outline">انصراف</button>\
+                                        </div>\
+                                        <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
+                                </div>';
                 var createBtn = document.getElementById('arCreateFormBtn');
                 var headerCreateBtn = document.getElementById('arHeaderCreateForm');
                 var inlineWrap = document.getElementById('arCreateInline');
                 var submitBtn = document.getElementById('arCreateFormSubmit');
                 var cancelBtn = document.getElementById('arCreateFormCancel');
+                                var formSearch = document.getElementById('arFormSearch');
+                                var formDF = document.getElementById('arFormDateFrom');
+                                var formDT = document.getElementById('arFormDateTo');
                 if (!ARSHLINE_CAN_MANAGE && createBtn){ createBtn.style.display = 'none'; }
                 if (createBtn) createBtn.addEventListener('click', function(){
                     if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex';
@@ -2173,66 +2803,77 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var titleEl = document.getElementById('arNewFormTitle');
                     var title = (titleEl && titleEl.value.trim()) || 'فرم جدید';
                     fetch(ARSHLINE_REST + 'forms', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) })
-                        .then(async r=>{ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
-            .then(function(obj){ notify('فرم ایجاد شد', 'success'); if (obj && obj.id){ renderFormBuilder(parseInt(obj.id)); } else { renderTab('forms'); } })
-                        .catch(function(){ notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); });
+                        .then(async function(r){
+                            if (!r.ok){
+                                if (r.status===401){ if (typeof handle401 === 'function') handle401(); }
+                                var t=await r.text(); throw new Error(t||('HTTP '+r.status));
+                            }
+                            return r.json();
+                        })
+                        .then(function(obj){
+                            if (obj && obj.id){
+                                notify('فرم ایجاد شد', 'success');
+                                renderFormBuilder(parseInt(obj.id));
+                            } else {
+                                notify('ایجاد فرم ناموفق بود. لطفاً دسترسی و دیتابیس را بررسی کنید.', 'error');
+                                // stay on forms tab and keep inline create visible
+                                if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); }
+                            }
+                        })
+                        .catch(function(e){
+                            try { console.error('[ARSH] create_form failed:', e); } catch(_){ }
+                            notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error');
+                            if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); }
+                        });
                 });
-                // load forms list
+                // Allow pressing Enter in title input to submit
+                (function(){ try { var inp=document.getElementById('arNewFormTitle'); if (inp){ inp.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); if (submitBtn) submitBtn.click(); } }); } } catch(_){ } })();
+                // load forms list with client-side filtering
                 fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
+                    var all = Array.isArray(forms) ? forms : [];
                     var box = document.getElementById('arFormsList'); if (!box) return;
-                    if (!forms || forms.length===0){ box.textContent = 'هنوز فرمی ندارید.'; return; }
-                    var html = (forms||[]).map(function(f){
-                        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
-                            <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'</div>\
-                            <div style="display:flex;gap:.6rem;">\
-                                <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
-                                <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
-                                <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
-                                '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
-                            </div>\
-                        </div>';
-                    }).join('');
-                    box.innerHTML = html;
-                    box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); });
-                    box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
-                    box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; window._pendingFormSelectId = id; renderTab('submissions'); }); });
-                    if (ARSHLINE_CAN_MANAGE) {
-                        box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
+                    function applyFilters(){
+                        var term = (formSearch && formSearch.value.trim()) || '';
+                        var df = (formDF && formDF.value) || '';
+                        var dt = (formDT && formDT.value) || '';
+                        var list = all.filter(function(f){
+                            var ok = true;
+                            if (term){
+                                var t = (f.title||'') + ' ' + String(f.id||'');
+                                ok = t.indexOf(term) !== -1;
+                            }
+                            if (ok && df){ ok = String(f.created_at||'').slice(0,10) >= df; }
+                            if (ok && dt){ ok = String(f.created_at||'').slice(0,10) <= dt; }
+                            return ok;
+                        });
+                        var isEmpty = list.length===0;
+                        if (isEmpty){ box.innerHTML = '<div class="hint">فرمی مطابق جستجو یافت نشد.</div>'; return; }
+                        var html = list.map(function(f){
+                            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
+                                <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div>\
+                                <div style="display:flex;gap:.6rem;">\
+                                    <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
+                                    <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
+                                    <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
+                                    '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
+                                </div>\
+                            </div>';
+                        }).join('');
+                        box.innerHTML = html;
+                        box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); });
+                        box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); });
+                        box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; renderFormResults(id); }); });
+                        if (ARSHLINE_CAN_MANAGE) {
+                            box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
+                        }
                     }
+                    applyFilters();
+                    if (formSearch) formSearch.addEventListener('input', function(){ clearTimeout(formSearch._t); formSearch._t = setTimeout(applyFilters, 200); });
+                    if (formDF) formDF.addEventListener('change', applyFilters);
+                    if (formDT) formDT.addEventListener('change', applyFilters);
                     // If header create was requested before arriving here, open inline create now
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
-            } else if (tab === 'submissions') {
-                content.innerHTML = '<div class="card glass" style="padding:1rem;">\
-                    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
-                      <span class="title">پاسخ‌ها</span>\
-                      <select id="arFormSelect" style="margin-inline-start:auto;padding:.35rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></select>\
-                    </div>\
-                    <div id="arSubsList" class="hint">فرمی انتخاب کنید...</div>\
-                </div>';
-                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
-                    var sel = document.getElementById('arFormSelect');
-                    if (!sel) return;
-                    sel.innerHTML = '<option value="">انتخاب فرم...</option>' + (forms||[]).map(function(f){ return '<option value="'+f.id+'">#'+f.id+' — '+(f.title||'بدون عنوان')+'</option>'; }).join('');
-                    sel.addEventListener('change', function(){
-                        var id = parseInt(sel.value||'0');
-                        var list = document.getElementById('arSubsList');
-                        if (!id){ list.textContent='فرمی انتخاب کنید...'; return; }
-                        list.textContent = 'در حال بارگذاری...';
-                        fetch(ARSHLINE_REST + 'forms/'+id+'/submissions').then(r=>r.json()).then(function(rows){
-                            if (!rows || rows.length===0){ list.textContent='پاسخی ثبت نشده است.'; return; }
-                            var html = rows.map(function(it){
-                                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
-                                    <div>#'+it.id+' · '+(it.status)+'<span class="hint" style="margin-inline-start:.6rem">'+(it.created_at||'')+'</span></div>\
-                                    <a href="#" class="hint">جزئیات</a>\
-                                </div>';
-                            }).join('');
-                            list.innerHTML = html;
-                        }).catch(()=>{ list.textContent='خطا در بارگذاری پاسخ‌ها'; });
-                    });
-                // If a form id was requested before arriving here, select it and trigger load
-                if (window._pendingFormSelectId){ sel.value = String(window._pendingFormSelectId); var evt = new Event('change'); sel.dispatchEvent(evt); window._pendingFormSelectId = null; }
-                });
             } else if (tab === 'reports') {
                 content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
                     card('نمودار نرخ تبدیل', 'به‌زودی') +
@@ -2266,7 +2907,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         if (location.hash){ routeFromHash(); }
         else {
             var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
-            if (![ 'dashboard','forms','submissions','reports','users' ].includes(initial)) initial = 'dashboard';
+            if (![ 'dashboard','forms','reports','users' ].includes(initial)) initial = 'dashboard';
             setHash(initial);
             renderTab(initial);
         }
@@ -2281,7 +2922,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <nav>
                 <a href="#" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
                 <a href="#" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
-                <a href="#" data-tab="submissions"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">پاسخ‌ها</span></a>
                 <a href="#" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
                 <a href="#" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
             </nav>
@@ -2377,7 +3017,7 @@ function applyInputMask(inp, props){
             case 'mobile_intl': inp.value = inp.value.replace(/(?!^)[^\d]/g,'').replace(/^([^+\d])+/,''); if (!inp.value.startsWith('+')) inp.value = '+'+inp.value.replace(/\+/g,''); inp.value = inp.value.replace(/(.*\d{15}).*$/, '$1'); break;
             case 'tel': inp.value = inp.value.replace(/[^0-9\-\+\s\(\)]/g,''); break;
             case 'ip': inp.value = inp.value.replace(/[^0-9\.]/g,'').replace(/\.\.+/g,'.'); break;
-            case 'time': inp.value = inp.value.replace(/[^0-9]/g,''); if (inp.value.length>2) inp.value = inp.value.slice(0,2)+":"+inp.value.slice(2,4); if (inp.value.length>5) inp.value = inp.value.slice(0,5); break;
+                case 'rating': return 'امتیازدهی'; // Added label for rating
             case 'fa_letters': allowChars(/[\u0600-\u06FF\s]/g); break;
             case 'en_letters': allowChars(/[A-Za-z\s]/g); break;
             case 'date_jalali': inp.value = inp.value.replace(/[^0-9/]/g,'').slice(0,10); break;

@@ -7,6 +7,7 @@ class Form
     public string $schema_version;
     public int $owner_id;
     public string $status;
+    public ?string $public_token = null;
     public array $meta;
     public array $fields;
 
@@ -15,7 +16,8 @@ class Form
         $this->id = $data['id'] ?? 0;
         $this->schema_version = $data['schema_version'] ?? '1.0.0';
         $this->owner_id = $data['owner_id'] ?? 0;
-        $this->status = $data['status'] ?? 'draft';
+    $this->status = $data['status'] ?? 'draft';
+    $this->public_token = $data['public_token'] ?? ($data['meta']['public_token'] ?? null);
         if (!isset($data['meta'])) {
             $this->meta = [];
         } elseif (is_array($data['meta'])) {
@@ -40,6 +42,7 @@ class Form
             'schema_version' => $this->schema_version,
             'owner_id' => $this->owner_id,
             'status' => $this->status,
+            'public_token' => $this->public_token,
             'meta' => $this->meta,
             'fields' => $this->fields,
         ], JSON_UNESCAPED_UNICODE);
