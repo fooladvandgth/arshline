@@ -187,6 +187,13 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
   var labelNumber = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '');
   var labelHtml = labelNumber + esc(f.question||'') + req;
   wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+labelHtml+'</div>';
+  if (f.show_description && f.description) {
+    var desc = document.createElement('div');
+    desc.className = 'arsh-hint';
+    desc.style.marginBottom = '.3rem';
+    desc.textContent = f.description;
+    wrap.appendChild(desc);
+  }
     var body = document.createElement('div');
     // known types
     if (f.type === 'short_text' || f.type === 'long_text'){
@@ -195,6 +202,7 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
       inp.name = 'field_'+f.id;
       inp.required = !!f.required;
       inp.className = 'ar-input'; inp.style.cssText = 'width:100%';
+      if (f.placeholder) inp.placeholder = f.placeholder;
       body.appendChild(inp);
     } else if (f.type === 'multiple_choice'){
   (f.options||[]).forEach(function(opt, i){ var id='f'+f.id+'_'+i; var row = document.createElement('label'); row.setAttribute('for', id); row.style.cssText='display:flex;gap:.35rem;align-items:center;margin:.15rem 0'; var input=document.createElement('input'); input.type='radio'; input.name='field_'+f.id; input.id=id; input.value=String(opt.value||opt.label||''); if (i===0 && f.required) input.required=true; var span=document.createElement('span'); span.textContent = String(opt.label||''); row.appendChild(input); row.appendChild(span); body.appendChild(row); });
@@ -220,6 +228,11 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
       }
       function paint(v){ Array.from(row.children).forEach(function(btn, i){ btn.style.color = i < v ? 'var(--ar-primary,#1e40af)' : '#94a3b8'; }); }
       for (var i=0;i<max;i++){ (function(ix){ var b=document.createElement('button'); b.type='button'; b.style.cssText='border:none;background:transparent;cursor:pointer;color:#94a3b8;padding:0;'; b.innerHTML = iconSvg(ic, false); b.addEventListener('mouseenter', function(){ paint(ix+1); }); b.addEventListener('mouseleave', function(){ paint(parseInt(hidden.value||0)); }); b.addEventListener('click', function(){ hidden.value = String(ix+1); paint(ix+1); }); row.appendChild(b); })(i); }
+      if (f.required) {
+        var reqStar = document.createElement('span');
+        reqStar.innerHTML = '<span style="color:#b91c1c;font-size:1.2em;margin-right:.3em">*</span>';
+        row.appendChild(reqStar);
+      }
       body.appendChild(row);
     } else {
       body.innerHTML = '<div class="arsh-hint">نوع پشتیبانی‌نشده</div>';

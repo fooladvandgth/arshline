@@ -62,5 +62,26 @@ class FormsModule
                 }
             }
         }
+
+        // Ensure status column exists (default 'draft') and normalize existing rows
+        $hasStatus = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'status'));
+        if (!$hasStatus) {
+            $sql = Migrations::up()['forms'] ?? '';
+            if ($sql) {
+                $sql = str_replace('{prefix}', $wpdb->prefix, $sql);
+                require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+                dbDelta($sql);
+            }
+            $hasStatus2 = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'status'));
+            if (!$hasStatus2) {
+                $safeTable = preg_replace('/[^A-Za-z0-9_]/', '', (string)$table);
+                if ($safeTable === '' || $safeTable !== $table) { return; }
+                $wpdb->query("ALTER TABLE `{$safeTable}` ADD `status` VARCHAR(20) DEFAULT 'draft'");
+            }
+        }
+        // Normalize invalid/NULL statuses to 'draft'
+        try {
+            $wpdb->query("UPDATE {$table} SET status='draft' WHERE status IS NULL OR status='' ");
+        } catch (\Throwable $e) { /* ignore */ }
     }
 }

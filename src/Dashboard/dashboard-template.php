@@ -1783,6 +1783,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '  <div class="card" style="padding:.8rem;display:flex;flex-direction:column;gap:.8rem;">'
                 + '    <div class="title" style="margin-bottom:.2rem;">تنظیمات فرم</div>'
                 + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
+                + '      <span class="hint">وضعیت فرم</span>'
+                + '      <select id="arFormStatus" class="ar-select"><option value="draft">پیش‌نویس</option><option value="published">منتشر شده (فعال)</option><option value="disabled">غیرفعال</option></select>'
+                + '      <button id="arSaveStatus" class="ar-btn">ذخیره وضعیت</button>'
+                + '      <span class="hint">لینک عمومی فقط در حالت «منتشر شده» فعال است.</span>'
+                + '    </div>'
+                + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
                 + '      <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;"><input type="checkbox" id="arSetHoneypot" /> <span>فعال‌سازی Honeypot (ضدربات ساده)</span></label>'
                 + '    </div>'
                 + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
@@ -1808,6 +1814,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '  <div class="card" style="padding:.8rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">'
                 + '    <span class="hint">لینک عمومی فرم:</span><input id="arShareLink" class="ar-input" style="min-width:340px" readonly />'
                 + '    <button id="arCopyLink" class="ar-btn">کپی لینک</button>'
+                + '    <span id="arShareWarn" class="hint" style="color:#b91c1c;display:none;">برای اشتراک‌گذاری، فرم باید «منتشر شده» باشد.</span>'
                 + '  </div>'
                 + '</div>'
                 + '<div id="arReportsPanel" style="display:none;">'
@@ -1919,6 +1926,43 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var side = document.getElementById('arFormSide'); if (side) side.style.background = dBg.value;
                         } catch(_){ }
                         var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
+                        // init status select
+                        var stSel = document.getElementById('arFormStatus'); if (stSel){ try { stSel.value = String(data.status||'draft'); } catch(_){ } }
+                        var saveStatus = document.getElementById('arSaveStatus'); if (saveStatus && stSel){ saveStatus.onclick = function(){
+                            var val = String(stSel.value||'draft');
+                            fetch(ARSHLINE_REST+'forms/'+id, {
+                                method:'PUT', credentials:'same-origin',
+                                headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE},
+                                body: JSON.stringify({ status: val })
+                            })
+                            .then(function(r){ if(!r.ok){ if (r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                            .then(function(obj){
+                                var ns = (obj&&obj.status)||val;
+                                notify('وضعیت فرم ذخیره شد: '+ns, 'success');
+                                try {
+                                    data.status = ns;
+                                    // If switched to published, ensure token is generated and refresh Share UI immediately
+                                    if (ns === 'published'){
+                                        // Step 1: ask server to ensure/generate token (idempotent)
+                                        fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                            .catch(function(){ /* ignore token generation network error here */ })
+                                            .finally(function(){
+                                                // Step 2: refetch form to get latest token and update UI
+                                                fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                                    .then(function(rr){ return rr.ok ? rr.json() : Promise.reject(new Error('HTTP '+rr.status)); })
+                                                    .then(function(d2){ try { data.token = (d2 && d2.token) ? String(d2.token) : (data.token||''); } catch(_){ }
+                                                        try { updateShareUI(); } catch(_){ }
+                                                    })
+                                                    .catch(function(){ try { updateShareUI(); } catch(_){ } });
+                                            });
+                                    } else {
+                                        // Not published: clear link UI immediately
+                                        try { updateShareUI(); } catch(_){ }
+                                    }
+                                } catch(_){ }
+                            })
+                            .catch(function(){ notify('ذخیره وضعیت ناموفق بود', 'error'); });
+                        } }
                         // init settings values from meta
                         try {
                             var hp = document.getElementById('arSetHoneypot'); if (hp) hp.checked = !!meta.anti_spam_honeypot;
@@ -1957,22 +2001,21 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                     .catch(function(){ notify('ذخیره تنظیمات ناموفق بود', 'error'); });
                             }; }
                         } catch(_){ }
-                        // share link (prefer token now that we ensured it exists)
+                        // share link (only for published forms)
                         var publicUrl = '';
                         try {
                             var token = (data && data.token) ? String(data.token) : '';
-                            if (token) {
+                            if (String(data.status||'') === 'published' && token) {
                                 if (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase) {
                                     publicUrl = ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', token);
                                 } else {
                                     publicUrl = window.location.origin + '/?arshline=' + encodeURIComponent(token);
                                 }
                             } else {
-                                var base = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicBase) || '';
-                                publicUrl = base ? base.replace('%ID%', String(id)) : (window.location.origin + '/?arshline_form='+id);
+                                publicUrl = '';
                             }
                         } catch(_){
-                            publicUrl = window.location.origin + '/?arshline_form='+id;
+                            publicUrl = '';
                         }
                         var shareLink = document.getElementById('arShareLink'); if (shareLink){ shareLink.value = publicUrl; shareLink.setAttribute('value', publicUrl); }
                         function copyText(text){
@@ -1990,22 +2033,33 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 } catch(e){ rej(e); }
                             });
                         }
-                        var copyBtn = document.getElementById('arCopyLink'); if (copyBtn){ copyBtn.onclick = function(){ copyText(publicUrl).then(function(){ notify('کپی شد', 'success'); }).catch(function(){ notify('کپی ناموفق بود', 'error'); }); }; }
+                        var shareWarn = document.getElementById('arShareWarn');
+                        function updateShareUI(){ try {
+                            var isPub = String(data.status||'') === 'published';
+                            var tok = (data && data.token) ? String(data.token) : '';
+                            var url = (isPub && tok) ? ((window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase) ? ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', tok) : (window.location.origin + '/?arshline=' + encodeURIComponent(tok))) : '';
+                            publicUrl = url;
+                            if (shareLink){ shareLink.value = url; shareLink.setAttribute('value', url); }
+                            var copyBtn = document.getElementById('arCopyLink');
+                            if (copyBtn){ copyBtn.disabled = !url; }
+                            if (shareWarn){ shareWarn.style.display = url ? 'none' : 'inline'; }
+                        } catch(_){ } }
+                        updateShareUI();
+                        var copyBtn = document.getElementById('arCopyLink'); if (copyBtn){ copyBtn.onclick = function(){ if (!publicUrl){ notify('ابتدا فرم را منتشر کنید', 'error'); return; } copyText(publicUrl).then(function(){ notify('کپی شد', 'success'); }).catch(function(){ notify('کپی ناموفق بود', 'error'); }); }; }
 
                         // Fallback: if token wasn't present initially, refetch once and update link if token appears
-                        if (!token) {
+                        if (!token && String(data.status||'') === 'published') {
                             setTimeout(function(){
                                 fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                                    .then(function(r){ return r.json(); })
                                    .then(function(d2){
                                        try {
                                            var t2 = (d2 && d2.token) ? String(d2.token) : '';
-                                           if (t2) {
+                                           if (t2 && String(d2.status||'') === 'published') {
                                                var url2 = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase)
                                                    ? ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', t2)
                                                    : (window.location.origin + '/?arshline=' + encodeURIComponent(t2));
-                                               if (shareLink) { shareLink.value = url2; shareLink.setAttribute('value', url2); }
-                                               publicUrl = url2;
+                                               data.token = t2; data.status = 'published'; publicUrl = url2; updateShareUI();
                                            }
                                        } catch(_){ }
                                    }).catch(function(){ /* ignore */ });
@@ -2550,10 +2604,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                     '<div><div class="hint">همه فرم‌ها</div><div id="arKpiForms" class="title">0</div></div>'+
                           '<ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
                         '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">فرم‌های فعال</div><div id="arKpiFormsActive" class="title">0</div></div>'+
-                          '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
+                                                                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                                                                                                        '<div><div class="hint">فرم‌های فعال</div><div id="arKpiFormsActive" class="title">0</div></div>'+
+                                                    '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+                                                '</div>'+
+                                                                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                                                                                                        '<div><div class="hint">فرم‌های غیرفعال</div><div id="arKpiFormsDisabled" class="title">0</div></div>'+
+                                                    '<ion-icon name="ban-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+                                                '</div>'+
                                                 '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
                                                     '<div><div class="hint">پاسخ‌ها</div><div id="arKpiSubs" class="title">0</div></div>'+
                           '<ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
@@ -2628,6 +2686,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v); }
                         set('arKpiForms', c.forms || 0);
                         set('arKpiFormsActive', c.forms_active || 0);
+                        set('arKpiFormsDisabled', c.forms_disabled || 0);
                         set('arKpiSubs', c.submissions || 0);
                         set('arKpiUsers', c.users || 0);
                     }
@@ -2655,6 +2714,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 <input id="arFormSearch" class="ar-input" placeholder="جستجو عنوان/شناسه" style="min-width:220px"/>\
                                                 <input id="arFormDateFrom" type="date" class="ar-input" title="از تاریخ"/>\
                                                 <input id="arFormDateTo" type="date" class="ar-input" title="تا تاریخ"/>\
+                                                <select id="arFormStatusFilter" class="ar-select" title="وضعیت">\
+                                                    <option value="">همه وضعیت‌ها</option>\
+                                                    <option value="published">فعال</option>\
+                                                    <option value="draft">پیش‌نویس</option>\
+                                                    <option value="disabled">غیرفعال</option>\
+                                                </select>\
                                                 <button id="arCreateFormBtn" class="ar-btn ar-btn--soft">+ فرم جدید</button>\
                                             </div>\
                                         </div>\
@@ -2673,6 +2738,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 var formSearch = document.getElementById('arFormSearch');
                                 var formDF = document.getElementById('arFormDateFrom');
                                 var formDT = document.getElementById('arFormDateTo');
+                                var formSF = document.getElementById('arFormStatusFilter');
                 if (!ARSHLINE_CAN_MANAGE && createBtn){ createBtn.style.display = 'none'; }
                 if (createBtn) createBtn.addEventListener('click', function(){
                     if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex';
@@ -2716,10 +2782,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
                     var all = Array.isArray(forms) ? forms : [];
                     var box = document.getElementById('arFormsList'); if (!box) return;
+                    function badge(status){
+                        var lab = status==='published'?'فعال':(status==='disabled'?'غیرفعال':'پیش‌نویس');
+                        var col = status==='published'?'#06b6d4':(status==='disabled'?'#ef4444':'#a3a3a3');
+                        return '<span class="hint" style="background:'+col+'20;color:'+col+';padding:.15rem .4rem;border-radius:999px;font-size:12px;">'+lab+'</span>';
+                    }
                     function applyFilters(){
                         var term = (formSearch && formSearch.value.trim()) || '';
                         var df = (formDF && formDF.value) || '';
                         var dt = (formDT && formDT.value) || '';
+                        var sf = (formSF && formSF.value) || '';
                         var list = all.filter(function(f){
                             var ok = true;
                             if (term){
@@ -2728,6 +2800,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             }
                             if (ok && df){ ok = String(f.created_at||'').slice(0,10) >= df; }
                             if (ok && dt){ ok = String(f.created_at||'').slice(0,10) <= dt; }
+                            if (ok && sf){ ok = String(f.status||'') === sf; }
                             return ok;
                         });
                         var isEmpty = list.length===0;
@@ -2736,6 +2809,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
                                 <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div>\
                                 <div style="display:flex;gap:.6rem;">\
+                                    '+badge(String(f.status||''))+'\
                                     <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
                                     <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
                                     <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
@@ -2755,6 +2829,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (formSearch) formSearch.addEventListener('input', function(){ clearTimeout(formSearch._t); formSearch._t = setTimeout(applyFilters, 200); });
                     if (formDF) formDF.addEventListener('change', applyFilters);
                     if (formDT) formDT.addEventListener('change', applyFilters);
+                    if (formSF) formSF.addEventListener('change', applyFilters);
                     // If header create was requested before arriving here, open inline create now
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
@@ -2770,6 +2845,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
                                                     '<div><div class="hint">فرم‌های فعال</div><div id="arRptKpiFormsActive" class="title">0</div></div>'+
                                                     '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+                                                '</div>'+
+                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                                                    '<div><div class="hint">فرم‌های غیرفعال</div><div id="arRptKpiFormsDisabled" class="title">0</div></div>'+
+                                                    '<ion-icon name="ban-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
                                                 '</div>'+
                                                 '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
                                                     '<div><div class="hint">پاسخ‌ها</div><div id="arRptKpiSubs" class="title">0</div></div>'+
@@ -2816,9 +2895,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 });
                                         }
                                         function applyCounts(c){
-                                                function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v||0); }
+                        function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v||0); }
                                                 set('arRptKpiForms', c.forms);
                                                 set('arRptKpiFormsActive', c.forms_active);
+                        set('arRptKpiFormsDisabled', c.forms_disabled);
                                                 set('arRptKpiSubs', c.submissions);
                                                 set('arRptKpiUsers', c.users);
                                         }
