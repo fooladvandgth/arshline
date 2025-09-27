@@ -121,6 +121,9 @@ add_action('wp_enqueue_scripts', static function () {
 
     $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? Dashboard::VERSION : '1.0.0';
 
+    // Enqueue Vazir font globally for the plugin dashboard
+    wp_enqueue_style('arshline-font-vazir', 'https://cdn.jsdelivr.net/npm/vazir-font/dist/font-face.css', [], null);
+
     // Enqueue modular CSS files in correct order for WordPress standards
     wp_enqueue_style('arshline-variables', plugins_url('assets/css/modules/variables.css', __FILE__), [], $version);
     wp_enqueue_style('arshline-layout', plugins_url('assets/css/modules/layout.css', __FILE__), ['arshline-variables'], $version);
