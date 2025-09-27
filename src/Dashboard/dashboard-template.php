@@ -34,45 +34,20 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
 
-        <script>
-        /* =========================================================================
-             BLOCK: runtime-config
-             Purpose: Expose WP REST base, nonce, and basic capability flags to the
-                                dashboard runtime and external modules.
-             Exports (globals):
-                 - ARSHLINE_REST (string)
-                 - ARSHLINE_NONCE (string)
-                 - ARSHLINE_SUB_VIEW_BASE (string with %ID%)
-                 - ARSHLINE_CAN_MANAGE (boolean)
-                 - ARSHLINE_LOGIN_URL (string)
-             Notes: Keep these as globals for backward compatibility until we extract
-                            to a separate JS module.
-             ========================================================================= */
-        const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
-    const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
-    const ARSHLINE_SUB_VIEW_BASE = '<?php echo esc_js( add_query_arg('arshline_submission', '%ID%', home_url('/')) ); ?>';
-    const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
-    const ARSHLINE_LOGIN_URL = '<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>';
-    
-    // Regression guard: validate critical constants are properly escaped
-    if (typeof ARSHLINE_REST !== 'string' || typeof ARSHLINE_NONCE !== 'string' || 
-        typeof ARSHLINE_CAN_MANAGE !== 'boolean' || typeof ARSHLINE_LOGIN_URL !== 'string') {
-        console.error('ARSHLINE: Invalid configuration constants detected. Check PHP output escaping.');
-    }
-    </script>
-        <script>
-        /* =========================================================================
-             BLOCK: debug-logger
-             Purpose: Provide a lightweight, toggleable console logger for debugging.
-             Exports (globals):
-                 - window.ARSHDBG (0/1)
-                 - function dlog(...args)
-             Future extraction: assets/js/utils/debug.js
-             ========================================================================= */
-        // Lightweight debug logger (toggle via window.ARSHDBG = 0/1 in DevTools)
-    window.ARSHDBG = (typeof window.ARSHDBG === 'undefined') ? 1 : window.ARSHDBG; // default ON
-    function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
-    </script>
+            <!-- Runtime config JSON (consumed by assets/js/core/runtime-config.js) -->
+            <script id="arshline-config" type="application/json">
+            {
+                "rest": "<?php echo esc_js( rest_url('arshline/v1/') ); ?>",
+                "nonce": "<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>",
+                "sub_view_base": "<?php echo esc_js( add_query_arg('arshline_submission', '%ID%', home_url('/')) ); ?>",
+                "can_manage": <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>,
+                "login_url": "<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>"
+            }
+            </script>
+            <!-- Extracted: runtime-config moved to external initializer -->
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/runtime-config.js?ver=' . $version ); ?>"></script>
+            <!-- Extracted: debug-logger -->
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/utils/debug.js?ver=' . $version ); ?>"></script>
         <script>
         /* =========================================================================
              BLOCK: tools-registry
