@@ -100,6 +100,35 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         } catch(_){ }
         var AR_DEBUG = false;
         try { AR_DEBUG = (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+        // Helper: build REST URL that works with both pretty permalinks and rest_route mode
+        function arBuildRestUrl(path, params){
+            try {
+                var p = String(path||'');
+                if (p.charAt(0)==='/') p = p.slice(1);
+                var u = new URL(ARSHLINE_REST||'', window.location.origin);
+                if (u.searchParams.has('rest_route')){
+                    var rr = u.searchParams.get('rest_route') || '';
+                    if (rr && rr.charAt(rr.length-1) !== '/') rr += '/';
+                    rr += p;
+                    u.searchParams.set('rest_route', rr);
+                } else {
+                    if (u.pathname && u.pathname.charAt(u.pathname.length-1) !== '/') u.pathname += '/';
+                    u.pathname += p;
+                }
+                if (params && typeof params === 'object'){
+                    Object.keys(params).forEach(function(k){ u.searchParams.set(k, params[k]); });
+                }
+                return u.toString();
+            } catch(_){
+                try {
+                    var qs = '';
+                    if (params && typeof params === 'object'){
+                        qs = new URLSearchParams(params).toString();
+                    }
+                    return (ARSHLINE_REST||'') + path + (qs ? ('?'+qs) : '');
+                } catch(__){ return (ARSHLINE_REST||'') + String(path||''); }
+            }
+        }
     // Optional capture mode: set localStorage.arshDebugCapture = '1' to enable
     try {
         if (localStorage.getItem('arshDebugCapture') === '1') {
@@ -2713,10 +2742,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         set('arKpiUsers', c.users || 0);
                     }
                     function load(days){
-                        fetch(ARSHLINE_REST + 'stats?days=' + encodeURIComponent(days||30), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                        var url = arBuildRestUrl('stats', { days: (days||30) });
+                        fetch(url, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                           .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
                           .then(function(data){ try { applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } })
-                          .catch(function(err){ console.error('[ARSH] stats failed', err); /* show zeros already present */ notify('دریافت آمار ناموفق بود', 'error'); });
+                          .catch(function(err){
+                              try { console.error('[ARSH] stats failed', err); } catch(_){ }
+                              try { if (typeof notify === 'function') notify('دریافت آمار ناموفق بود', 'error'); } catch(__){ }
+                          });
                     }
                     if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
                     // Initial
@@ -3002,11 +3035,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 set('arRptKpiSubs', c.submissions);
                                                 set('arRptKpiUsers', c.users);
                                         }
-                                        function load(days){
-                                                fetch(ARSHLINE_REST + 'stats?days=' + encodeURIComponent(days||30), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                    function load(days){
+                        var url = arBuildRestUrl('stats', { days: (days||30) });
+                        fetch(url, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                                                     .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
                                                     .then(function(data){ applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); })
-                                                    .catch(function(err){ console.error('[ARSH] stats failed', err); /* keep zeros */ notify('دریافت آمار ناموفق بود', 'error'); });
+                                                    .catch(function(err){
+                                                        try { console.error('[ARSH] stats failed', err); } catch(_){ }
+                                                        try { if (typeof notify === 'function') notify('دریافت آمار ناموفق بود', 'error'); } catch(__){ }
+                                                    });
                                         }
                                         if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
                                         load(30);
