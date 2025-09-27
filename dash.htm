@@ -1,46 +1,267 @@
-<?php
-/**
- * Template Name: Arshline Dashboard Fullscreen
- * Description: قالب اختصاصی و تمام‌صفحه برای داشبورد عرشلاین (بدون هدر و فوتر پوسته)
- */
-
-// جلوگیری از بارگذاری مستقیم
-if (!defined('ABSPATH')) exit;
-
-// Block access for non-logged-in users or users without required capability
-if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_can('manage_options') )) {
-    wp_redirect( wp_login_url( get_permalink() ) );
-    exit;
-}
-
-?><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>داشبورد عرشلاین</title>
-    <link rel="icon" href="<?php echo esc_url( plugins_url('favicon.ico', dirname(__DIR__, 2).'/arshline.php') ); ?>" type="image/x-icon" />
+    <link rel="icon" href="http://arshline.test/wp-content/plugins/arshline/favicon.ico" type="image/x-icon" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
-    
-    <?php
-    // Manually enqueue and output modular CSS files since this template bypasses wp_head()
-    $plugin_url = plugins_url('', dirname(__DIR__, 2) . '/arshline.php');
-    $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? \Arshline\Dashboard\Dashboard::VERSION : '1.0.0';
-    ?>
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/dashboard.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/variables.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/layout.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
-
+    <style>
+        :root {
+            /* Cyberpunk/Futuristic (light) */
+            --primary: #1e40af;     /* Indigo 800 (deeper) */
+            --primary-600: #1d4ed8;
+            --secondary: #0e7490;   /* Cyan 700 (deeper) */
+            --hot: #a21caf;         /* Fuchsia 700 (deeper) */
+            --accent: #047857;      /* Emerald 800 (deeper) */
+            --text: #0b1220;
+            --muted: #64748b;
+            --bg-surface: #f5f7fb;
+            --surface: #ffffff;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --sidebar: #ffffff;
+            --shadow-primary: 0 16px 36px rgba(30,64,175,.28);
+            --shadow-card: 0 8px 20px rgba(0,0,0,.10);
+            --grad-primary: #1e40af; /* solid */
+            --grad-accent: #047857;  /* solid */
+            /* Sporty solids for feature cards */
+            --grad-blue: #1e40af;
+            --grad-green: #047857;
+            --grad-pink: #a21caf;
+            --grad-cyan-magenta: #0e7490;
+            /* Glassmorphism (light) */
+            --glass-a: rgba(255,255,255,.6);
+            --glass-b: rgba(255,255,255,.22);
+            --glass-border: rgba(255,255,255,.55);
+            /* Glow */
+            --glow-primary: 0 0 0 3px rgba(37,99,255,.22), 0 10px 28px rgba(37,99,255,.28);
+            --glow-accent: 0 0 0 3px rgba(0,255,149,.18), 0 10px 28px rgba(0,229,255,.26);
+            /* Toast palette */
+            --toast-success: #16a34a;
+            --toast-error: #dc2626;
+            --toast-info: #2563eb;
+            --toast-warn: #d97706;
+        }
+        body.dark {
+            /* Cyberpunk (dark) */
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --bg-surface: #0c111f;
+            --surface: #0d1321;
+            --card: #121a2a;
+            --border: #1f2a44;
+            --sidebar: #0d1321; /* solid */
+            --shadow-primary: 0 18px 42px rgba(30,64,175,.35);
+            --shadow-card: 0 12px 28px rgba(0,0,0,.55);
+            --grad-primary: #1e40af; /* solid */
+            --grad-accent: #047857;  /* solid */
+            /* Glassmorphism (dark) */
+            --glass-a: rgba(255,255,255,.1);
+            --glass-b: rgba(255,255,255,.05);
+            --glass-border: rgba(255,255,255,.2);
+            /* Glow */
+            --glow-primary: 0 0 0 3px rgba(37,99,255,.28), 0 14px 34px rgba(37,99,255,.38);
+            --glow-accent: 0 0 0 3px rgba(0,255,149,.22), 0 14px 34px rgba(0,229,255,.34);
+        }
+        body {
+            margin: 0; padding: 0; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif; 
+            background: var(--bg-surface);
+            color: var(--text); transition: background .3s, color .3s;
+        }
+        .arshline-dashboard-root {
+            display: flex; min-height: 100vh; width: 100vw;
+        }
+        .arshline-sidebar {
+            width: 280px; background: var(--sidebar); border-inline-start: 1px solid var(--border);
+            backdrop-filter: blur(8px); display: flex; flex-direction: column; transition: width .3s ease; overflow: hidden;
+        }
+        .arshline-sidebar.closed { width: 72px; }
+        .arshline-sidebar .logo {
+            font-size: 1.4rem; font-weight: 700; color: var(--primary); padding: 1.75rem 1.25rem 1rem 1.25rem; text-align: right; display:flex; align-items:center; gap:.6rem;
+        }
+        .arshline-sidebar .logo .label { transition: opacity .2s ease, transform .2s ease; }
+        .arshline-sidebar.closed .logo .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
+        .arshline-sidebar nav {
+            flex: 1; display: flex; flex-direction: column; gap: 1rem; padding: 1rem .5rem; overflow-y: auto;
+        }
+        .arshline-sidebar nav a {
+            display: flex; align-items: center; gap: .75rem; color: var(--muted); text-decoration: none; padding: .7rem 1.1rem; border-radius: 12px; transition: background .2s, color .2s, transform .2s, box-shadow .2s;
+        }
+    .arshline-sidebar nav a .ic { width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center; }
+    /* Increase icon spacing to 50px (RTL uses margin-right) */
+    [dir='rtl'] .arshline-sidebar nav a .ic { margin-right: 50px; }
+    [dir='ltr'] .arshline-sidebar nav a .ic { margin-left: 50px; }
+        /* add extra breathing room from the right edge when collapsed (RTL) */
+        [dir='rtl'] .arshline-sidebar.closed nav { padding-inline-end: 12px; }
+        [dir='ltr'] .arshline-sidebar.closed nav { padding-inline-start: 12px; }
+    [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 50px; }
+    [dir='ltr'] .arshline-sidebar.closed nav a .ic { margin-left: 50px; }
+        .arshline-sidebar nav a .label { white-space: nowrap; transition: opacity .18s ease, transform .18s ease; }
+        .arshline-sidebar.closed nav a { justify-content: center; }
+        .arshline-sidebar.closed nav a .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
+    .arshline-sidebar nav a svg { transition: transform .2s ease, filter .2s ease; }
+    .arshline-sidebar nav a:hover svg { transform: translateX(-4px) scale(1.02); filter: drop-shadow(0 6px 10px rgba(37,99,255,.3)); }
+	.arshline-sidebar nav a.active { background: var(--primary); color: #fff; border: 0; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+	.arshline-sidebar nav a:hover { background: rgba(37,99,255,.18); color: #0b1220; box-shadow: 0 8px 20px rgba(37,99,255,.18); }
+        .arshline-sidebar .toggle { 
+            margin: 0 1.25rem 1rem 1.25rem; cursor: pointer; color: var(--muted); font-size: 1rem; text-align: center; background: transparent; border: 1px solid var(--border); padding: .35rem .55rem; border-radius: 10px; display:flex; align-items:center; justify-content:center; gap:.4rem; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif;
+        }
+        .arshline-sidebar .toggle:hover { background: rgba(37,99,255,.08); }
+        .arshline-sidebar .toggle .chev { display:inline-block; transition: transform .2s ease; line-height: 1; font-size: 18px; }
+        .arshline-main {
+            flex: 1; padding: 2.2rem 2rem; min-height: 100vh; transition: background .3s;
+        }
+        .arshline-header {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;
+        }
+    /* Sun/Moon Toggle */
+    .theme-toggle { --w: 56px; --h: 30px; position: relative; width: var(--w); height: var(--h); border-radius: 999px; background: linear-gradient(135deg, #60a5fa, #0ea5e9); display:inline-flex; align-items:center; padding: 3px; cursor: pointer; box-shadow: var(--shadow-card); border:1px solid var(--border); }
+    .theme-toggle .knob { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s ease, background .25s ease; box-shadow: 0 4px 10px rgba(0,0,0,.15); }
+    .theme-toggle .sun, .theme-toggle .moon { font-size: 14px; color: #fff; opacity: .9; }
+    .theme-toggle .sun { margin-inline-start: 9px; }
+    .theme-toggle .moon { margin-inline-end: 9px; margin-inline-start: auto; }
+    body.dark .theme-toggle { background: linear-gradient(135deg, #312e81, #0f172a); }
+    /* knob translate differs in RTL */
+    [dir='rtl'] body:not(.dark) .theme-toggle .knob { transform: translateX(-0px); }
+    [dir='rtl'] body.dark .theme-toggle .knob { transform: translateX(26px); }
+    [dir='ltr'] body.dark .theme-toggle .knob { transform: translateX(-26px); }
+    .ar-btn { cursor:pointer; font-weight:700; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.55rem .95rem; box-shadow: 0 8px 18px rgba(0,0,0,.12); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; font-family: inherit; letter-spacing:.2px; text-decoration:none; display:inline-flex; align-items:center; gap:.35rem; line-height:1.1; }
+    .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.18); }
+    .ar-btn:disabled { opacity:.6; cursor:not-allowed; box-shadow:none; }
+    .ar-btn--muted { background:#64748b; }
+    .ar-btn--outline { background:transparent; color: var(--text); border:1px solid var(--border); }
+    .ar-btn--danger { background:#b91c1c; }
+    .ar-btn--soft { background: rgba(30,64,175,.1); color: var(--primary); }
+    .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    .ar-input::placeholder { color: var(--muted); opacity: .85; }
+    .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
+    .ar-dnd-ghost { opacity:.6; transform: scale(.98); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+    .ar-dnd-over { outline: none; background: transparent; }
+    .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
+    .ar-dnd-placeholder { border:2px dashed transparent; border-radius:10px; margin:.35rem 0; background: transparent; opacity:.0; padding:0; pointer-events:none; transition: height .14s ease, margin .14s ease, opacity .14s ease, border-color .14s ease; }
+    .ar-dnd-placeholder--dashed { opacity:1; border-color: var(--border); background: transparent; }
+    .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+    .ar-draggable:active { cursor: grabbing; }
+    .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
+    /* Table styling with clear gridlines */
+    .ar-table { width:100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; table-layout: fixed; }
+    .ar-table thead th { position: sticky; top: 0; background: #f8fafc; color: #0b1220; font-weight: 700; font-size: .98rem; text-align: right; padding: .6rem .75rem; border-bottom: 1px solid var(--border); user-select: none; }
+        body.dark .ar-table thead th { background:#0f172a; color: #e5e7eb; }
+    .ar-table thead th, .ar-table tbody td { border-inline-end: 1px solid var(--border); }
+    .ar-table thead th:last-child, .ar-table tbody td:last-child { border-inline-end: none; }
+    .ar-table tbody td { font-size: .95rem; color: var(--text); padding: .55rem .75rem; border-bottom: 1px solid var(--border); }
+        .ar-table tbody tr:nth-child(even) { background: rgba(2, 6, 23, .02); }
+        body.dark .ar-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .03); }
+        .ar-table tbody tr:hover { background: rgba(30, 64, 175, .06); }
+        body.dark .ar-table tbody tr:hover { background: rgba(30, 64, 175, .14); }
+        .ar-table .actions { text-align: left; white-space: nowrap; }
+    /* Wrap toggle */
+    .ar-nowrap .ar-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ar-wrap .ar-table td { white-space: normal; overflow: visible; text-overflow: clip; }
+    /* Draggable headers (for question columns) */
+    .ar-th-draggable { cursor: move; }
+    .ar-th-drag-over { outline: 2px dashed var(--primary); }
+    /* Standard toggle switch */
+    .toggle-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+    .toggle-switch input { display:none; }
+    .toggle-switch-background { position:absolute; inset:0; background: #cbd5e1; border-radius: 999px; transition: background .18s ease; }
+    .toggle-switch-handle { position:absolute; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform .18s ease; }
+    /* RTL and LTR handle placement */
+    [dir='rtl'] .toggle-switch-handle { left: 3px; }
+    [dir='rtl'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(22px); }
+    [dir='ltr'] .toggle-switch-handle { right: 3px; }
+    [dir='ltr'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(-22px); }
+    .toggle-switch input:checked ~ .toggle-switch-background { background: #22c55e; }
+    /* Small type icon next to tools/questions */
+    .ar-type-ic { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; color: var(--muted); }
+    .ar-toolbtn { position: relative; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; width:100%; padding-inline-start: 40px; }
+    /* Pin toolbox icon to button corner with a cream color */
+    .ar-toolbtn .ar-type-ic { position:absolute; inset-inline-start:10px; inset-block-start:8px; color:#f5e6c8; pointer-events:none; }
+    /* Preview-only mode */
+    body.preview-only .arshline-sidebar, body.preview-only .arshline-header { display:none !important; }
+    body.preview-only .arshline-main { padding: 1.2rem; }
+        /* دارک مود */
+        body.dark { background: var(--bg-surface); color: var(--text); }
+    body.dark .arshline-main { color: var(--text); }
+    /* View transition */
+    #arshlineDashboardContent.view { animation: arViewIn .28s ease both; }
+    @keyframes arViewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    /* Modern solid cards (original design) */
+    .tagline { text-align:center; font-size:1.05rem; font-weight:700; color: var(--text); margin-bottom: 1rem; }
+    body.dark .tagline { color: #e5e7eb; }
+    .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:24px; padding: 10px 0 24px; }
+    .ar-card { position:relative; width:224px; height:315px; background:#1e40af; border-radius:20px; border-bottom-left-radius:112px; border-bottom-right-radius:112px; display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 12px 0 #fff, inset 0 -10px 0 rgba(255,255,255,.18), 0 36px 0 rgba(0,0,0,.12); }
+    .ar-card::before { content:""; position:absolute; top:-140px; left:-40%; width:100%; height:120%; background: rgba(255,255,255,.06); transform: rotate(35deg); pointer-events:none; filter: blur(5px); }
+    .ar-card .icon { position:relative; width:98px; height:84px; background:#0d1321; border-bottom-left-radius:70px; border-bottom-right-radius:70px; box-shadow: 0 12px 0 rgba(0,0,0,.1), inset 0 -8px 0 #fff; z-index:2; display:flex; justify-content:center; align-items:flex-start; }
+    .ar-card .icon::before { content:""; position:absolute; top:0; left:-50px; width:50px; height:50px; background:transparent; border-top-right-radius:50px; box-shadow: 15px -15px 0 15px #0d1321; }
+    .ar-card .icon::after { content:""; position:absolute; top:0; right:-50px; width:50px; height:50px; background:transparent; border-top-left-radius:50px; box-shadow: -15px -15px 0 15px #0d1321; }
+    .ar-card .icon ion-icon { color:#fff; position:relative; font-size:4.2em; --ionicon-stroke-width:24px; }
+    .ar-card .content { position:absolute; width:100%; padding:21px; padding-top:105px; text-align:center; z-index:1; }
+    .ar-card .content h2 { font-size:1.4rem; color:#fff; margin-bottom:12px; }
+    .ar-card .content p { color:#f1f5f9; line-height:1.6; font-size:.95rem; }
+    .ar-card--blue { background:#1e40af; }
+    .ar-card--amber { background:#b45309; }
+    .ar-card--violet { background:#6d28d9; }
+    .ar-card--teal { background:#0e7490; }
+    body.dark .ar-card { box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35); }
+    /* Toasts */
+    .ar-toast-wrap { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .6rem; z-index: 9999; }
+    .ar-toast { display:flex; align-items:center; gap:.6rem; padding:.6rem .8rem; border-radius:12px; background: var(--surface); color: var(--text); border:1px solid var(--border); border-inline-start: 4px solid var(--primary); box-shadow: var(--shadow-card); transition: opacity .25s ease, transform .25s ease; }
+    .ar-toast-ic { font-size: 18px; }
+    .ar-toast--success { border-inline-start-color: var(--toast-success); }
+    .ar-toast--error { border-inline-start-color: var(--toast-error); }
+    .ar-toast--info { border-inline-start-color: var(--toast-info); }
+    .ar-toast--warn { border-inline-start-color: var(--toast-warn); }
+    /* Editor columns separation */
+    .ar-settings { border-inline-end: 1px solid var(--border); padding-inline-end: 1rem; }
+    .ar-preview { padding-inline-start: 1rem; }
+    /* VC toggle switch styles (scoped) */
+    .vc-toggle-container { display:inline-block; }
+    .vc-small-switch { position: relative; display: inline-block; width: var(--vc-width,50px); height: var(--vc-height,25px); }
+    .vc-small-switch input { display:none; }
+    /* Floating AI Terminal */
+    .ar-ai-fab { position: fixed; left: 1rem; bottom: 1rem; z-index: 9998; border: 0; border-radius: 999px; padding: .7rem 1rem; background: var(--primary); color: #fff; box-shadow: 0 10px 20px rgba(0,0,0,.18); cursor: pointer; font-weight: 700; }
+    .ar-ai-fab:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(0,0,0,.22); }
+    .ar-ai-panel { position: fixed; left: 1rem; bottom: 4.2rem; width: min(92vw, 380px); max-height: 70vh; display: flex; flex-direction: column; gap: .6rem; padding: .8rem; border-radius: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-card); z-index: 9998; opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
+    .ar-ai-panel.open { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .ar-ai-header { display:flex; align-items:center; justify-content: space-between; gap:.6rem; }
+    .ar-ai-header .title { font-weight: 700; }
+    .ar-ai-close { background: transparent; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; }
+    .ar-ai-body textarea { width: 100%; min-height: 84px; resize: vertical; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-family: inherit; }
+    .ar-ai-body pre { background: rgba(2,6,23,.06); padding:.6rem; border-radius:8px; max-height: 200px; overflow: auto; direction: ltr; text-align: left; }
+    .vc-switch-label { position: absolute; inset: 0; cursor: pointer; background: var(--vc-off-color,#d1d3d4); border-radius: var(--vc-box-border-radius,18px); transition: background var(--vc-animation-speed,.15s ease-out); font-family: var(--vc-font-family,Arial); font-weight: var(--vc-font-weight,300); font-size: var(--vc-font-size,11px); color: var(--vc-off-font-color,#fff); }
+    .vc-switch-label:before { content: attr(data-off); position: absolute; right: var(--vc-label-position-off,12px); line-height: var(--vc-height,25px); }
+    .vc-switch-label:after  { content: attr(data-on); position: absolute; left: var(--vc-label-position-on,11px); line-height: var(--vc-height,25px); opacity: 0; }
+    .vc-switch-handle { position: absolute; top: var(--vc-handle-top,5px); right: 5px; width: var(--vc-handle-width,15px); height: var(--vc-handle-height,15px); background: var(--vc-handle-color,#fff); border-radius: var(--vc-handle-border-radius,20px); transition: all var(--vc-animation-speed,.15s ease-out); box-shadow: var(--vc-handle-shadow,1px 1px 5px rgba(0,0,0,.2)); }
+    .vc-small-switch input:checked ~ .vc-switch-label { background: var(--vc-on-color,#38cf5b); color: var(--vc-on-font-color,#fff); }
+    .vc-small-switch input:checked ~ .vc-switch-label:before { opacity: 0; }
+    .vc-small-switch input:checked ~ .vc-switch-label:after  { opacity: 1; }
+    .vc-small-switch input:checked ~ .vc-switch-handle { right: calc(100% - var(--vc-handle-width,15px) - 5px); }
+    /* RTL flip for Persian labels */
+    /* In RTL: OFF ("خیر") stays right, ON ("بله") stays left */
+    .vc-small-switch.vc-rtl .vc-switch-label:before { left: auto; right: var(--vc-label-position-off,12px); }
+    .vc-small-switch.vc-rtl .vc-switch-label:after  { right: auto; left: var(--vc-label-position-on,11px); }
+    .vc-small-switch.vc-rtl .vc-switch-handle { right: auto; left: 5px; }
+    .vc-small-switch.vc-rtl input:checked ~ .vc-switch-handle { left: calc(100% - var(--vc-handle-width,15px) - 5px); right: auto; }
+    .vc-small-switch.vc-rtl input:checked ~ .vc-switch-label:before { opacity: 0; }
+    .vc-small-switch.vc-rtl input:checked ~ .vc-switch-label:after  { opacity: 1; }
+    /* Validation helpers (minimal, scoped) */
+    .ar-input--invalid { border-color: #b91c1c !important; box-shadow: 0 0 0 3px rgba(185,28,28,.12); }
+    .ar-required { color:#b91c1c; margin: 0 .2rem; font-weight: 700; }
+    .ar-field-error { color:#b91c1c; margin-top:.3rem; display:none; }
+    /* Hide editor panels while initial data is loading to prevent UI flash */
+    #arBuilder.editor-loading .ar-settings, #arBuilder.editor-loading .ar-preview { visibility: hidden; opacity: 0; height: 0; overflow: hidden; }
+     </style>
     <script>
-    const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
-    const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
-    const ARSHLINE_SUB_VIEW_BASE = '<?php echo esc_js( add_query_arg('arshline_submission', '%ID%', home_url('/')) ); ?>';
-    const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
-    const ARSHLINE_LOGIN_URL = '<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>';
+    const ARSHLINE_REST = 'http://arshline.test/index.php?rest_route=/arshline/v1/';
+    const ARSHLINE_NONCE = '50a640473a';
+    const ARSHLINE_SUB_VIEW_BASE = 'http://arshline.test/?arshline_submission=%ID%';
+    const ARSHLINE_CAN_MANAGE = true;
+    const ARSHLINE_LOGIN_URL = 'http://arshline.test/wp-login.php?redirect_to=http%3A%2F%2Farshline.test%2F';
     
     // Regression guard: validate critical constants are properly escaped
     if (typeof ARSHLINE_REST !== 'string' || typeof ARSHLINE_NONCE !== 'string' || 
@@ -109,14 +330,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     });
     </script>
     <!-- Load external tool modules (must come after Tools registry) -->
-    <!-- Load main dashboard JavaScript -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <!-- Load external tool modules (must come after Tools registry) -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/long_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/multiple_choice.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/long_text.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/multiple_choice.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/short_text.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/dropdown.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/rating.js"></script>
     <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
@@ -2578,9 +2796,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
             }
             if (tab === 'dashboard') {
-                // Dashboard: Landing modern cards + KPIs + chart (keep original cards)
-                content.innerHTML = ''+
-                    '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
+                content.innerHTML = '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>' +
                     '<div class="ar-modern-cards">\
                         <div class="ar-card ar-card--blue">\
                             <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
@@ -2598,110 +2814,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             <div class="icon"><ion-icon name="settings-outline"></ion-icon></div>\
                             <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
                         </div>\
-                    </div>'+
-                    '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
-                      '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">همه فرم‌ها</div><div id="arKpiForms" class="title">0</div></div>'+
-                          '<ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">فرم‌های فعال</div><div id="arKpiFormsActive" class="title">0</div></div>'+
-                          '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">پاسخ‌ها</div><div id="arKpiSubs" class="title">0</div></div>'+
-                          '<ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">کاربران</div><div id="arKpiUsers" class="title">0</div></div>'+
-                          '<ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
-                      '</div>'+
-                    '</div>'+
-                    '<div class="card glass" style="padding:1rem;">'+
-                      '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
-                        '<span class="title">روند ارسال‌ها</span>'+
-                        '<span class="hint">۳۰ روز اخیر</span>'+
-                        '<span style="flex:1 1 auto"></span>'+
-                        '<select id="arStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
-                      '</div>'+
-                      '<canvas id="arSubsChart" height="100"></canvas>'+
-                    '</div>';
-
-                // Fetch stats and render chart
-                (function(){
-                    var daysSel = document.getElementById('arStatsDays');
-                    var ctx = document.getElementById('arSubsChart');
-                    var chart = null;
-                    function palette(){
-                        var dark = document.body.classList.contains('dark');
-                        return {
-                            grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)',
-                            text: dark ? '#e5e7eb' : '#374151',
-                            line: dark ? '#60a5fa' : '#2563eb',
-                            fill: dark ? 'rgba(96,165,250,.15)' : 'rgba(37,99,235,.12)'
-                        };
-                    }
-                    function renderChart(labels, data){
-                        var pal = palette();
-                        if (!ctx) return;
-                        try {
-                            if (chart){ chart.destroy(); chart = null; }
-                        } catch(_){ }
-                        if (!window.Chart) { return; }
-                        chart = new window.Chart(ctx, {
-                            type: 'line',
-                            data: {
-                                labels: labels,
-                                datasets: [{
-                                    label: 'ارسال‌ها',
-                                    data: data,
-                                    borderColor: pal.line,
-                                    backgroundColor: pal.fill,
-                                    fill: true,
-                                    tension: .3,
-                                    pointRadius: 2,
-                                    borderWidth: 2,
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                scales: {
-                                    x: { grid: { color: pal.grid }, ticks: { color: pal.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
-                                    y: { grid: { color: pal.grid }, ticks: { color: pal.text, precision: 0 } }
-                                },
-                                plugins: {
-                                    legend: { labels: { color: pal.text } },
-                                    tooltip: { intersect: false, mode: 'index' }
-                                }
-                            }
-                        });
-                    }
-                    function applyCounts(c){
-                        function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v); }
-                        set('arKpiForms', c.forms || 0);
-                        set('arKpiFormsActive', c.forms_active || 0);
-                        set('arKpiSubs', c.submissions || 0);
-                        set('arKpiUsers', c.users || 0);
-                    }
-                    function load(days){
-                        fetch(ARSHLINE_REST + 'stats?days=' + encodeURIComponent(days||30), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                          .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                          .then(function(data){ try { applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } })
-                          .catch(function(err){ console.error('[ARSH] stats failed', err); /* show zeros already present */ notify('دریافت آمار ناموفق بود', 'error'); });
-                    }
-                    if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
-                    // Initial
-                    load(30);
-                    // Re-render chart on theme toggle
-                    try {
-                        var themeToggle = document.getElementById('arThemeToggle');
-                        if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var d = chart && chart.config && chart.config.data; var l = chart && chart.config && chart.config.data && chart.config.data.labels; var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data; if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v); } catch(_){ } }); }
-                    } catch(_){ }
-                })();
-            } else if (tab === 'forms') {
+                    </div>';
+                        } else if (tab === 'forms') {
                 // header button already rendered globally
                                 content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
                                         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
@@ -2813,80 +2927,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     // If header create was requested before arriving here, open inline create now
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
-                        } else if (tab === 'reports') {
-                                // Reports: reuse the same stats view for now (KPIs + chart)
-                                content.innerHTML = ''+
-                                        '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
-                                            '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">همه فرم‌ها</div><div id="arRptKpiForms" class="title">0</div></div>'+
-                                                    '<ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">فرم‌های فعال</div><div id="arRptKpiFormsActive" class="title">0</div></div>'+
-                                                    '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">پاسخ‌ها</div><div id="arRptKpiSubs" class="title">0</div></div>'+
-                                                    '<ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">کاربران</div><div id="arRptKpiUsers" class="title">0</div></div>'+
-                                                    '<ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                            '</div>'+
-                                        '</div>'+
-                                        '<div class="card glass" style="padding:1rem;">'+
-                                            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
-                                                '<span class="title">روند ارسال‌ها</span>'+
-                                                '<span class="hint">۳۰ روز اخیر</span>'+
-                                                '<span style="flex:1 1 auto"></span>'+
-                                                '<select id="arRptStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
-                                            '</div>'+
-                                            '<canvas id="arRptSubsChart" height="100"></canvas>'+
-                                        '</div>';
-
-                                (function(){
-                                        var daysSel = document.getElementById('arRptStatsDays');
-                                        var ctx = document.getElementById('arRptSubsChart');
-                                        var chart = null;
-                                        function palette(){
-                                                var dark = document.body.classList.contains('dark');
-                                                return {
-                                                        grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)',
-                                                        text: dark ? '#e5e7eb' : '#374151',
-                                                        line: dark ? '#34d399' : '#059669',
-                                                        fill: dark ? 'rgba(52,211,153,.15)' : 'rgba(5,150,105,.12)'
-                                                };
-                                        }
-                                        function renderChart(labels, data){
-                                                var pal = palette();
-                                                if (!ctx) return;
-                                                try { if (chart){ chart.destroy(); chart = null; } } catch(_){ }
-                                                if (!window.Chart) { return; }
-                                                chart = new window.Chart(ctx, {
-                                                        type: 'line',
-                                                        data: { labels: labels, datasets: [{ label: 'ارسال‌ها', data: data, borderColor: pal.line, backgroundColor: pal.fill, fill: true, tension: .3, pointRadius: 2, borderWidth: 2 }] },
-                                                        options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { color: pal.grid }, ticks: { color: pal.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { grid: { color: pal.grid }, ticks: { color: pal.text, precision: 0 } } }, plugins: { legend: { labels: { color: pal.text } }, tooltip: { intersect: false, mode: 'index' } } }
-                                                });
-                                        }
-                                        function applyCounts(c){
-                                                function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v||0); }
-                                                set('arRptKpiForms', c.forms);
-                                                set('arRptKpiFormsActive', c.forms_active);
-                                                set('arRptKpiSubs', c.submissions);
-                                                set('arRptKpiUsers', c.users);
-                                        }
-                                        function load(days){
-                                                fetch(ARSHLINE_REST + 'stats?days=' + encodeURIComponent(days||30), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                                    .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                                    .then(function(data){ applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); })
-                                                    .catch(function(err){ console.error('[ARSH] stats failed', err); /* keep zeros */ notify('دریافت آمار ناموفق بود', 'error'); });
-                                        }
-                                        if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
-                                        load(30);
-                                        try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart?.config?.data?.labels||[]; var v = chart?.config?.data?.datasets?.[0]?.data||[]; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
-                                })();
+            } else if (tab === 'reports') {
+                content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
+                    card('نمودار نرخ تبدیل', 'به‌زودی') +
+                    card('منابع ترافیک', 'به‌زودی') +
+                    card('زمان‌های اوج', 'به‌زودی') +
+                '</div>';
                         } else if (tab === 'users') {
                 content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
                     <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
@@ -3222,8 +3268,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
 <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
-<!-- Chart.js for charts -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Persian datepicker (optional) -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -3345,9 +3389,5 @@ function applyInputMask(inp, props){
     });
 }
 </script>
-
-<!-- Ionicons for modern cards -->
-<script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
-<script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
 </body>
 </html>
