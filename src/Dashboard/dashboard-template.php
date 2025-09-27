@@ -1930,9 +1930,29 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         // apply to builder preview area
                         try {
                             document.documentElement.style.setProperty('--ar-primary', dPrim.value);
-                            var side = document.getElementById('arFormSide'); if (side) side.style.background = dBg.value;
+                            var side = document.getElementById('arFormSide');
+                            if (side){
+                                var isDark = document.body.classList.contains('dark');
+                                // If in dark theme, prefer themed surface; otherwise use chosen design bg
+                                if (isDark) {
+                                    side.style.background = '';
+                                } else {
+                                    side.style.background = dBg.value || '';
+                                }
+                            }
                         } catch(_){ }
                         var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
+                        // Re-apply side background on theme toggle (avoid light flash in dark)
+                        try {
+                            var themeToggle = document.getElementById('arThemeToggle');
+                            if (themeToggle){ themeToggle.addEventListener('click', function(){ try {
+                                var side = document.getElementById('arFormSide');
+                                if (side){
+                                    var isDarkNow = document.body.classList.contains('dark');
+                                    side.style.background = isDarkNow ? '' : (dBg.value || '');
+                                }
+                            } catch(_){ } }); }
+                        } catch(_){ }
                         // init status select
                         var stSel = document.getElementById('arFormStatus'); if (stSel){ try { stSel.value = String(data.status||'draft'); } catch(_){ } }
                         var saveStatus = document.getElementById('arSaveStatus'); if (saveStatus && stSel){ saveStatus.onclick = function(){

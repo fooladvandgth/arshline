@@ -374,6 +374,9 @@ body.dark .tagline {
 #arFormSide {
     background: var(--surface, #ffffff);
 }
+body.dark #arFormSide {
+    background: var(--surface, #1e293b) !important;
+}
 
 .ar-card {
     background: #287bff;
