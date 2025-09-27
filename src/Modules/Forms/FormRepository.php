@@ -9,8 +9,8 @@ class FormRepository
     {
         global $wpdb;
         $table = Helpers::tableName('forms');
-        // Ensure public token exists
-        if (!$form->public_token) {
+        // Ensure public token exists only for published forms (draft/disabled should not auto-generate tokens)
+        if ($form->status === 'published' && !$form->public_token) {
             // try until unique
             do { $tok = Helpers::randomToken(9); $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE public_token=%s LIMIT 1", $tok)); } while ($exists);
             $form->public_token = $tok;

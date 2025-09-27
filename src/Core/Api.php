@@ -194,7 +194,8 @@ class Api
         // Public, read-only form definition (without requiring admin perms)
         register_rest_route('arshline/v1', '/public/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
-            'callback' => [self::class, 'get_form'],
+            // Use a public-safe getter that enforces status gating
+            'callback' => [self::class, 'get_public_form'],
             'permission_callback' => '__return_true',
         ]);
         // Public by-token routes
@@ -241,6 +242,12 @@ class Api
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'DELETE',
             'callback' => [self::class, 'delete_form'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        // Update form (status toggle: draft|published|disabled)
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
+            'methods' => 'PUT',
+            'callback' => [self::class, 'update_form'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/submissions', [
@@ -310,10 +317,11 @@ class Api
         $subs = Helpers::tableName('submissions');
 
         // Counts
-    $total_forms = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$forms}");
-    $draft_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'draft'));
-    // Define "active" as any non-draft status to better match real usage
-    $active_forms = max(0, $total_forms - $draft_forms);
+        $total_forms = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$forms}");
+        $draft_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'draft'));
+        $disabled_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'disabled'));
+        // Active is strictly published; we also surface disabled separately
+        $active_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'published'));
         $total_submissions = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$subs}");
         // WP users
         $users_count = 0;
@@ -358,6 +366,7 @@ class Api
                 'forms' => $total_forms,
                 'forms_active' => $active_forms,
                 'forms_draft' => $draft_forms,
+                'forms_disabled' => $disabled_forms,
                 'submissions' => $total_submissions,
                 'users' => $users_count,
             ],
@@ -410,11 +419,9 @@ class Api
         $id = (int)$request['form_id'];
         $form = FormRepository::find($id);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
-        // Ensure token exists when an admin/editor opens the builder (backfill on-read)
-        if (self::user_can_manage_forms() && empty($form->public_token)) {
-            // Save will generate a token if missing
+        // Ensure token exists for published forms only (avoid generating for drafts/disabled)
+        if (self::user_can_manage_forms() && $form->status === 'published' && empty($form->public_token)) {
             FormRepository::save($form);
-            // Re-fetch to include the generated token
             $form = FormRepository::find($id) ?: $form;
         }
         $fields = FieldRepository::listByForm($id);
@@ -424,10 +431,32 @@ class Api
             'meta' => $form->meta,
             'fields' => $fields,
         ];
-        // Expose token only to users who can manage forms (admin/editor)
-        if (self::user_can_manage_forms() && !empty($form->public_token)) {
+        // Expose token only for published forms to users who can manage
+        if (self::user_can_manage_forms() && $form->status === 'published' && !empty($form->public_token)) {
             $payload['token'] = $form->public_token;
         }
+        return new WP_REST_Response($payload, 200);
+    }
+
+    /**
+     * Public-safe: only returns form definition when status is published.
+     * Hides token field and returns 403 for draft/disabled forms.
+     */
+    public static function get_public_form(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        $form = FormRepository::find($id);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
+        }
+        $fields = FieldRepository::listByForm($id);
+        $payload = [
+            'id' => $form->id,
+            'status' => $form->status,
+            'meta' => $form->meta,
+            'fields' => $fields,
+        ];
         return new WP_REST_Response($payload, 200);
     }
 
@@ -597,8 +626,9 @@ class Api
                 $req->set_url_params(['form_id'=>$fid]);
                 $res = self::get_form($req);
                 $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $status = isset($data['status']) ? (string)$data['status'] : '';
                 $token = isset($data['token']) ? (string)$data['token'] : '';
-                $url = $token ? home_url('/?arshline='.rawurlencode($token)) : '';
+                $url = ($token && $status==='published') ? home_url('/?arshline='.rawurlencode($token)) : '';
                 return new WP_REST_Response(['ok'=> (bool)$url, 'url'=>$url, 'token'=>$token], 200);
             }
             // List forms: "لیست فرم ها" | "نمایش فرم ها"
@@ -747,8 +777,9 @@ class Api
                         $req->set_url_params(['form_id'=>$fid]);
                         $res = self::get_form($req);
                         $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                        $status = isset($data['status']) ? (string)$data['status'] : '';
                         $token = isset($data['token']) ? (string)$data['token'] : '';
-                        $url = $token ? home_url('/?arshline='.rawurlencode($token)) : '';
+                        $url = ($token && $status==='published') ? home_url('/?arshline='.rawurlencode($token)) : '';
                         return new WP_REST_Response(['ok'=> (bool)$url, 'url'=>$url, 'token'=>$token], 200);
                     }
                     if ($action === 'list_forms'){
@@ -901,6 +932,9 @@ class Api
         $token = (string)$request['token'];
         $form = FormRepository::findByToken($token);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
+        }
         $fields = FieldRepository::listByForm($form->id);
         return new WP_REST_Response([
             'id' => $form->id,
@@ -1098,6 +1132,10 @@ class Api
         // Load form to access meta settings
         $form = FormRepository::find($form_id);
         if (!$form) return new WP_REST_Response(['error' => 'invalid_form_id'], 400);
+        // Gate submissions to published forms only
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error' => 'form_disabled'], 403);
+        }
     $global = self::get_global_settings();
     $meta = array_merge($global, is_array($form->meta) ? $form->meta : []);
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
@@ -1185,6 +1223,10 @@ class Api
         $token = (string)$request['token'];
         $form = FormRepository::findByToken($token);
         if (!$form) return new WP_REST_Response(['error' => 'invalid_form_token'], 404);
+        // Block submissions when not published
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error' => 'form_disabled'], 403);
+        }
         $request['form_id'] = $form->id;
         return self::create_submission($request);
     }
@@ -1293,6 +1335,9 @@ class Api
         if (!$form) {
             return new WP_REST_Response('<div class="ar-alert ar-alert--err">فرم یافت نشد.</div>', 200);
         }
+        if ($form->status !== 'published'){
+            return new WP_REST_Response('<div class="ar-alert ar-alert--err">این فرم در حال حاضر فعال نیست.</div>', 200);
+        }
         $request['form_id'] = $form->id;
         return self::create_submission_htmx($request);
     }
@@ -1381,11 +1426,36 @@ class Api
         if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
         $form = FormRepository::find($id);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        // Do not issue tokens for non-published forms to enforce gating
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
+        }
         if (empty($form->public_token)) {
             FormRepository::save($form);
             $form = FormRepository::find($id) ?: $form;
         }
         return new WP_REST_Response(['token' => (string)$form->public_token], 200);
+    }
+
+    /**
+     * PUT /forms/{id} — update form attributes (currently only status)
+     */
+    public static function update_form(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
+        $form = FormRepository::find($id);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        $status = (string)($request->get_param('status') ?? '');
+        if ($status !== ''){
+            $allowed = ['draft','published','disabled'];
+            if (!in_array($status, $allowed, true)){
+                return new WP_REST_Response(['error'=>'invalid_status'], 400);
+            }
+            $form->status = $status;
+        }
+        FormRepository::save($form);
+        return new WP_REST_Response(['ok'=>true, 'id'=>$form->id, 'status'=>$form->status], 200);
     }
 
     public static function upload_image(WP_REST_Request $request)
