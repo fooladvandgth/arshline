@@ -36,23 +36,44 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
 
     <script>
+    /* Block: arsh-config
+       Purpose: Provide core runtime constants (REST URL, Nonce, permissions, login URL, submission printable URL base)
+       Inputs: WP PHP APIs (rest_url, wp_create_nonce, add_query_arg, home_url, current_user_can, wp_login_url)
+       Outputs: ARSHLINE_REST, ARSHLINE_NONCE, ARSHLINE_SUB_VIEW_BASE, ARSHLINE_CAN_MANAGE, ARSHLINE_LOGIN_URL */
     const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
     const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
     const ARSHLINE_SUB_VIEW_BASE = '<?php echo esc_js( add_query_arg('arshline_submission', '%ID%', home_url('/')) ); ?>';
     const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
     const ARSHLINE_LOGIN_URL = '<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>';
-    
-    // Regression guard: validate critical constants are properly escaped
     if (typeof ARSHLINE_REST !== 'string' || typeof ARSHLINE_NONCE !== 'string' || 
         typeof ARSHLINE_CAN_MANAGE !== 'boolean' || typeof ARSHLINE_LOGIN_URL !== 'string') {
         console.error('ARSHLINE: Invalid configuration constants detected. Check PHP output escaping.');
     }
     </script>
     <script>
-    // Lightweight debug logger (toggle via window.ARSHDBG = 0/1 in DevTools)
-    window.ARSHDBG = (typeof window.ARSHDBG === 'undefined') ? 1 : window.ARSHDBG; // default ON
-    function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
+    /* Block: arsh-localized-config
+       Purpose: Mirror wp_localize_script output for dashboard runtime when wp_head() is bypassed.
+       Exposes: window.ARSHLINE_DASHBOARD */
+    (function(){
+        try {
+            window.ARSHLINE_DASHBOARD = {
+                restUrl: ARSHLINE_REST,
+                restNonce: ARSHLINE_NONCE,
+                canManage: !!ARSHLINE_CAN_MANAGE,
+                loginUrl: ARSHLINE_LOGIN_URL,
+                strings: {},
+                publicBase: '<?php echo esc_js( add_query_arg('arshline_form', '%ID%', home_url('/')) ); ?>',
+                publicTokenBase: '<?php echo esc_js( add_query_arg('arshline', '%TOKEN%', home_url('/')) ); ?>'
+            };
+        } catch(_){ /* no-op */ }
+    })();
     </script>
+     <script>
+     /* Block: arsh-debug-helpers
+         Purpose: Minimal debug toggle and logger for early boot */
+     window.ARSHDBG = (typeof window.ARSHDBG === 'undefined') ? 1 : window.ARSHDBG; // default ON
+     function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
+     </script>
     <!-- Load tool registry and modules explicitly (template bypasses wp_head) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/registry.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
@@ -62,9 +83,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <!-- Finally load main dashboard controller -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script>
-    // Tabs: render content per menu item
-    document.addEventListener('DOMContentLoaded', function() {
+     <script>
+     /* Block: arsh-app-shell
+         Purpose: Dashboard shell behaviors (tabs, sidebar toggle, debug capture, HTML sanitizers) */
+     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
         var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
         var sidebar = document.querySelector('.arshline-sidebar');
@@ -2720,6 +2742,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                     <option value="draft">پیش‌نویس</option>\
                                                     <option value="disabled">غیرفعال</option>\
                                                 </select>\
+                                                '+(ARSHLINE_CAN_MANAGE ? '<label style="display:flex;align-items:center;gap:.35rem;white-space:nowrap;"><input type="checkbox" id="arFormSelectAll"/> انتخاب همه</label>' : '')+'\
                                                 <button id="arCreateFormBtn" class="ar-btn ar-btn--soft">+ فرم جدید</button>\
                                             </div>\
                                         </div>\
@@ -2728,6 +2751,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                             <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
                                             <button id="arCreateFormCancel" class="ar-btn ar-btn--outline">انصراف</button>\
                                         </div>\
+                                        '+(ARSHLINE_CAN_MANAGE ? '<div id="arFormsBulkBar" class="card" style="display:none;padding:.5rem;margin-bottom:.6rem;align-items:center;gap:.6rem;justify-content:space-between;">\
+                                            <div class="hint" style="font-size:13px;">موارد انتخاب‌شده: <span id="arBulkSelCount">0</span></div>\
+                                            <div style="display:flex;gap:.5rem;">\
+                                                <button id="arBulkDelete" class="ar-btn ar-btn--danger">حذف انتخاب‌شده‌ها</button>\
+                                            </div>\
+                                        </div>' : '')+'\
                                         <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
                                 </div>';
                 var createBtn = document.getElementById('arCreateFormBtn');
@@ -2739,6 +2768,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 var formDF = document.getElementById('arFormDateFrom');
                                 var formDT = document.getElementById('arFormDateTo');
                                 var formSF = document.getElementById('arFormStatusFilter');
+                var selectAll = document.getElementById('arFormSelectAll');
+                var bulkBar = document.getElementById('arFormsBulkBar');
+                var bulkCount = document.getElementById('arBulkSelCount');
+                var bulkDelete = document.getElementById('arBulkDelete');
+                var selected = new Set();
                 if (!ARSHLINE_CAN_MANAGE && createBtn){ createBtn.style.display = 'none'; }
                 if (createBtn) createBtn.addEventListener('click', function(){
                     if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex';
@@ -2787,6 +2821,24 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         var col = status==='published'?'#06b6d4':(status==='disabled'?'#ef4444':'#a3a3a3');
                         return '<span class="hint" style="background:'+col+'20;color:'+col+';padding:.15rem .4rem;border-radius:999px;font-size:12px;">'+lab+'</span>';
                     }
+                    function updateBulkUI(){
+                        if (!ARSHLINE_CAN_MANAGE) return;
+                        var count = selected.size;
+                        if (bulkCount) bulkCount.textContent = String(count);
+                        if (bulkBar) bulkBar.style.display = count > 0 ? 'flex' : 'none';
+                        if (selectAll){
+                            // If every visible checkbox is selected, check selectAll, else indeterminate
+                            try {
+                                var visibles = box ? Array.from(box.querySelectorAll('.arFormSelect')) : [];
+                                var visibleIds = new Set(visibles.map(function(ch){ return parseInt(ch.getAttribute('data-id'))||0; }));
+                                var allSelected = visibles.length>0 && visibles.every(function(ch){ return selected.has(parseInt(ch.getAttribute('data-id'))||0); });
+                                var someSelected = visibles.some(function(ch){ return selected.has(parseInt(ch.getAttribute('data-id'))||0); });
+                                selectAll.checked = allSelected;
+                                selectAll.indeterminate = !allSelected && someSelected;
+                            } catch(_){ }
+                        }
+                    }
+                    function clearSelection(){ selected.clear(); updateBulkUI(); }
                     function applyFilters(){
                         var term = (formSearch && formSearch.value.trim()) || '';
                         var df = (formDF && formDF.value) || '';
@@ -2807,7 +2859,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         if (isEmpty){ box.innerHTML = '<div class="hint">فرمی مطابق جستجو یافت نشد.</div>'; return; }
                         var html = list.map(function(f){
                             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
-                                <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div>\
+                                <div style="display:flex;align-items:center;gap:.5rem;">'+(ARSHLINE_CAN_MANAGE ? ('<input type="checkbox" class="arFormSelect" data-id="'+f.id+'" aria-label="انتخاب فرم '+f.id+'"/>' ) : '')+'<div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div></div>\
                                 <div style="display:flex;gap:.6rem;">\
                                     '+badge(String(f.status||''))+'\
                                     <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
@@ -2823,6 +2875,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; renderFormResults(id); }); });
                         if (ARSHLINE_CAN_MANAGE) {
                             box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); });
+                            // selection checkboxes
+                            box.querySelectorAll('.arFormSelect').forEach(function(ch){
+                                var id = parseInt(ch.getAttribute('data-id'))||0;
+                                ch.checked = selected.has(id);
+                                ch.addEventListener('change', function(){
+                                    if (ch.checked) selected.add(id); else selected.delete(id);
+                                    updateBulkUI();
+                                });
+                            });
+                            updateBulkUI();
                         }
                     }
                     applyFilters();
@@ -2830,6 +2892,44 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (formDF) formDF.addEventListener('change', applyFilters);
                     if (formDT) formDT.addEventListener('change', applyFilters);
                     if (formSF) formSF.addEventListener('change', applyFilters);
+                    if (selectAll && ARSHLINE_CAN_MANAGE){
+                        selectAll.addEventListener('change', function(){
+                            try {
+                                var checks = box ? Array.from(box.querySelectorAll('.arFormSelect')) : [];
+                                checks.forEach(function(ch){
+                                    var id = parseInt(ch.getAttribute('data-id'))||0;
+                                    ch.checked = selectAll.checked;
+                                    if (selectAll.checked) selected.add(id); else selected.delete(id);
+                                });
+                                updateBulkUI();
+                            } catch(_){ }
+                        });
+                    }
+                    if (bulkDelete && ARSHLINE_CAN_MANAGE){
+                        bulkDelete.addEventListener('click', function(){
+                            if (selected.size===0) return;
+                            if (!confirm('حذف '+selected.size+' فرم انتخاب‌شده؟ این عمل بازگشت‌ناپذیر است.')) return;
+                            var ids = Array.from(selected);
+                            // Disable button to prevent duplicates
+                            try { bulkDelete.disabled = true; } catch(_){ }
+                            Promise.all(ids.map(function(id){
+                                return fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                    .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                                    .then(function(){
+                                        // remove from local list
+                                        all = all.filter(function(f){ return parseInt(f.id)!==parseInt(id); });
+                                        selected.delete(id);
+                                    });
+                            })).then(function(){
+                                notify('موارد انتخاب‌شده حذف شدند', 'success');
+                                if (selectAll){ selectAll.checked = false; selectAll.indeterminate = false; }
+                                applyFilters();
+                                updateBulkUI();
+                            }).catch(function(){
+                                notify('حذف گروهی ناموفق بود', 'error');
+                            }).finally(function(){ try { bulkDelete.disabled = false; } catch(_){ } });
+                        });
+                    }
                     // If header create was requested before arriving here, open inline create now
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
@@ -3139,20 +3239,17 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <pre id="arAiOut"></pre>
         </div>
     </div>
-<<<<<<< HEAD
-<!-- Scripts and styles are enqueued by WordPress (arshline.php). -->
-=======
+<!-- External libraries (bottom of body) -->
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
 <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
-<!-- Chart.js for charts -->
+<!-- Chart.js for charts (if/when used) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Persian datepicker (optional) -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
->>>>>>> 87574f7 (2.1.2 ای آی ماژولار: بازگردانی کارت‌های داشبورد، افزودن KPI و نمودار؛ آمار واقعی با تفکیک درفت/غیردرفت، چارت گزارشات)
 <script>
 // Toast notifications (polished, reusable)
 function ensureToastWrap(){
