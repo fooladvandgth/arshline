@@ -21,16 +21,6 @@
     line-height: 1.2;
 }
 
-        width: 160px;
-        height: 225px;
-        margin: 15px;
-        border-radius: 10px;
-        border-bottom-left-radius: 80px;
-        border-bottom-right-radius: 80px;
-    color: var(--muted, #64748b);
-    margin: 0;
-    line-height: 1.4;
-}
 
 .tagline {
     text-align: center;
@@ -129,10 +119,7 @@
     font-size: 1rem;
     width: 100%;
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-        width: 70px;
-        height: 60px;
-        border-bottom-left-radius: 50px;
-        border-bottom-right-radius: 50px;
+}
 .ar-input::placeholder {
     color: var(--muted, #64748b);
     opacity: 0.85;
@@ -530,6 +517,17 @@ body.dark .ar-card {
     color: var(--text);
     border-radius: var(--radius);
     transition: all var(--transition-fast);
+}
+
+/* Desktop: don't force full width for tool buttons outside the sidebar */
+@media (min-width: 1024px) {
+    .ar-toolbtn {
+        width: auto;
+    }
+    /* Keep full width specifically in the tools sidebar column */
+    #arToolsSide .ar-toolbtn {
+        width: 100%;
+    }
 }
 
 .ar-toolbtn:hover {

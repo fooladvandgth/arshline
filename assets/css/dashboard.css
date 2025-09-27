@@ -515,6 +515,11 @@
         font-family: inherit;
         cursor: pointer;
     }
+
+    @media (min-width: 1024px) {
+        .ar-toolbtn { width: auto; }
+        #arToolsSide .ar-toolbtn { width: 100%; }
+    }
     
     .ar-toolbtn:hover {
         background: rgba(30, 64, 175, 0.05);
