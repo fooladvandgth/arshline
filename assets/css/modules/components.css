@@ -370,6 +370,11 @@ body.dark .tagline {
     min-height: auto;
 }
 
+/* Ensure builder side panel uses themed surface (fix white in dark mode) */
+#arFormSide {
+    background: var(--surface, #ffffff);
+}
+
 .ar-card {
     background: #287bff;
     display: flex;

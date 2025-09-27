@@ -48,71 +48,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/runtime-config.js?ver=' . $version ); ?>"></script>
             <!-- Extracted: debug-logger -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/utils/debug.js?ver=' . $version ); ?>"></script>
-        <script>
-        /* =========================================================================
-             BLOCK: tools-registry
-             Purpose: Central registry for form tools (types), including defaults and
-                                render hooks for editor/preview. Serves as foundation for
-                                modular tool files.
-             Exports (global namespace):
-                 - window.ARSH.Tools.{ register, get, getDefaults, renderEditor, renderPreview }
-             Dependencies: window.ARSH (namespace object)
-             Future extraction: assets/js/core/tools-registry.js
-             ========================================================================= */
-        // Lightweight Tools Registry (foundation for modular tools)
-    // Usage: ARSH.Tools.register({ type, defaults, renderEditor?, renderPreview? })
-    //        const d = ARSH.Tools.getDefaults('long_text')
-    window.ARSH = window.ARSH || {};
-        (function ToolsRegistry(ns){
-        var _defs = Object.create(null);
-        function register(def){ if (!def || !def.type) return; _defs[def.type] = def; }
-        function get(type){ return _defs[type] || null; }
-        function clone(obj){ try { return JSON.parse(JSON.stringify(obj)); } catch(_) { return obj; } }
-        function getDefaults(type){ var d = get(type); return d && d.defaults ? clone(d.defaults) : null; }
-        function renderEditor(type, field, ctx){
-            try {
-                var d = get(type);
-                if (!d || typeof d.renderEditor !== 'function') return false;
-                ctx = ctx || {}; ctx.field = ctx.field || field;
-                // Support both signatures: (field, ctx) and (ctx)
-                if (d.renderEditor.length >= 2) { return !!d.renderEditor(field, ctx); }
-                else { return !!d.renderEditor(ctx); }
-            } catch(_){ return false; }
-        }
-        function renderPreview(type, field, ctx){
-            try {
-                var d = get(type);
-                if (!d || typeof d.renderPreview !== 'function') return false;
-                ctx = ctx || {}; ctx.field = ctx.field || field;
-                if (d.renderPreview.length >= 2) { return !!d.renderPreview(field, ctx); }
-                else { return !!d.renderPreview(ctx); }
-            } catch(_){ return false; }
-        }
-        ns.Tools = { register: register, get: get, getDefaults: getDefaults, renderEditor: renderEditor, renderPreview: renderPreview };
-    })(window.ARSH);
-
-    // Register core tools with centralized defaults
-    ARSH.Tools.register({
-        type: 'short_text',
-        defaults: { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true }
-    });
-    ARSH.Tools.register({
-        type: 'long_text',
-        defaults: { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:false }
-    });
-    ARSH.Tools.register({
-        type: 'multiple_choice',
-        defaults: { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true }
-    });
-    ARSH.Tools.register({
-        type: 'dropdown',
-        defaults: { type:'dropdown', label:'لیست کشویی', question:'', required:false, numbered:true, show_description:false, description:'', placeholder:'', options:[{ label:'گزینه 1', value:'opt_1' }], randomize:false, alpha_sort:false }
-    });
-    ARSH.Tools.register({
-        type: 'rating',
-        defaults: { type:'rating', label:'امتیازدهی', question:'', required:false, numbered:true, show_description:false, description:'', max:5, icon:'star', media_upload:false }
-    });
-    </script>
+            <!-- Extracted: tools-registry and core defaults -->
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tools-registry.js?ver=' . $version ); ?>"></script>
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tool-defaults.js?ver=' . $version ); ?>"></script>
     <!-- Load external tool modules (must come after Tools registry) -->
     <!-- Load main dashboard JavaScript -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
@@ -2691,28 +2629,35 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         '</div>'+
                       '</div>'+
                     '</div>'+
-                    '<div class="card glass" style="padding:1rem;">'+
-                      '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
+                                        '<div class="card glass" style="padding:1rem;">'+
+                                            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
                         '<span class="title">روند ارسال‌ها</span>'+
                         '<span class="hint">۳۰ روز اخیر</span>'+
                         '<span style="flex:1 1 auto"></span>'+
                         '<select id="arStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
                       '</div>'+
-                      '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChart"></canvas></div>'+
+                                            '<div style="display:flex; flex-wrap:wrap; gap:.8rem; align-items:stretch;">'+
+                                                '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChart"></canvas></div>'+
+                                                '<div style="width:160px; flex:0 0 160px; height:140px;"><canvas id="arFormsDonut"></canvas></div>'+
+                                            '</div>'+
                     '</div>';
 
                 // Fetch stats and render chart
                 (function(){
                     var daysSel = document.getElementById('arStatsDays');
                     var ctx = document.getElementById('arSubsChart');
+                    var donutCtx = document.getElementById('arFormsDonut');
                     var chart = null;
+                    var donut = null;
                     function palette(){
                         var dark = document.body.classList.contains('dark');
                         return {
                             grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)',
                             text: dark ? '#e5e7eb' : '#374151',
                             line: dark ? '#60a5fa' : '#2563eb',
-                            fill: dark ? 'rgba(96,165,250,.15)' : 'rgba(37,99,235,.12)'
+                            fill: dark ? 'rgba(96,165,250,.15)' : 'rgba(37,99,235,.12)',
+                            active: dark ? '#34d399' : '#10b981',
+                            disabled: dark ? '#f87171' : '#ef4444'
                         };
                     }
                     function renderChart(labels, data){
@@ -2752,13 +2697,43 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             }
                         });
                     }
+                    function renderDonut(activeCnt, disabledCnt){
+                        if (!donutCtx || !window.Chart) return;
+                        var pal = palette();
+                        try { if (donut) { donut.destroy(); donut = null; } } catch(_){ }
+                        donut = new window.Chart(donutCtx, {
+                            type: 'doughnut',
+                            data: {
+                                labels: ['فعال','غیرفعال'],
+                                datasets: [{
+                                    data: [activeCnt, disabledCnt],
+                                    backgroundColor: [pal.active, pal.disabled],
+                                    borderColor: [pal.active, pal.disabled],
+                                    borderWidth: 1
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { position: 'bottom', labels: { color: pal.text } },
+                                    tooltip: { callbacks: { label: function(ctx){ var v = ctx.parsed; var sum = (activeCnt+disabledCnt)||1; var pct = Math.round((v/sum)*100); return ctx.label+': '+v+' ('+pct+'%)'; } } }
+                                },
+                                cutout: '55%'
+                            }
+                        });
+                    }
                     function applyCounts(c){
                         function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v); }
-                        set('arKpiForms', c.forms || 0);
-                        set('arKpiFormsActive', c.forms_active || 0);
-                        set('arKpiFormsDisabled', c.forms_disabled || 0);
+                        var total = c.forms || 0;
+                        var active = c.forms_active || 0;
+                        var disabled = Math.max(total - active, 0);
+                        set('arKpiForms', total);
+                        set('arKpiFormsActive', active);
+                        set('arKpiFormsDisabled', disabled);
                         set('arKpiSubs', c.submissions || 0);
                         set('arKpiUsers', c.users || 0);
+                        try { renderDonut(active, disabled); } catch(_){ }
                     }
                                         function load(days){
                                                 try {
@@ -2776,7 +2751,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     // Re-render chart on theme toggle
                     try {
                         var themeToggle = document.getElementById('arThemeToggle');
-                        if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var d = chart && chart.config && chart.config.data; var l = chart && chart.config && chart.config.data && chart.config.data.labels; var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data; if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v); } catch(_){ } }); }
+                        if (themeToggle){ themeToggle.addEventListener('click', function(){ try { 
+                            var l = chart && chart.config && chart.config.data && chart.config.data.labels;
+                            var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data;
+                            if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v);
+                            var a = parseInt((document.getElementById('arKpiFormsActive')||{}).textContent||'0')||0;
+                            var d = parseInt((document.getElementById('arKpiFormsDisabled')||{}).textContent||'0')||0;
+                            renderDonut(a, d);
+                        } catch(_){ } }); }
                     } catch(_){ }
                 })();
             } else if (tab === 'forms') {
