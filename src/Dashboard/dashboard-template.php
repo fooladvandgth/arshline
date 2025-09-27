@@ -34,8 +34,21 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
 
-    <script>
-    const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
+        <script>
+        /* =========================================================================
+             BLOCK: runtime-config
+             Purpose: Expose WP REST base, nonce, and basic capability flags to the
+                                dashboard runtime and external modules.
+             Exports (globals):
+                 - ARSHLINE_REST (string)
+                 - ARSHLINE_NONCE (string)
+                 - ARSHLINE_SUB_VIEW_BASE (string with %ID%)
+                 - ARSHLINE_CAN_MANAGE (boolean)
+                 - ARSHLINE_LOGIN_URL (string)
+             Notes: Keep these as globals for backward compatibility until we extract
+                            to a separate JS module.
+             ========================================================================= */
+        const ARSHLINE_REST = '<?php echo esc_js( rest_url('arshline/v1/') ); ?>';
     const ARSHLINE_NONCE = '<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>';
     const ARSHLINE_SUB_VIEW_BASE = '<?php echo esc_js( add_query_arg('arshline_submission', '%ID%', home_url('/')) ); ?>';
     const ARSHLINE_CAN_MANAGE = <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>;
@@ -47,17 +60,35 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         console.error('ARSHLINE: Invalid configuration constants detected. Check PHP output escaping.');
     }
     </script>
-    <script>
-    // Lightweight debug logger (toggle via window.ARSHDBG = 0/1 in DevTools)
+        <script>
+        /* =========================================================================
+             BLOCK: debug-logger
+             Purpose: Provide a lightweight, toggleable console logger for debugging.
+             Exports (globals):
+                 - window.ARSHDBG (0/1)
+                 - function dlog(...args)
+             Future extraction: assets/js/utils/debug.js
+             ========================================================================= */
+        // Lightweight debug logger (toggle via window.ARSHDBG = 0/1 in DevTools)
     window.ARSHDBG = (typeof window.ARSHDBG === 'undefined') ? 1 : window.ARSHDBG; // default ON
     function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
     </script>
-    <script>
-    // Lightweight Tools Registry (foundation for modular tools)
+        <script>
+        /* =========================================================================
+             BLOCK: tools-registry
+             Purpose: Central registry for form tools (types), including defaults and
+                                render hooks for editor/preview. Serves as foundation for
+                                modular tool files.
+             Exports (global namespace):
+                 - window.ARSH.Tools.{ register, get, getDefaults, renderEditor, renderPreview }
+             Dependencies: window.ARSH (namespace object)
+             Future extraction: assets/js/core/tools-registry.js
+             ========================================================================= */
+        // Lightweight Tools Registry (foundation for modular tools)
     // Usage: ARSH.Tools.register({ type, defaults, renderEditor?, renderPreview? })
     //        const d = ARSH.Tools.getDefaults('long_text')
     window.ARSH = window.ARSH || {};
-    (function(ns){
+        (function ToolsRegistry(ns){
         var _defs = Object.create(null);
         function register(def){ if (!def || !def.type) return; _defs[def.type] = def; }
         function get(type){ return _defs[type] || null; }
@@ -117,6 +148,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
+    /* =========================================================================
+       BLOCK: dashboard-controller
+       Purpose: Orchestrates dashboard behavior: sidebar routing/tabs, theme &
+                sidebar toggles, results list, form builder, and preview flows.
+       Dependencies: runtime-config, tools-registry, external tool modules,
+                     assets/js/dashboard.js
+       Exports: none (DOM side-effects only)
+       Future extraction: assets/js/dashboard-controller.js
+       ========================================================================= */
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
