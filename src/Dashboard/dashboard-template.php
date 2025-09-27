@@ -290,37 +290,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
     </script>
     <script>
-    // Lightweight Tools Registry (foundation for modular tools)
-    // Usage: ARSH.Tools.register({ type, defaults, renderEditor?, renderPreview? })
-    //        const d = ARSH.Tools.getDefaults('long_text')
-    window.ARSH = window.ARSH || {};
-    (function(ns){
-        var _defs = Object.create(null);
-        function register(def){ if (!def || !def.type) return; _defs[def.type] = def; }
-        function get(type){ return _defs[type] || null; }
-        function clone(obj){ try { return JSON.parse(JSON.stringify(obj)); } catch(_) { return obj; } }
-        function getDefaults(type){ var d = get(type); return d && d.defaults ? clone(d.defaults) : null; }
-        function renderEditor(type, field, ctx){
-            try {
-                var d = get(type);
-                if (!d || typeof d.renderEditor !== 'function') return false;
-                ctx = ctx || {}; ctx.field = ctx.field || field;
-                // Support both signatures: (field, ctx) and (ctx)
-                if (d.renderEditor.length >= 2) { return !!d.renderEditor(field, ctx); }
-                else { return !!d.renderEditor(ctx); }
-            } catch(_){ return false; }
-        }
-        function renderPreview(type, field, ctx){
-            try {
-                var d = get(type);
-                if (!d || typeof d.renderPreview !== 'function') return false;
-                ctx = ctx || {}; ctx.field = ctx.field || field;
-                if (d.renderPreview.length >= 2) { return !!d.renderPreview(field, ctx); }
-                else { return !!d.renderPreview(ctx); }
-            } catch(_){ return false; }
-        }
-        ns.Tools = { register: register, get: get, getDefaults: getDefaults, renderEditor: renderEditor, renderPreview: renderPreview };
-    })(window.ARSH);
+    // Tools registry and core tools moved to assets/js/tools/registry.js
 
     // Register core tools with centralized defaults
     ARSH.Tools.register({
@@ -344,12 +314,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         defaults: { type:'rating', label:'امتیازدهی', question:'', required:false, numbered:true, show_description:false, description:'', max:5, icon:'star', media_upload:false }
     });
     </script>
-    <!-- Load external tool modules (must come after Tools registry) -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/long_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/multiple_choice.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <!-- Tool modules are enqueued by WordPress (see arshline.php) -->
     <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
@@ -3130,112 +3095,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             setHash(initial);
             renderTab(initial);
         }
-        // Floating AI Terminal wiring
-        try {
-            var fab = document.getElementById('arAiFab');
-            var panel = document.getElementById('arAiPanel');
-            var closeBtn = document.getElementById('arAiClose');
-            var runBtn = document.getElementById('arAiRun');
-            var clearBtn = document.getElementById('arAiClear');
-            var cmdEl = document.getElementById('arAiCmd');
-            var outEl = document.getElementById('arAiOut');
-            function setOpen(b){ if (!panel) return; panel.classList.toggle('open', !!b); panel.setAttribute('aria-hidden', b? 'false':'true'); if (b && cmdEl) cmdEl.focus(); try { sessionStorage.setItem('arAiOpen', b?'1':'0'); } catch(_){ } }
-            if (fab) fab.addEventListener('click', function(){ var isOpen = panel && panel.classList.contains('open'); setOpen(!isOpen); });
-            if (closeBtn) closeBtn.addEventListener('click', function(){ setOpen(false); });
-            if (clearBtn) clearBtn.addEventListener('click', function(){ if(outEl) outEl.textContent=''; if(cmdEl) cmdEl.value=''; try { sessionStorage.removeItem('arAiHist'); } catch(_){ } });
-            function appendOut(o){ if (!outEl) return; try { var old = outEl.textContent || ''; var s = (typeof o==='string')? o : JSON.stringify(o, null, 2); outEl.textContent = (old? (old+"\n\n") : '') + s; outEl.scrollTop = outEl.scrollHeight; } catch(_){ }
-            }
-            function saveHist(cmd, res){ try { var h = []; try { h = JSON.parse(sessionStorage.getItem('arAiHist')||'[]'); } catch(_){ h = []; } h.push({ t: Date.now(), cmd: String(cmd||''), res: res }); h = h.slice(-20); sessionStorage.setItem('arAiHist', JSON.stringify(h)); } catch(_){ } }
-            function loadHist(){ try { var h = JSON.parse(sessionStorage.getItem('arAiHist')||'[]'); if (Array.isArray(h) && h.length && outEl){ outEl.textContent = h.map(function(x){ return '> '+(x.cmd||'')+'\n'+JSON.stringify(x.res||{}, null, 2); }).join('\n\n'); } } catch(_){ } }
-            loadHist();
-            function handleAgentAction(j){
-                try {
-                    if (!j) return;
-                    // Confirmation flow: render a quick inline yes/no prompt in output
-                    if (j.action === 'confirm' && j.confirm_action){
-                        var msg = String(j.message||'تایید می‌کنید؟');
-                        appendOut({ confirm: msg, params: j.confirm_action });
-                        // Render ephemeral buttons
-                        try {
-                            var wrap = document.createElement('div'); wrap.style.marginTop='.5rem';
-                            var yes = document.createElement('button'); yes.className='ar-btn'; yes.textContent='تایید';
-                            var no = document.createElement('button'); no.className='ar-btn ar-btn--outline'; no.textContent='انصراف'; no.style.marginInlineStart='.5rem';
-                            yes.addEventListener('click', async function(){
-                                try {
-                                    var r2 = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: j.confirm_action }) });
-                                    var txt2 = ''; try { txt2 = await r2.clone().text(); } catch(_){ }
-                                    var j2 = null; try { j2 = txt2 ? JSON.parse(txt2) : await r2.json(); } catch(_){ }
-                                    appendOut(j2 || (txt2 || ('HTTP '+r2.status)));
-                                    if (r2.ok && j2 && j2.ok !== false){ handleAgentAction(j2); notify('تایید شد', 'success'); }
-                                    else { notify('انجام نشد', 'error'); }
-                                } catch(e){ appendOut(String(e)); notify('خطا', 'error'); }
-                            });
-                            no.addEventListener('click', function(){ notify('لغو شد', 'warn'); });
-                            wrap.appendChild(yes); wrap.appendChild(no);
-                            if (outEl) outEl.appendChild(wrap);
-                        } catch(_){ }
-                        return;
-                    }
-                    // Clarify with options
-                    if (j.action === 'clarify' && j.kind === 'options' && Array.isArray(j.options)){
-                        appendOut({ clarify: String(j.message||'مبهم است'), options: j.options });
-                        try {
-                            var wrap2 = document.createElement('div'); wrap2.style.marginTop='.5rem';
-                            (j.options||[]).forEach(function(opt){
-                                var b = document.createElement('button'); b.className='ar-btn'; b.textContent=String(opt.label||opt.value);
-                                b.style.marginInlineEnd='.5rem';
-                                b.addEventListener('click', async function(){
-                                    // If clarify_action provided, send a confirm prompt next
-                                    if (j.clarify_action){
-                                        const ca = j.clarify_action; const pa = {}; pa[j.param_key] = opt.value;
-                                        // Ask backend to execute direct by sending confirm_action to maintain consistency
-                                        var r3 = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: { action: ca.action, params: pa } }) });
-                                        var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
-                                        var j3 = null; try { j3 = t3 ? JSON.parse(t3) : await r3.json(); } catch(_){ }
-                                        appendOut(j3 || (t3 || ('HTTP '+r3.status)));
-                                        if (r3.ok && j3 && j3.ok !== false){ handleAgentAction(j3); notify('انجام شد', 'success'); } else { notify('انجام نشد', 'error'); }
-                                    }
-                                });
-                                wrap2.appendChild(b);
-                            });
-                            if (outEl) outEl.appendChild(wrap2);
-                        } catch(_){ }
-                        return;
-                    }
-                    // Help capabilities
-                    if (j.action === 'help' && j.capabilities){ appendOut({ capabilities: j.capabilities }); return; }
-                    // UI actions
-                    if (j.action === 'ui' && j.target === 'toggle_theme'){
-                        try { var t = document.getElementById('arThemeToggle'); if (t) t.click(); } catch(_){ }
-                        return;
-                    }
-                    if (j.action === 'open_tab' && j.tab){ renderTab(String(j.tab)); }
-                    else if (j.action === 'open_builder' && j.id){ try { setHash('builder/'+parseInt(j.id)); } catch(_){ } renderTab('forms'); }
-                    else if ((j.action === 'download' || j.action === 'export') && j.url){ try { window.open(String(j.url), '_blank'); } catch(_){ } }
-                    else if (j.url && !j.action){ try { window.open(String(j.url), '_blank'); } catch(_){ } }
-                } catch(_){ }
-            }
-            async function runAgent(cmdOverride){
-                var cmd = (typeof cmdOverride === 'string' && cmdOverride.trim()) ? cmdOverride.trim() : ((cmdEl && cmdEl.value) ? String(cmdEl.value) : '');
-                if (!cmd){ notify('دستور خالی است', 'warn'); return; }
-                appendOut('> '+cmd);
-                try {
-                    var r = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) });
-                    var txt = ''; try { txt = await r.clone().text(); } catch(_){ }
-                    var j = null; try { j = txt ? JSON.parse(txt) : await r.json(); } catch(_){ }
-                    appendOut(j || (txt || ('HTTP '+r.status)));
-                    saveHist(cmd, j || txt || {});
-                    if (r.ok && j && j.ok !== false){ handleAgentAction(j); notify('انجام شد', 'success'); }
-                    else { notify('اجرا ناموفق بود', 'error'); }
-                } catch(e){ appendOut(String(e)); notify('خطا در اجرای دستور', 'error'); }
-            }
-            if (runBtn) runBtn.addEventListener('click', runAgent);
-            if (cmdEl) cmdEl.addEventListener('keydown', function(e){ if (e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); runAgent(); }});
-            // restore open state
-            try { if ((sessionStorage.getItem('arAiOpen')||'')==='1') setOpen(true); } catch(_){ }
-        } catch(_){ }
-        // Allow other modules to trigger AI terminal
-        try { window.ARSH_AI = { open: function(){ var p=document.getElementById('arAiPanel'); if(!p) return; p.classList.add('open'); p.setAttribute('aria-hidden','false'); }, run: function(cmd){ var t=document.getElementById('arAiCmd'); if(t){ t.value=String(cmd||''); } var b=document.getElementById('arAiRun'); if(b){ b.click(); } } }; } catch(_){ }
+        // Floating AI Terminal wiring moved to assets/js/dashboard.js
     });
     </script>
     </head>
@@ -3280,14 +3140,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <pre id="arAiOut"></pre>
         </div>
     </div>
-<!-- Ionicons for modern solid cards -->
-<script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
-<script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
-<!-- Persian datepicker (optional) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
+<!-- Scripts and styles are enqueued by WordPress (arshline.php). -->
 <script>
 // Toast notifications (polished, reusable)
 function ensureToastWrap(){

@@ -121,14 +121,32 @@ add_action('wp_enqueue_scripts', static function () {
 
     $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? Dashboard::VERSION : '1.0.0';
 
+    // Core CSS
     wp_enqueue_style('arshline-dashboard', plugins_url('assets/css/dashboard.css', __FILE__), [], $version);
 
+    // Third-party dependencies (keep versions external for now)
     wp_enqueue_script('arshline-ionicons', 'https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js', [], null, true);
-
     wp_enqueue_script('jquery');
     wp_enqueue_style('arshline-persian-datepicker', 'https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css', [], null);
     wp_enqueue_script('arshline-persian-date', 'https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js', ['jquery'], null, true);
     wp_enqueue_script('arshline-persian-datepicker', 'https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js', ['arshline-persian-date'], null, true);
+
+    // Tools registry and core tools (previously inline)
+    wp_register_script('arshline-tools-registry', plugins_url('assets/js/tools/registry.js', __FILE__), [], $version, true);
+    wp_register_script('arshline-tool-short-text', plugins_url('assets/js/tools/short_text.js', __FILE__), ['arshline-tools-registry'], $version, true);
+    wp_register_script('arshline-tool-long-text', plugins_url('assets/js/tools/long_text.js', __FILE__), ['arshline-tools-registry'], $version, true);
+    wp_register_script('arshline-tool-multiple-choice', plugins_url('assets/js/tools/multiple_choice.js', __FILE__), ['arshline-tools-registry'], $version, true);
+    wp_register_script('arshline-tool-dropdown', plugins_url('assets/js/tools/dropdown.js', __FILE__), ['arshline-tools-registry'], $version, true);
+    wp_register_script('arshline-tool-rating', plugins_url('assets/js/tools/rating.js', __FILE__), ['arshline-tools-registry'], $version, true);
+
+    // Main dashboard controller (modularized from inline script)
+    wp_register_script(
+        'arshline-dashboard',
+        plugins_url('assets/js/dashboard.js', __FILE__),
+        ['jquery', 'arshline-tools-registry', 'arshline-tool-short-text', 'arshline-tool-long-text', 'arshline-tool-multiple-choice', 'arshline-tool-dropdown', 'arshline-tool-rating', 'arshline-persian-datepicker'],
+        $version,
+        true
+    );
 
     $strings = [
         'loading' => __('در حال بارگذاری...', 'arshline'),
@@ -169,6 +187,7 @@ add_action('wp_enqueue_scripts', static function () {
 
     $public_base = add_query_arg('arshline_form', '%ID%', home_url('/'));
     $public_token_base = add_query_arg('arshline', '%TOKEN%', home_url('/'));
+    // Localize config for main dashboard script
     wp_localize_script('arshline-dashboard', 'ARSHLINE_DASHBOARD', [
         'restUrl' => esc_url_raw(rest_url('arshline/v1/')),
         'restNonce' => wp_create_nonce('wp_rest'),
@@ -178,6 +197,15 @@ add_action('wp_enqueue_scripts', static function () {
         'publicBase' => esc_url_raw($public_base),
         'publicTokenBase' => esc_url_raw($public_token_base),
     ]);
+
+    // Enqueue after localization
+    wp_enqueue_script('arshline-tools-registry');
+    wp_enqueue_script('arshline-tool-short-text');
+    wp_enqueue_script('arshline-tool-long-text');
+    wp_enqueue_script('arshline-tool-multiple-choice');
+    wp_enqueue_script('arshline-tool-dropdown');
+    wp_enqueue_script('arshline-tool-rating');
+    wp_enqueue_script('arshline-dashboard');
 });
 
 
