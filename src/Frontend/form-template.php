@@ -13,9 +13,7 @@ if (!$form_id && !$token) { wp_die(__('Invalid form.', 'arshline')); }
 
 get_header();
 ?>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/vazir-font/dist/font-face.css" rel="stylesheet">
 <style>
 .arsh-public-wrap{max-width:800px;margin:40px auto;padding:16px}
 .arsh-public-card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 4px 24px rgba(0,0,0,.08)}
@@ -27,7 +25,7 @@ get_header();
 .ar-alert--ok{background:#ecfdf5;color:#065f46}
 .ar-alert--err{background:#fef2f2;color:#991b1b}
 /* font */
-html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"}
+html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"}
 /* validation styles */
 .ar-field.ar-invalid{border-color:#ef4444 !important;background:#fff7f7}
 .ar-field .ar-err{color:#b91c1c;font-size:12px;margin-top:4px;display:none}

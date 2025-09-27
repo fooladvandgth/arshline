@@ -20,9 +20,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>داشبورد عرشلاین</title>
     <link rel="icon" href="<?php echo esc_url( plugins_url('favicon.ico', dirname(__DIR__, 2).'/arshline.php') ); ?>" type="image/x-icon" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Vazir font -->
+    <link href="https://cdn.jsdelivr.net/npm/vazir-font/dist/font-face.css" rel="stylesheet">
     
     <?php
     // Manually enqueue and output modular CSS files since this template bypasses wp_head()
