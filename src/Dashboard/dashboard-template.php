@@ -2745,12 +2745,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         set('arKpiSubs', c.submissions || 0);
                         set('arKpiUsers', c.users || 0);
                     }
-                    function load(days){
-                        fetch(ARSHLINE_REST + 'stats?days=' + encodeURIComponent(days||30), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                          .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                          .then(function(data){ try { applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } })
-                          .catch(function(err){ console.error('[ARSH] stats failed', err); /* show zeros already present */ notify('دریافت آمار ناموفق بود', 'error'); });
-                    }
+                                        function load(days){
+                                                try {
+                                                        var url = new URL(ARSHLINE_REST + 'stats');
+                                                        url.searchParams.set('days', String(days||30));
+                                                        fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                                            .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                                                            .then(function(data){ try { applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } })
+                                                            .catch(function(err){ console.error('[ARSH] stats failed', err); /* show zeros already present */ notify('دریافت آمار ناموفق بود', 'error'); });
+                                                } catch(e){ console.error(e); }
+                                        }
                     if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
                     // Initial
                     load(30);
@@ -2957,12 +2961,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 set('arRptKpiSubs', c.submissions);
                                                 set('arRptKpiUsers', c.users);
                                         }
-                                        function load(days){
-                                                fetch(ARSHLINE_REST + 'stats?days=' + encodeURIComponent(days||30), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                                    .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                                    .then(function(data){ applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); })
-                                                    .catch(function(err){ console.error('[ARSH] stats failed', err); /* keep zeros */ notify('دریافت آمار ناموفق بود', 'error'); });
-                                        }
+                    function load(days){
+                        try {
+                            var url = new URL(ARSHLINE_REST + 'stats');
+                            url.searchParams.set('days', String(days||30));
+                            fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                            .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                            .then(function(data){ applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); })
+                            .catch(function(err){ console.error('[ARSH] stats failed', err); /* keep zeros */ notify('دریافت آمار ناموفق بود', 'error'); });
+                        } catch(e){ console.error(e); }
+                    }
                                         if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
                                         load(30);
                                         try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart?.config?.data?.labels||[]; var v = chart?.config?.data?.datasets?.[0]?.data||[]; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
