@@ -297,18 +297,9 @@ body.dark .theme-toggle {
     background: linear-gradient(135deg, #312e81, #0f172a);
 }
 
-/* RTL knob positioning */
-[dir='rtl'] body:not(.dark) .theme-toggle .knob {
-    transform: translateX(0px);
-}
-
-[dir='rtl'] body.dark .theme-toggle .knob {
-    transform: translateX(26px);
-}
-
-[dir='ltr'] body.dark .theme-toggle .knob {
-    transform: translateX(-26px);
-}
+/* Knob position: start on left in light, slide right in dark (direction-independent) */
+.theme-toggle .knob { left: 3px; }
+body.dark .theme-toggle .knob { transform: translateX(calc(var(--w) - 3px - 24px)); }
 
 /* ============================================================================
    Content Layout

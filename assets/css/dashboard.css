@@ -108,15 +108,13 @@
         }
     /* Sun/Moon Toggle */
     .theme-toggle { --w: 56px; --h: 30px; position: relative; width: var(--w); height: var(--h); border-radius: 999px; background: linear-gradient(135deg, #60a5fa, #0ea5e9); display:inline-flex; align-items:center; padding: 3px; cursor: pointer; box-shadow: var(--shadow-card); border:1px solid var(--border); }
-    .theme-toggle .knob { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s ease, background .25s ease; box-shadow: 0 4px 10px rgba(0,0,0,.15); }
+    .theme-toggle .knob { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s ease, background .25s ease; box-shadow: 0 4px 10px rgba(0,0,0,.15); left: 3px; }
     .theme-toggle .sun, .theme-toggle .moon { font-size: 14px; color: #fff; opacity: .9; }
     .theme-toggle .sun { margin-inline-start: 9px; }
     .theme-toggle .moon { margin-inline-end: 9px; margin-inline-start: auto; }
     body.dark .theme-toggle { background: linear-gradient(135deg, #312e81, #0f172a); }
-    /* knob translate differs in RTL */
-    [dir='rtl'] body:not(.dark) .theme-toggle .knob { transform: translateX(-0px); }
-    [dir='rtl'] body.dark .theme-toggle .knob { transform: translateX(26px); }
-    [dir='ltr'] body.dark .theme-toggle .knob { transform: translateX(-26px); }
+    /* knob position: start on left in light; slide to right in dark */
+    body.dark .theme-toggle .knob { transform: translateX(calc(var(--w) - 3px - 24px)); }
     .ar-btn { cursor:pointer; font-weight:700; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.55rem .95rem; box-shadow: 0 8px 18px rgba(0,0,0,.12); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; font-family: inherit; letter-spacing:.2px; text-decoration:none; display:inline-flex; align-items:center; gap:.35rem; line-height:1.1; }
     .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.18); }
     .ar-btn:disabled { opacity:.6; cursor:not-allowed; box-shadow:none; }
