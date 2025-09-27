@@ -519,17 +519,6 @@ body.dark .ar-card {
     transition: all var(--transition-fast);
 }
 
-/* Desktop: don't force full width for tool buttons outside the sidebar */
-@media (min-width: 1024px) {
-    .ar-toolbtn {
-        width: auto;
-    }
-    /* Keep full width specifically in the tools sidebar column */
-    #arToolsSide .ar-toolbtn {
-        width: 100%;
-    }
-}
-
 .ar-toolbtn:hover {
     background: var(--primary-bg);
     border-color: var(--primary);
@@ -1516,12 +1505,26 @@ body.preview-only .arshline-main {
    without affecting other generic .ar-card usages elsewhere.
    ============================================================================ */
 .ar-modern-cards {
-    display: flex !important;
-    justify-content: center;
-    align-items: center;
-    flex-wrap: wrap;
-    padding: 40px !important;
-    gap: 0; /* visual spacing comes from per-card margin */
+    /* Use a responsive grid to achieve 1/2/3/4 columns */
+    display: grid !important;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    justify-items: center;
+    align-items: start;
+    gap: 16px;
+    padding: 16px !important;
+}
+
+/* 2 cols on small tablets */
+@media (min-width: 640px) {
+    .ar-modern-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* 3 cols on medium screens */
+@media (min-width: 768px) {
+    .ar-modern-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* 4 cols on desktop and up */
+@media (min-width: 1024px) {
+    .ar-modern-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 .ar-modern-cards > .ar-card {
@@ -1538,12 +1541,14 @@ body.preview-only .arshline-main {
     justify-content: center;
 
     position: relative;
-    width: 320px;
-    height: 450px;
-    margin: 30px;
+    /* Fill grid cell but cap width for a compact look */
+    width: 100%;
+    max-width: 240px;
+    height: 320px;
+    margin: 0; /* spacing is handled by grid gap */
     border-radius: 20px;
-    border-bottom-left-radius: 160px;
-    border-bottom-right-radius: 160px;
+    border-bottom-left-radius: 120px;
+    border-bottom-right-radius: 120px;
     overflow: hidden;
 }
 
@@ -1569,11 +1574,11 @@ body.preview-only .arshline-main {
 
 .ar-modern-cards > .ar-card .icon {
     position: relative;
-    width: 140px;
-    height: 120px;
+    width: 100px;
+    height: 88px;
     background: #3c2846;
-    border-bottom-left-radius: 100px;
-    border-bottom-right-radius: 100px;
+    border-bottom-left-radius: 80px;
+    border-bottom-right-radius: 80px;
     box-shadow: 0 15px 0 rgba(0, 0, 0, 0.1), inset 0 -8px 0 #fff;
     z-index: 100;
     display: flex;
@@ -1608,7 +1613,7 @@ body.preview-only .arshline-main {
 .ar-modern-cards > .ar-card .icon ion-icon {
     color: #fff;
     position: relative;
-        font-size: 2.1em;
+        font-size: 1.8em;
     z-index: 1000;
     --ionicon-stroke-width: 24px;
 }
@@ -1616,20 +1621,20 @@ body.preview-only .arshline-main {
 .ar-modern-cards > .ar-card .content {
     position: absolute;
     width: 100%;
-        padding: 15px;
-        padding-top: 75px;
+        padding: 12px;
+        padding-top: 70px;
     text-align: center;
 }
 
 .ar-modern-cards > .ar-card .content h2 {
-    font-size: 1.8em;
+    font-size: 1.3em;
     color: #fff;
-        margin-bottom: 7px;
+        margin-bottom: 6px;
 }
 
 .ar-modern-cards > .ar-card .content p {
     color: #fff;
-    line-height: 1.5em;
+    line-height: 1.45em;
 }
 
 /* Gradients for the four landing cards (both by order and by explicit modifier) */
