@@ -158,6 +158,15 @@ class Api
             'callback' => [self::class, 'get_forms'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
+        // Basic dashboard/reporting stats
+        register_rest_route('arshline/v1', '/stats', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_stats'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'args' => [
+                'days' => [ 'type' => 'integer', 'required' => false ],
+            ],
+        ]);
         // Global settings (admin-only)
         register_rest_route('arshline/v1', '/settings', [
             [
@@ -289,6 +298,75 @@ class Api
                 'file' => [ 'required' => false ],
             ],
         ]);
+    }
+
+    /**
+     * GET /stats — Returns simple KPI counts and a submissions time series for last N days (default 30)
+     */
+    public static function get_stats(WP_REST_Request $request)
+    {
+        global $wpdb;
+        $forms = Helpers::tableName('forms');
+        $subs = Helpers::tableName('submissions');
+
+        // Counts
+    $total_forms = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$forms}");
+    $draft_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'draft'));
+    // Define "active" as any non-draft status to better match real usage
+    $active_forms = max(0, $total_forms - $draft_forms);
+        $total_submissions = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$subs}");
+        // WP users
+        $users_count = 0;
+        if (function_exists('count_users')) {
+            $cu = count_users();
+            $users_count = isset($cu['total_users']) ? (int)$cu['total_users'] : 0;
+        } else {
+            // Fallback minimal query if needed
+            $users_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->users}");
+        }
+
+        // Time series for submissions per day
+        $days = (int)$request->get_param('days');
+        if ($days <= 0) $days = 30;
+        $days = min(max($days, 7), 180); // clamp 7..180
+        // Build date buckets in PHP to include days with zero
+        $tz = wp_timezone();
+        $now = new \DateTimeImmutable('now', $tz);
+        $start = $now->sub(new \DateInterval('P'.($days-1).'D'));
+        $labels = [];
+        $map = [];
+        for ($i = 0; $i < $days; $i++){
+            $d = $start->add(new \DateInterval('P'.$i.'D'));
+            $key = $d->format('Y-m-d');
+            $labels[] = $key;
+            $map[$key] = 0;
+        }
+        // Query grouped counts from DB (UTC assumed by MySQL; we use DATE of created_at)
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT DATE(created_at) AS d, COUNT(*) AS c FROM {$subs} WHERE created_at >= %s GROUP BY DATE(created_at) ORDER BY d ASC",
+            $start->format('Y-m-d 00:00:00')
+        ), ARRAY_A) ?: [];
+        foreach ($rows as $r){
+            $d = (string)$r['d'];
+            $c = (int)$r['c'];
+            if (isset($map[$d])) $map[$d] = $c;
+        }
+        $series = array_values($map);
+
+        $out = [
+            'counts' => [
+                'forms' => $total_forms,
+                'forms_active' => $active_forms,
+                'forms_draft' => $draft_forms,
+                'submissions' => $total_submissions,
+                'users' => $users_count,
+            ],
+            'series' => [
+                'labels' => $labels,
+                'submissions_per_day' => $series,
+            ],
+        ];
+        return new WP_REST_Response($out, 200);
     }
 
     public static function get_forms(WP_REST_Request $request)

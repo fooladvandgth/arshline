@@ -121,8 +121,12 @@ add_action('wp_enqueue_scripts', static function () {
 
     $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? Dashboard::VERSION : '1.0.0';
 
-    // Core CSS
+    // Enqueue base and modular CSS files in correct order
     wp_enqueue_style('arshline-dashboard', plugins_url('assets/css/dashboard.css', __FILE__), [], $version);
+    wp_enqueue_style('arshline-variables', plugins_url('assets/css/modules/variables.css', __FILE__), ['arshline-dashboard'], $version);
+    wp_enqueue_style('arshline-layout', plugins_url('assets/css/modules/layout.css', __FILE__), ['arshline-variables'], $version);
+    wp_enqueue_style('arshline-components', plugins_url('assets/css/modules/components.css', __FILE__), ['arshline-variables', 'arshline-layout'], $version);
+    wp_enqueue_style('arshline-utilities', plugins_url('assets/css/modules/utilities.css', __FILE__), ['arshline-variables'], $version);
 
     // Third-party dependencies (keep versions external for now)
     wp_enqueue_script('arshline-ionicons', 'https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js', [], null, true);
