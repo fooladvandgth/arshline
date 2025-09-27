@@ -2684,7 +2684,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         '<span style="flex:1 1 auto"></span>'+
                         '<select id="arStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
                       '</div>'+
-                      '<canvas id="arSubsChart" height="100"></canvas>'+
+                      '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChart"></canvas></div>'+
                     '</div>';
 
                 // Fetch stats and render chart
@@ -2726,6 +2726,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             options: {
                                 responsive: true,
                                 maintainAspectRatio: false,
+                                layout: { padding: { top: 6, right: 8, bottom: 6, left: 8 } },
                                 scales: {
                                     x: { grid: { color: pal.grid }, ticks: { color: pal.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
                                     y: { grid: { color: pal.grid }, ticks: { color: pal.text, precision: 0 } }
@@ -2926,7 +2927,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 '<span style="flex:1 1 auto"></span>'+
                                                 '<select id="arRptStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
                                             '</div>'+
-                                            '<canvas id="arRptSubsChart" height="100"></canvas>'+
+                                            '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arRptSubsChart"></canvas></div>'+
                                         '</div>';
 
                                 (function(){
@@ -2947,11 +2948,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 if (!ctx) return;
                                                 try { if (chart){ chart.destroy(); chart = null; } } catch(_){ }
                                                 if (!window.Chart) { return; }
-                                                chart = new window.Chart(ctx, {
-                                                        type: 'line',
-                                                        data: { labels: labels, datasets: [{ label: 'ارسال‌ها', data: data, borderColor: pal.line, backgroundColor: pal.fill, fill: true, tension: .3, pointRadius: 2, borderWidth: 2 }] },
-                                                        options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { color: pal.grid }, ticks: { color: pal.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { grid: { color: pal.grid }, ticks: { color: pal.text, precision: 0 } } }, plugins: { legend: { labels: { color: pal.text } }, tooltip: { intersect: false, mode: 'index' } } }
-                                                });
+                        chart = new window.Chart(ctx, {
+                            type: 'line',
+                            data: { labels: labels, datasets: [{ label: 'ارسال‌ها', data: data, borderColor: pal.line, backgroundColor: pal.fill, fill: true, tension: .3, pointRadius: 1.5, borderWidth: 1.5 }] },
+                            options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 6, right: 8, bottom: 6, left: 8 } }, scales: { x: { grid: { color: pal.grid }, ticks: { color: pal.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { grid: { color: pal.grid }, ticks: { color: pal.text, precision: 0 } } }, plugins: { legend: { labels: { color: pal.text } }, tooltip: { intersect: false, mode: 'index' } } }
+                        });
                                         }
                                         function applyCounts(c){
                         function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v||0); }
