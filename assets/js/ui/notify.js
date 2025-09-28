@@ -51,6 +51,7 @@
   // Public API
   window.ARSHLINE = window.ARSHLINE || {};
   window.ARSHLINE.notify = notify;
+  try { if (typeof window.notify !== 'function') window.notify = function(message, variant){ return notify(message, variant); }; } catch(_){ }
   // Back-compat global
   window.notify = notify;
 })();

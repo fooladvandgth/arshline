@@ -18,8 +18,15 @@ class UserGroupsPage
 
     public static function boot(): void
     {
-        add_action('admin_menu', [static::class, 'registerMenu']);
-        add_action('admin_enqueue_scripts', [static::class, 'enqueueAssets']);
+        // Allow disabling wp-admin UI for UG; default is disabled (panel-only UX)
+        $enable_admin_ui = false;
+        if (function_exists('apply_filters')) {
+            $enable_admin_ui = (bool) apply_filters('arshline_enable_wpadmin_ug', (bool) get_option('arshline_enable_wpadmin_ug', false));
+        }
+        if ($enable_admin_ui) {
+            add_action('admin_menu', [static::class, 'registerMenu']);
+            add_action('admin_enqueue_scripts', [static::class, 'enqueueAssets']);
+        }
         // اکشن‌های سروری برای ایمپورت/اکسپورت (admin-post)
         add_action('admin_post_arshline_export_group_links', [static::class, 'handleExportGroupLinks']);
         add_action('admin_post_arshline_import_members', [static::class, 'handleImportMembers']);
@@ -111,12 +118,59 @@ class UserGroupsPage
         }
         echo '</h2>';
 
-        echo '<div id="arshline-ug-app" data-tab="'.esc_attr($tab).'">';
-        // ظرف اصلی، رندر توسط JS انجام می‌شود
-        echo '<div class="ar-card" style="background:#fff;border-radius:12px;padding:14px;box-shadow:0 2px 14px rgba(0,0,0,.06)">';
-        echo '<div id="arUGMount">'.esc_html__('در حال بارگذاری...', 'arshline').'</div>';
-        echo '</div>';
-        echo '</div>';
+        if ($tab === 'groups') {
+            echo '<form method="get">';
+            echo '<input type="hidden" name="page" value="'.esc_attr(static::SLUG).'"/>';
+            // Search box
+            echo '<p class="search-box">';
+            echo '<label class="screen-reader-text" for="group-search-input">'.esc_html__('جستجو گروه', 'arshline').'</label>';
+            echo '<input type="search" id="group-search-input" name="s" value="'.esc_attr($_REQUEST['s'] ?? '').'" />';
+            submit_button(__('جستجو', 'arshline'), '', '', false);
+            echo '</p>';
+            echo '</form>';
+            $table = new \Arshline\Dashboard\ListTables\Groups_List_Table([ 'screen' => 'arshline-groups' ]);
+            $table->prepare_items();
+            echo '<form method="get">';
+            echo '<input type="hidden" name="page" value="'.esc_attr(static::SLUG).'"/>';
+            $table->display();
+            echo '</form>';
+        } elseif ($tab === 'members') {
+            $gid = isset($_GET['group_id']) ? intval($_GET['group_id']) : 0;
+            // Simple group selector
+            echo '<form method="get" style="margin-bottom:8px">';
+            echo '<input type="hidden" name="page" value="'.esc_attr(static::SLUG).'"/>';
+            echo '<input type="hidden" name="tab" value="members"/>';
+            echo '<label>'.esc_html__('گروه', 'arshline').': ';
+            echo '<select name="group_id">';
+            foreach (\Arshline\Modules\UserGroups\GroupRepository::paginated(1000, 1) as $g) {
+                $sel = selected($gid, $g->id, false);
+                echo '<option value="'.intval($g->id).'" '.$sel.'>'.esc_html($g->name).'</option>';
+            }
+            echo '</select></label> ';
+            submit_button(__('برو', 'arshline'), 'secondary', '', false);
+            echo '</form>';
+
+            if ($gid > 0) {
+                $table = new \Arshline\Dashboard\ListTables\Members_List_Table($gid, [ 'screen' => 'arshline-members' ]);
+                $table->prepare_items();
+                echo '<form method="get">';
+                echo '<input type="hidden" name="page" value="'.esc_attr(static::SLUG).'"/>';
+                echo '<input type="hidden" name="tab" value="members"/>';
+                echo '<input type="hidden" name="group_id" value="'.intval($gid).'"/>';
+                $table->search_box(__('جستجو', 'arshline'), 'member');
+                $table->display();
+                echo '</form>';
+            } else {
+                echo '<div class="notice notice-warning"><p>'.esc_html__('ابتدا یک گروه انتخاب کنید.', 'arshline').'</p></div>';
+            }
+        } else {
+            // Mapping remains in JS-driven app for now
+            echo '<div id="arshline-ug-app" data-tab="'.esc_attr($tab).'">';
+            echo '<div class="ar-card" style="background:#fff;border-radius:12px;padding:14px;box-shadow:0 2px 14px rgba(0,0,0,.06)">';
+            echo '<div id="arUGMount">'.esc_html__('در حال بارگذاری...', 'arshline').'</div>';
+            echo '</div>';
+            echo '</div>';
+        }
         echo '</div>';
     }
 
@@ -182,36 +236,72 @@ class UserGroupsPage
 
         $fh = fopen($_FILES['csv']['tmp_name'], 'r');
         if (!$fh) { wp_die(esc_html__('امکان خواندن فایل نیست.', 'arshline')); }
-        // خواندن هدر
-        $header = fgetcsv($fh, 0, ',');
-        if (!$header) { fclose($fh); wp_die(esc_html__('هدر CSV نامعتبر است.', 'arshline')); }
-        $header = array_map('trim', $header);
-        // یافتن ستون‌های ضروری
-        $idxName = array_search('نام', $header);
-        $idxPhone = array_search('شماره همراه', $header);
+        // تشخیص جداکننده + حذف BOM از ابتدای فایل
+        $firstLine = fgets($fh);
+        if ($firstLine === false) { fclose($fh); wp_die(esc_html__('فایل خالی است.', 'arshline')); }
+        // Strip UTF-8 BOM if present
+        $firstLine = preg_replace('/^\xEF\xBB\xBF/u', '', $firstLine);
+        $candidates = [",",";","\t","،"]; // comma, semicolon, tab, Arabic comma
+        $delim = ',';
+        $best = 0;
+        foreach ($candidates as $d) {
+            $cnt = substr_count($firstLine, $d);
+            if ($cnt > $best) { $best = $cnt; $delim = $d; }
+        }
+        // Parse header using detected delimiter
+        $header = str_getcsv($firstLine, $delim);
+        if (!$header || !is_array($header)) { fclose($fh); wp_die(esc_html__('هدر CSV نامعتبر است.', 'arshline')); }
+        $normalize = function(string $s): string {
+            $s = preg_replace('/^\xEF\xBB\xBF/u','', $s); // strip BOM
+            $s = preg_replace('/\x{200C}|\x{200D}|\x{FEFF}/u','', $s); // zero-width spaces
+            $s = str_replace(['ي','ك'], ['ی','ک'], $s); // Arabic Yeh/Kaf to Persian
+            $s = preg_replace('/\s+/u',' ', $s); // collapse spaces
+            return trim($s);
+        };
+        $header = array_map(function($h) use ($normalize){ return $normalize((string)$h); }, $header);
+        // Helper: locate header index by known keys (support synonyms)
+        $findIdx = function(array $keys) use ($header, $normalize) {
+            foreach ($header as $i => $h) {
+                $s = mb_strtolower($normalize((string)$h));
+                foreach ($keys as $k) { if ($s === mb_strtolower($normalize($k))) return $i; }
+            }
+            return false;
+        };
+        $idxName = $findIdx(['نام','name']);
+        $idxPhone = $findIdx(['شماره همراه','شماره تماس','شماره موبایل','موبایل','تلفن','phone','mobile']);
         if ($idxName === false || $idxPhone === false) { fclose($fh); wp_die(esc_html__('ستون‌های نام و شماره همراه الزامی است.', 'arshline')); }
         $rows = [];
-        while (($cols = fgetcsv($fh, 0, ',')) !== false) {
+        while (($cols = fgetcsv($fh, 0, $delim)) !== false) {
+            if (!is_array($cols) || count($cols) === 0) { continue; }
             $name = isset($cols[$idxName]) ? sanitize_text_field($cols[$idxName]) : '';
             $phone = isset($cols[$idxPhone]) ? sanitize_text_field($cols[$idxPhone]) : '';
             if ($name === '' || $phone === '') continue;
             $data = [];
             foreach ($header as $i => $colName) {
                 if ($i === $idxName || $i === $idxPhone) continue;
-                if (!isset($cols[$i])) continue;
-                $safeKey = preg_replace('/[^A-Za-z0-9_\-]/', '_', $colName);
-                $data[$safeKey] = sanitize_text_field($cols[$i]);
+                if (!array_key_exists($i, $cols)) continue;
+                $safeKey = preg_replace('/[^A-Za-z0-9_\-]/', '_', (string)$colName);
+                $data[$safeKey] = sanitize_text_field((string)$cols[$i]);
             }
             $rows[] = [ 'name' => $name, 'phone' => $phone, 'data' => $data ];
         }
         fclose($fh);
 
+        $n = 0;
         if (!empty($rows)) {
-            $n = \Arshline\Modules\UserGroups\MemberRepository::addBulk($gid, $rows);
-            wp_safe_redirect(add_query_arg(['page' => static::SLUG, 'tab' => 'members', 'group_id' => $gid, 'imported' => $n], admin_url('users.php')));
+            $n = (int) \Arshline\Modules\UserGroups\MemberRepository::addBulk($gid, $rows);
+        }
+        // If panel provided a redirect URL, prefer returning to the dashboard route (hash-safe in client)
+        $redir = isset($_POST['redirect_to']) ? (string) $_POST['redirect_to'] : '';
+        if ($redir !== '') {
+            // Append import count and current gid/tab as query params (appear before fragment)
+            $redir2 = add_query_arg(['ug_imported' => $n, 'group_id' => $gid, 'tab' => 'members'], $redir);
+            $safe = wp_validate_redirect($redir2, home_url('/'));
+            wp_safe_redirect($safe);
             exit;
         }
-        wp_safe_redirect(add_query_arg(['page' => static::SLUG, 'tab' => 'members', 'group_id' => $gid, 'imported' => 0], admin_url('users.php')));
+        // Fallback: old wp-admin flow (only if admin UI is enabled)
+        wp_safe_redirect(add_query_arg(['page' => static::SLUG, 'tab' => 'members', 'group_id' => $gid, 'imported' => $n], admin_url('users.php')));
         exit;
     }
 

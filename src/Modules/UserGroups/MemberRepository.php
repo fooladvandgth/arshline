@@ -27,6 +27,37 @@ class MemberRepository
         return array_map(fn($r) => new Member($r), $rows);
     }
 
+    public static function countAll(int $groupId, string $search = ''): int
+    {
+        global $wpdb;
+        $t = Helpers::tableName('user_group_members');
+        if ($search !== '') {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t} WHERE group_id=%d AND (name LIKE %s OR phone LIKE %s)", $groupId, $like, $like));
+        }
+        return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t} WHERE group_id=%d", $groupId));
+    }
+
+    public static function paginated(int $groupId, int $per_page, int $page, string $search = '', string $orderby = 'id', string $order = 'DESC'): array
+    {
+        global $wpdb;
+        $t = Helpers::tableName('user_group_members');
+        $offset = max(0, ($page - 1) * $per_page);
+        $orderby = in_array($orderby, ['id','name','phone'], true) ? $orderby : 'id';
+        $order = strtoupper($order) === 'ASC' ? 'ASC' : 'DESC';
+        $where = 'WHERE group_id=%d';
+        $params = [$groupId];
+        if ($search !== '') {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where .= ' AND (name LIKE %s OR phone LIKE %s)';
+            $params[] = $like; $params[] = $like;
+        }
+        $sql = "SELECT * FROM {$t} {$where} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $params[] = $per_page; $params[] = $offset;
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A) ?: [];
+        return array_map(fn($r) => new Member($r), $rows);
+    }
+
     public static function addBulk(int $groupId, array $members): int
     {
         global $wpdb;

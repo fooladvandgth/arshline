@@ -482,8 +482,18 @@ class Api
     public static function ug_list_members(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id'];
-        $rows = MemberRepository::list($gid, 500);
-        $out = array_map(function($m){ return [
+        // Support pagination and search for large datasets
+        $per_page = (int)($r->get_param('per_page') ?? 20);
+        if ($per_page <= 0) $per_page = 20; if ($per_page > 200) $per_page = 200;
+        $page = (int)($r->get_param('page') ?? 1); if ($page <= 0) $page = 1;
+        $search = trim((string)($r->get_param('search') ?? ''));
+        $orderby = (string)($r->get_param('orderby') ?? 'id');
+        $order = (string)($r->get_param('order') ?? 'DESC');
+
+        // Compute total first, then fetch page
+        $total = MemberRepository::countAll($gid, $search);
+        $rows = MemberRepository::paginated($gid, $per_page, $page, $search, $orderby, $order);
+        $items = array_map(function($m){ return [
             'id' => $m->id,
             'group_id' => $m->group_id,
             'name' => $m->name,
@@ -492,7 +502,14 @@ class Api
             'token' => $m->token,
             'created_at' => $m->created_at,
         ];}, $rows);
-        return new WP_REST_Response($out, 200);
+        $resp = [
+            'items' => $items,
+            'total' => (int)$total,
+            'page' => (int)$page,
+            'per_page' => (int)$per_page,
+            'total_pages' => (int)max(1, (int)ceil(($total ?: 0) / max(1, $per_page)))
+        ];
+        return new WP_REST_Response($resp, 200);
     }
     public static function ug_add_members(WP_REST_Request $r)
     {

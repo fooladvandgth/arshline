@@ -54,12 +54,38 @@
   function onInput(e){ try { var t=e.target; if(!t) return; var v=''; if(t && 'value' in t){ v = String(t.value||''); } push({ type:'input', target:summarizeTarget(t), data:v.slice(0,120) }); } catch(_){ } }
   function onChange(e){ try { var t=e.target; var v=''; if(t && 'value' in t){ v = String(t.value||''); } push({ type:'change', target:summarizeTarget(t), data:v.slice(0,120) }); } catch(_){ } }
   function onSubmit(e){ try { var f=e.target; var id=(f && f.id)?('#'+f.id):''; push({ type:'submit', target:summarizeTarget(f), data:id }); } catch(_){ } }
-  function onError(msg, src, lineno, colno, err){ try { var m = (err && err.message) ? err.message : String(msg||''); push({ type:'error', message: m, data: (src? (src+':'+lineno+':'+colno) : '') }); } catch(_){ } return false; }
+  function onError(msg, src, lineno, colno, err){
+    try {
+      var m = (err && err.message) ? err.message : String(msg||'');
+      push({ type:'error', message: m, data: (src? (src+':'+lineno+':'+colno) : '') });
+    } catch(_){ }
+    return false;
+  }
   function onRejection(ev){ try { var r=ev && (ev.reason||ev); var m = (r && r.message)? r.message : (typeof r==='string'? r : ''); push({ type:'error', message: 'UnhandledRejection: '+m }); } catch(_){ } }
 
   // MutationObserver (throttled summary)
   var moPending = false; var moAdded=0, moRemoved=0, moAttrs=0;
-  function onMutations(muts){ muts.forEach(function(m){ if (m.type==='childList'){ moAdded += (m.addedNodes||[]).length; moRemoved += (m.removedNodes||[]).length; } else if (m.type==='attributes'){ moAttrs += 1; } }); if (!moPending){ moPending=true; setTimeout(function(){ push({ type:'dom', message:'تغییرات DOM', data: 'افزوده:'+moAdded+' حذف:'+moRemoved+' ویژگی:'+moAttrs }); moPending=false; moAdded=0; moRemoved=0; moAttrs=0; }, 800); } }
+  function onMutations(muts){
+    try {
+      muts.forEach(function(m){
+        if (m.type==='childList'){
+          moAdded += (m.addedNodes||[]).length; moRemoved += (m.removedNodes||[]).length;
+          (m.addedNodes||[]).forEach(function(n){
+            try {
+              if (n && n.tagName === 'SCRIPT'){
+                var id = n.id || '';
+                var src = n.src || '';
+                if (id === 'arsh-ug-bundle' || /\/assets\/js\/admin\/user-groups\.js/.test(src)){
+                  push({ type:'info', message:'script-added', data: (id?('#'+id+' '):'') + src });
+                }
+              }
+            } catch(_){ }
+          });
+        } else if (m.type==='attributes') { moAttrs += 1; }
+      });
+      if (!moPending){ moPending=true; setTimeout(function(){ push({ type:'dom', message:'تغییرات DOM', data: 'افزوده:'+moAdded+' حذف:'+moRemoved+' ویژگی:'+moAttrs }); moPending=false; moAdded=0; moRemoved=0; moAttrs=0; }, 800); }
+    } catch(_){ }
+  }
 
   // Fetch/XHR capture
   function wrapFetch(){ if (!window.fetch) return; var _fetch = window.fetch; window.fetch = function(input, init){ try { var method = (init && init.method) ? String(init.method).toUpperCase() : 'GET'; var url = (typeof input==='string')? input : (input && input.url) ? input.url : ''; push({ type:'ajax', message:'fetch '+method, data:url }); } catch(_){ } return _fetch.apply(this, arguments); } }
@@ -70,7 +96,19 @@
     document.addEventListener('input', onInput, true);
     document.addEventListener('change', onChange, true);
     document.addEventListener('submit', onSubmit, true);
-    window.addEventListener('error', function(e){ onError(e.message, e.filename, e.lineno, e.colno, e.error); }, true);
+    window.addEventListener('error', function(e){
+      try {
+        // Resource loading errors (scripts/styles/images)
+        if (e && e.target && e.target !== window && e.target.tagName){
+          var t = e.target; var tag = t.tagName.toLowerCase();
+          var link = (t.src || t.href || '');
+          push({ type:'error', message:'resource-'+tag+'-error', data: link });
+        } else {
+          onError(e.message, e.filename, e.lineno, e.colno, e.error);
+        }
+      } catch(_){ onError(e.message, e.filename, e.lineno, e.colno, e.error); }
+    }, true);
+    window.addEventListener('hashchange', function(){ try { push({ type:'info', message:'hashchange', data: location.hash }); } catch(_){ } }, true);
     window.addEventListener('unhandledrejection', onRejection, true);
     try { var mo = new MutationObserver(onMutations); mo.observe(document.documentElement, { childList:true, attributes:true, subtree:true }); } catch(_){ }
     wrapFetch(); wrapXHR();

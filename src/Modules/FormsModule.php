@@ -83,5 +83,25 @@ class FormsModule
         try {
             $wpdb->query("UPDATE {$table} SET status='draft' WHERE status IS NULL OR status='' ");
         } catch (\Throwable $e) { /* ignore */ }
+
+        // Ensure new module tables exist (user groups, mapping). If plugin was activated before these tables
+        // were introduced, they may be missing in existing installs.
+        $required = [ 'user_groups', 'user_group_fields', 'user_group_members', 'form_group_access' ];
+        $missing = [];
+        foreach ($required as $key){
+            $t = Helpers::tableName($key);
+            $ex = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $t));
+            if ($ex !== $t) { $missing[] = $key; }
+        }
+        if (!empty($missing)){
+            $defs = Migrations::up();
+            require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+            foreach ($missing as $k){
+                if (!empty($defs[$k])){
+                    $sql = str_replace('{prefix}', $wpdb->prefix, $defs[$k]);
+                    dbDelta($sql);
+                }
+            }
+        }
     }
 }

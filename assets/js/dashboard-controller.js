@@ -203,7 +203,6 @@
 
       // Lazy loader for گروه‌های کاربری inside custom panel
       function renderUsersUG(){
-        try { setHash('users/ug'); } catch(_){ }
         setActive('users');
         var content = document.getElementById('arshlineDashboardContent');
         if (!content) return;
@@ -217,13 +216,29 @@
             '<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">'+
               '<span class="title">گروه‌های کاربری</span>'+
               '<span style="flex:1 1 auto"></span>'+
-              '<a class="ar-btn'+(tab==='groups'?'':' ar-btn--outline')+'" href="#users/ug?tab=groups">گروه‌ها</a>'+ 
-              '<a class="ar-btn'+(tab==='members'?'':' ar-btn--outline')+'" href="#users/ug?tab=members">اعضا</a>'+ 
-              '<a class="ar-btn'+(tab==='mapping'?'':' ar-btn--outline')+'" href="#users/ug?tab=mapping">اتصال فرم‌ها</a>'+ 
-              '<a class="ar-btn'+(tab==='custom_fields'?'':' ar-btn--outline')+'" href="#users/ug?tab=custom_fields">فیلدهای سفارشی</a>'+ 
+              '<a class="ar-btn'+(tab==='groups'?'':' ar-btn--outline')+'" href="#users/ug?tab=groups">گروه‌ها</a>'+
+              '<a class="ar-btn'+(tab==='members'?'':' ar-btn--outline')+'" href="#users/ug?tab=members">اعضا</a>'+
+              '<a class="ar-btn'+(tab==='mapping'?'':' ar-btn--outline')+'" href="#users/ug?tab=mapping">اتصال فرم‌ها</a>'+
+              '<a class="ar-btn'+(tab==='custom_fields'?'':' ar-btn--outline')+'" href="#users/ug?tab=custom_fields">فیلدهای سفارشی</a>'+
             '</div>'+
-            '<div id="arUGMount">در حال بارگذاری...</div>'+
+            '<div id="arUGMount" style="min-height:120px;display:flex;align-items:center;justify-content:center">'+
+              '<div style="display:flex;align-items:center;gap:.6rem;opacity:.8">'+
+                '<span class="ar-spinner" aria-hidden="true" style="width:18px;height:18px;border:2px solid var(--border, #e5e7eb);border-top-color:var(--accent, #06b6d4);border-radius:50%;display:inline-block;animation:arSpin .8s linear infinite"></span>'+
+                '<span>در حال بارگذاری...</span>'+
+              '</div>'+
+            '</div>'+
           '</div>';
+        // If bundle already loaded, render current tab immediately
+        try { if (typeof window.ARSH_UG_render === 'function') { window.ARSH_UG_render(tab); } } catch(_){ }
+        try {
+          // Inject keyframes once
+          if (!document.getElementById('arSpinnerKeyframes')){
+            var st = document.createElement('style');
+            st.id = 'arSpinnerKeyframes';
+            st.textContent = '@keyframes arSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+            document.head.appendChild(st);
+          }
+        } catch(_){ }
         // Load admin bundle on-demand
         (function ensureBundle(){
           if (window.__ARSH_UG_READY__) { return; }
@@ -232,8 +247,21 @@
           var fromCss = (document.querySelector('link[href*="/assets/css/dashboard.css"]')||{}).href||'';
           var baseUrl = '';
           if (window.ARSHLINE_PLUGIN_URL) baseUrl = window.ARSHLINE_PLUGIN_URL;
-          else if (fromCss) baseUrl = fromCss.replace('/assets/css/dashboard.css','');
+          else if (fromCss) {
+            try {
+              var cssNoQ = fromCss.split('?')[0];
+              baseUrl = cssNoQ.replace('/assets/css/dashboard.css','');
+            } catch(_){ baseUrl = ''; }
+          }
+          if (baseUrl) { try { baseUrl = baseUrl.split('?')[0].replace(/\/$/, ''); } catch(_){ } }
           s.src = baseUrl ? (baseUrl + '/assets/js/admin/user-groups.js') : '/wp-content/plugins/arshline/assets/js/admin/user-groups.js';
+          s.onload = function(){
+            try {
+              var qs = new URLSearchParams((location.hash.split('?')[1]||''));
+              var tab = qs.get('tab') || 'groups';
+              if (typeof window.ARSH_UG_render === 'function') { window.ARSH_UG_render(tab); }
+            } catch(_){ }
+          };
           document.body.appendChild(s);
         })();
       }

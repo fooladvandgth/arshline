@@ -3,7 +3,7 @@
  * Plugin Name: فرم‌ساز و داشبورد عرشلاین (Arshline Starter)
  * Plugin URI: https://arshline.ir/
  * Description: افزونه فرم‌ساز، داشبورد و گزارشات فارسی عرشلاین برای وردپرس با پشتیبانی هوش مصنوعی و امنیت پیشرفته.
- * Version: 2.7.0
+ * Version: 3.0.0
  * Author: گروه توسعه عرشلاین
  * Author URI: https://arshline.ir/
  * License: GPL2
@@ -133,6 +133,8 @@ add_action('wp_enqueue_scripts', static function () {
     wp_enqueue_style('arshline-layout', plugins_url('assets/css/modules/layout.css', __FILE__), ['arshline-variables'], $version);
     wp_enqueue_style('arshline-components', plugins_url('assets/css/modules/components.css', __FILE__), ['arshline-variables', 'arshline-layout'], $version);
     wp_enqueue_style('arshline-utilities', plugins_url('assets/css/modules/utilities.css', __FILE__), ['arshline-variables'], $version);
+    // Provide minimal wp-admin class compatibility (button, widefat, regular-text, notices)
+    wp_enqueue_style('arshline-wp-admin-compat', plugins_url('assets/css/modules/wp-admin-compat.css', __FILE__), ['arshline-components'], $version);
 
     wp_enqueue_script('arshline-ionicons', 'https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js', [], null, true);
 

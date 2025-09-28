@@ -33,6 +33,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/layout.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
+    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/wp-admin-compat.css?ver=' . $version); ?>" />
 
             <!-- Runtime config JSON (consumed by assets/js/core/runtime-config.js) -->
             <script id="arshline-config" type="application/json">
@@ -43,6 +44,49 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 "can_manage": <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>,
                 "login_url": "<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>"
             }
+            </script>
+            <?php
+            // Provide ARSHLINE_ADMIN for panel context to reuse admin-post nonces (import/export) and endpoints
+            $ar_admin = [
+                'rest' => esc_url_raw(rest_url('arshline/v1/')),
+                'nonce' => wp_create_nonce('wp_rest'),
+                'nonces' => [
+                    'import' => wp_create_nonce('arshline_import_members'),
+                    'export' => wp_create_nonce('arshline_export_group_links'),
+                ],
+                'adminPostUrl' => admin_url('admin-post.php'),
+                'formsEndpoint' => esc_url_raw(rest_url('arshline/v1/forms')),
+                'strings' => [
+                    'add' => __('افزودن', 'arshline'),
+                    'edit' => __('ویرایش', 'arshline'),
+                    'delete' => __('حذف', 'arshline'),
+                    'save' => __('ذخیره', 'arshline'),
+                    'cancel' => __('انصراف', 'arshline'),
+                    'confirm_delete' => __('از حذف مطمئن هستید؟', 'arshline'),
+                    'import' => __('ایمپورت', 'arshline'),
+                    'export' => __('خروجی', 'arshline'),
+                    'search' => __('جستجو', 'arshline'),
+                    'name' => __('نام', 'arshline'),
+                    'phone' => __('شماره همراه', 'arshline'),
+                    'token' => __('توکن', 'arshline'),
+                    'link' => __('لینک', 'arshline'),
+                    'group' => __('گروه', 'arshline'),
+                    'members' => __('اعضا', 'arshline'),
+                    'groups' => __('گروه‌ها', 'arshline'),
+                    'mapping' => __('اتصال فرم‌ها', 'arshline'),
+                    'custom_fields' => __('فیلدهای سفارشی', 'arshline'),
+                    'loading' => __('در حال بارگذاری...', 'arshline'),
+                    'save_mapping' => __('ذخیره اتصال', 'arshline'),
+                    'form' => __('فرم', 'arshline'),
+                    'select_form' => __('انتخاب فرم', 'arshline'),
+                ],
+            ];
+            ?>
+            <script>
+            window.ARSHLINE_ADMIN = <?php echo wp_json_encode($ar_admin, JSON_UNESCAPED_UNICODE); ?>;
+            // Also expose simple aliases used by legacy scripts
+            window.ARSHLINE_REST = window.ARSHLINE_ADMIN.rest;
+            window.ARSHLINE_NONCE = window.ARSHLINE_ADMIN.nonce;
             </script>
             <!-- Extracted: runtime-config moved to external initializer -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/runtime-config.js?ver=' . $version ); ?>"></script>
