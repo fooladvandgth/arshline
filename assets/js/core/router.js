@@ -29,6 +29,12 @@
     var raw = (location.hash||'').replace('#','').trim();
     if (!raw){ arRenderTab('dashboard'); return; }
     var parts = raw.split('/');
+    // Support nested route: users/ug (query params allowed like ?tab=...)
+    var seg1 = (parts[1]||'').split('?')[0];
+    if (parts[0]==='users' && seg1==='ug'){
+      try { if (typeof window.renderUsersUG === 'function') { window.renderUsersUG(); return; } } catch(_){}
+      arRenderTab('users'); return;
+    }
     if (parts[0]==='submissions'){ arRenderTab('forms'); return; }
     if (['dashboard','forms','reports','users','settings'].includes(parts[0])){ arRenderTab(parts[0]); return; }
     if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { try { window.renderFormBuilder && window.renderFormBuilder(id); } catch(_){ } return; } }

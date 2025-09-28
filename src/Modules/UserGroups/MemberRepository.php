@@ -58,6 +58,36 @@ class MemberRepository
         return (bool)$wpdb->delete($t, ['id' => $memberId, 'group_id' => $groupId]);
     }
 
+    /**
+     * Update basic fields of a member. Fields: name?, phone?, data? (assoc array)
+     */
+    public static function update(int $groupId, int $memberId, array $fields): bool
+    {
+        global $wpdb;
+        $t = Helpers::tableName('user_group_members');
+        $row = [];
+        if (array_key_exists('name', $fields)) {
+            $row['name'] = trim((string)$fields['name']);
+        }
+        if (array_key_exists('phone', $fields)) {
+            $row['phone'] = trim((string)$fields['phone']);
+        }
+        if (array_key_exists('data', $fields)) {
+            $data = $fields['data'];
+            if (!is_array($data)) { $data = []; }
+            // Only keep scalar values to avoid nested structures
+            $clean = [];
+            foreach ($data as $k => $v) {
+                if (!is_scalar($v)) continue;
+                $clean[(string)$k] = (string)$v;
+            }
+            $row['data'] = json_encode($clean, JSON_UNESCAPED_UNICODE);
+        }
+        if (empty($row)) return false;
+        $affected = $wpdb->update($t, $row, ['id' => $memberId, 'group_id' => $groupId]);
+        return $affected !== false;
+    }
+
     public static function ensureToken(int $memberId): ?string
     {
         global $wpdb;

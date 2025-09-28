@@ -16,6 +16,8 @@ use Arshline\Support\Audit;
 use Arshline\Modules\UserGroups\GroupRepository;
 use Arshline\Modules\UserGroups\MemberRepository;
 use Arshline\Modules\UserGroups\FormGroupAccessRepository;
+use Arshline\Modules\UserGroups\FieldRepository as UGFieldRepo;
+use Arshline\Modules\UserGroups\Field as UGField;
 
 class Api
 {
@@ -367,14 +369,47 @@ class Api
             ],
         ]);
         register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/(?P<member_id>\\d+)', [
-            'methods' => 'DELETE',
-            'callback' => [self::class, 'ug_delete_member'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'ug_update_member'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'ug_delete_member'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
         ]);
         register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/(?P<member_id>\\d+)/token', [
             'methods' => 'POST',
             'callback' => [self::class, 'ug_ensure_member_token'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+
+        // Group custom fields
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/fields', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'ug_list_fields'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'ug_create_field'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/fields/(?P<field_id>\\d+)', [
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'ug_update_field'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'ug_delete_field'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
         ]);
 
         // Form ↔ Group access mapping (admin-only)
@@ -397,10 +432,23 @@ class Api
     public static function ug_list_groups(WP_REST_Request $r)
     {
         $rows = GroupRepository::all();
-        $out = array_map(function($g){ return [
+        // Build member counts for listed groups in a single query
+        $counts = [];
+        try {
+            global $wpdb; $t = \Arshline\Support\Helpers::tableName('user_group_members');
+            $ids = array_map(fn($g)=> (int)$g->id, $rows);
+            if (!empty($ids)){
+                $in = implode(',', array_map('intval', $ids));
+                $sql = "SELECT group_id, COUNT(*) AS c FROM {$t} WHERE group_id IN ($in) GROUP BY group_id";
+                $rs = $wpdb->get_results($sql, ARRAY_A) ?: [];
+                foreach ($rs as $r){ $counts[(int)$r['group_id']] = (int)$r['c']; }
+            }
+        } catch (\Throwable $e) { /* noop */ }
+        $out = array_map(function($g) use ($counts){ return [
             'id' => $g->id,
             'name' => $g->name,
             'meta' => $g->meta,
+            'member_count' => isset($counts[$g->id]) ? (int)$counts[$g->id] : 0,
             'created_at' => $g->created_at,
             'updated_at' => $g->updated_at,
         ]; }, $rows);
@@ -460,12 +508,82 @@ class Api
         $ok = MemberRepository::delete($gid, $mid);
         return new WP_REST_Response(['ok' => (bool)$ok], $ok?200:404);
     }
+    public static function ug_update_member(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $mid = (int)$r['member_id'];
+        $name = $r->get_param('name');
+        $phone = $r->get_param('phone');
+        $data = $r->get_param('data');
+        $fields = [];
+        if (is_string($name)) $fields['name'] = $name;
+        if (is_string($phone)) $fields['phone'] = $phone;
+        if (is_array($data)) $fields['data'] = $data;
+        if (empty($fields)) return new WP_REST_Response(['ok'=>false,'message'=>'no_fields'], 422);
+        $ok = MemberRepository::update($gid, $mid, $fields);
+        return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
+    }
     public static function ug_ensure_member_token(WP_REST_Request $r)
     {
         $mid = (int)$r['member_id'];
         $tok = MemberRepository::ensureToken($mid);
         if (!$tok) return new WP_REST_Response(['message' => 'عضو یافت نشد.'], 404);
         return new WP_REST_Response(['token' => $tok], 200);
+    }
+
+    // ========== Group custom fields ==========
+    public static function ug_list_fields(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $rows = UGFieldRepo::listByGroup($gid);
+        $out = array_map(function($f){ return [
+            'id' => $f->id,
+            'group_id' => $f->group_id,
+            'name' => $f->name,
+            'label' => $f->label,
+            'type' => $f->type,
+            'options' => $f->options,
+            'required' => $f->required,
+            'sort' => $f->sort,
+        ]; }, $rows);
+        return new WP_REST_Response($out, 200);
+    }
+    public static function ug_create_field(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $name = trim((string)$r->get_param('name'));
+        $label = trim((string)$r->get_param('label'));
+        $type = trim((string)($r->get_param('type') ?? 'text'));
+        $options = $r->get_param('options'); if (!is_array($options)) $options = [];
+        $required = (bool)$r->get_param('required');
+        $sort = (int)($r->get_param('sort') ?? 0);
+        if ($gid<=0 || $name==='') return new WP_REST_Response(['message'=>'invalid'], 422);
+        $f = new UGField([ 'group_id'=>$gid, 'name'=>$name, 'label'=>$label?:$name, 'type'=>$type, 'options'=>$options, 'required'=>$required, 'sort'=>$sort ]);
+        $id = UGFieldRepo::save($f);
+        return new WP_REST_Response(['id'=>$id], 201);
+    }
+    public static function ug_update_field(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $fid = (int)$r['field_id'];
+        $rows = UGFieldRepo::listByGroup($gid);
+        $target = null; foreach ($rows as $f){ if ((int)$f->id === $fid) { $target = $f; break; } }
+        if (!$target) return new WP_REST_Response(['message'=>'not_found'], 404);
+        $p = $r->get_params();
+        if (isset($p['name'])) $target->name = trim((string)$p['name']);
+        if (isset($p['label'])) $target->label = trim((string)$p['label']);
+        if (isset($p['type'])) $target->type = trim((string)$p['type']);
+        if (isset($p['options']) && is_array($p['options'])) $target->options = $p['options'];
+        if (isset($p['required'])) $target->required = (bool)$p['required'];
+        if (isset($p['sort'])) $target->sort = (int)$p['sort'];
+        UGFieldRepo::save($target);
+        return new WP_REST_Response(['ok'=>true], 200);
+    }
+    public static function ug_delete_field(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $fid = (int)$r['field_id'];
+        // Ensure it belongs to the group
+        $rows = UGFieldRepo::listByGroup($gid);
+        $ok = false; foreach ($rows as $f){ if ((int)$f->id === $fid) { $ok = UGFieldRepo::delete($fid); break; } }
+        return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
     }
 
     // ========== Form ↔ Group access mapping (admin-only) ==========

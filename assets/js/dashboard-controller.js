@@ -147,6 +147,9 @@
       if (!raw){ arRenderTab('dashboard'); return; }
       var parts = raw.split('/');
       if (parts[0]==='submissions'){ arRenderTab('forms'); return; }
+      // Nested route: users/ug => گروه‌های کاربری
+  var seg1 = (parts[1]||'').split('?')[0];
+  if (parts[0]==='users' && seg1==='ug'){ renderUsersUG(); return; }
       if (['dashboard','forms','reports','users'].includes(parts[0])){ arRenderTab(parts[0]); return; }
       if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
       if (parts[0]==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id2, idx:idx, parts:parts }); if (id2) { renderFormEditor(id2, { index: isNaN(idx)?0:idx }); return; } }
@@ -197,6 +200,43 @@
     function getTypeIcon(type){ switch(type){ case 'short_text': return 'create-outline'; case 'long_text': return 'newspaper-outline'; case 'multiple_choice': case 'multiple-choice': return 'list-outline'; case 'dropdown': return 'chevron-down-outline'; case 'welcome': return 'happy-outline'; case 'thank_you': return 'checkmark-done-outline'; default: return 'help-circle-outline'; } }
     function getTypeLabel(type){ switch(type){ case 'short_text': return 'پاسخ کوتاه'; case 'long_text': return 'پاسخ طولانی'; case 'multiple_choice': case 'multiple-choice': return 'چندگزینه‌ای'; case 'dropdown': return 'لیست کشویی'; case 'welcome': return 'پیام خوش‌آمد'; case 'thank_you': return 'پیام تشکر'; default: return 'نامشخص'; } }
     function card(title, subtitle, icon){ var ic = icon ? ('<span style="font-size:22px;margin-inline-start:.4rem;opacity:.85">'+icon+'</span>') : ''; return '<div class="card glass" style="display:flex;align-items:center;gap:.6rem;">'+ic+'<div><div class="title">'+title+'</div><div class="hint">'+(subtitle||'')+'</div></div></div>'; }
+
+      // Lazy loader for گروه‌های کاربری inside custom panel
+      function renderUsersUG(){
+        try { setHash('users/ug'); } catch(_){ }
+        setActive('users');
+        var content = document.getElementById('arshlineDashboardContent');
+        if (!content) return;
+        var qs = new URLSearchParams((location.hash.split('?')[1]||''));
+        var tab = qs.get('tab') || 'groups';
+        // Header actions: back to users
+        var headerActions = document.getElementById('arHeaderActions');
+        if (headerActions) headerActions.innerHTML = '<a id="arBackUsers" class="ar-btn ar-btn--outline" href="#users">بازگشت به کاربران</a>';
+        content.innerHTML = ''+
+          '<div class="card glass" style="padding:1rem;">'+
+            '<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">'+
+              '<span class="title">گروه‌های کاربری</span>'+
+              '<span style="flex:1 1 auto"></span>'+
+              '<a class="ar-btn'+(tab==='groups'?'':' ar-btn--outline')+'" href="#users/ug?tab=groups">گروه‌ها</a>'+ 
+              '<a class="ar-btn'+(tab==='members'?'':' ar-btn--outline')+'" href="#users/ug?tab=members">اعضا</a>'+ 
+              '<a class="ar-btn'+(tab==='mapping'?'':' ar-btn--outline')+'" href="#users/ug?tab=mapping">اتصال فرم‌ها</a>'+ 
+              '<a class="ar-btn'+(tab==='custom_fields'?'':' ar-btn--outline')+'" href="#users/ug?tab=custom_fields">فیلدهای سفارشی</a>'+ 
+            '</div>'+
+            '<div id="arUGMount">در حال بارگذاری...</div>'+
+          '</div>';
+        // Load admin bundle on-demand
+        (function ensureBundle(){
+          if (window.__ARSH_UG_READY__) { return; }
+          var id = 'arsh-ug-bundle'; if (document.getElementById(id)) return;
+          var s = document.createElement('script'); s.id = id; s.async = true;
+          var fromCss = (document.querySelector('link[href*="/assets/css/dashboard.css"]')||{}).href||'';
+          var baseUrl = '';
+          if (window.ARSHLINE_PLUGIN_URL) baseUrl = window.ARSHLINE_PLUGIN_URL;
+          else if (fromCss) baseUrl = fromCss.replace('/assets/css/dashboard.css','');
+          s.src = baseUrl ? (baseUrl + '/assets/js/admin/user-groups.js') : '/wp-content/plugins/arshline/assets/js/admin/user-groups.js';
+          document.body.appendChild(s);
+        })();
+      }
 
     // Centralized tab renderer (ported from template)
     function renderTab(tab){
@@ -391,8 +431,13 @@
           try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = (chart && chart.config && chart.config.data && chart.config.data.labels) || []; var v = (chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data) || []; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
         })();
       } else if (tab === 'users'){
+        // Users landing with subsection link to گروه‌های کاربری
+        var ugHref = '#users/ug?tab=groups';
         content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
-          <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
+          <div class="card glass" style="padding:1rem;display:flex;align-items:center;justify-content:space-between;gap:.8rem;flex-wrap:wrap">\
+            <div><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها</div></div>\
+            <a class="ar-btn" href="'+ugHref+'">گروه‌های کاربری</a>\
+          </div>\
           <div class="card glass"><span class="title">همکاری تیمی</span><div class="hint">دعوت هم‌تیمی‌ها (Placeholder)</div></div>\
         </div>';
       } else if (tab === 'settings'){
@@ -1328,10 +1373,12 @@
 
     // Expose functions globally for compatibility and plug into router
     try {
-      window.renderFormResults = renderFormResults;
+  window.renderFormResults = renderFormResults;
       window.renderFormPreview = renderFormPreview;
       window.renderFormEditor = renderFormEditor;
       window.renderFormBuilder = renderFormBuilder;
+  // Expose Users/UG renderer so central router can invoke it
+  try { window.renderUsersUG = renderUsersUG; } catch(_){ }
       window.addNewField = addNewField;
       window.saveFields = saveFields;
       // Expose main tab renderer and initialize router once

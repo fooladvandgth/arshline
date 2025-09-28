@@ -21,6 +21,7 @@ use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\FormsModule;
 use Arshline\Core\Api;
 use Arshline\Dashboard\SettingsPage;
+use Arshline\Dashboard\UserGroupsPage;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -115,6 +116,7 @@ add_action('plugins_loaded', static function () {
     FormsModule::boot();
     Api::boot();
     SettingsPage::boot();
+    UserGroupsPage::boot();
 });
 add_action('wp_enqueue_scripts', static function () {
     if (!arshline_is_dashboard_request()) {
