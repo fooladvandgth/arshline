@@ -25,6 +25,7 @@ class Capabilities
             [ 'id' => 'close_form', 'label' => 'بستن/غیرفعال کردن فرم', 'intent' => 'close_form', 'params' => ['id' => 'number'], 'kind' => 'forms', 'mutating' => true ],
             [ 'id' => 'draft_form', 'label' => 'بازگردانی به پیش‌نویس', 'intent' => 'draft_form', 'params' => ['id' => 'number'], 'kind' => 'forms', 'mutating' => true ],
             [ 'id' => 'update_form_title', 'label' => 'تغییر عنوان فرم', 'intent' => 'update_form_title', 'params' => ['id' => 'number', 'title' => 'string'], 'kind' => 'forms', 'mutating' => true ],
+            [ 'id' => 'add_field_short_text', 'label' => 'افزودن سوال پاسخ کوتاه', 'intent' => 'add_field', 'params' => ['id' => 'number', 'type' => 'short_text'], 'kind' => 'builder', 'mutating' => true ],
         ];
     }
 }

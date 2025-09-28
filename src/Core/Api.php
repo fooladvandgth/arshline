@@ -665,6 +665,42 @@ class Api
         }
     if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
         try {
+            // Add field (short_text) — examples:
+            // "(یک )?سوال (پاسخ کوتاه|کوتاه|short_text) (در فرم (\d+|{title}))? اضافه کن|بساز"
+            // New phrasing support: "افزودن سوال پاسخ کوتاه (به|در) فرم X"
+            if (preg_match('/^(?:یک\s*)?سوال\s*(?:پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)\s*(?:را|رو)?\s*(?:اضافه\s*کن|بساز)(?:\s*در\s*فرم\s*(.+))?$/iu', $cmd, $m)
+                || preg_match('/^(?:افزودن|اضافه\s*کردن)\s*سوال\s*(?:پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)(?:\s*(?:به|در)\s*فرم\s*(.+))?$/iu', $cmd, $m)){
+                $target = isset($m[1]) ? trim((string)$m[1]) : '';
+                $fid = 0;
+                if ($target !== ''){
+                    $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                    $num = (int) strtr(preg_replace('/\D+/u','', $target), $fa2en);
+                    if ($num > 0){ $fid = $num; }
+                    else {
+                        $matches = $find_by_title($target, 5);
+                        if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                            $fid = (int)$matches[0]['id'];
+                        } elseif (!empty($matches)){
+                            $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                            return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'add_field','type'=>'short_text']], 200);
+                        }
+                    }
+                }
+                if ($fid > 0){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'یک سوال پاسخ کوتاه به فرم '.$fid.' اضافه شود؟',
+                        'confirm_action'=> [ 'action'=>'add_field', 'params'=>['id'=>$fid, 'type'=>'short_text'] ]
+                    ], 200);
+                }
+                // No target provided: ask to choose a form
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'add_field','type'=>'short_text']], 200);
+            }
             // Help / capabilities
             if (preg_match('/^(کمک|راهنما|لیست\s*دستورات)$/u', $cmd)){
                 $caps = self::get_ai_capabilities($request);
@@ -1160,6 +1196,27 @@ class Api
                 $intent = self::llm_parse_command($cmd, $s);
                 if (is_array($intent) && isset($intent['action'])){
                     $action = (string)$intent['action'];
+                    // Map add_field with title->id when needed
+                    if ($action === 'add_field'){
+                        $itype = (string)($intent['type'] ?? '');
+                        if (!empty($intent['title']) && empty($intent['id'])){
+                            $matches = $find_by_title((string)$intent['title'], 5);
+                            if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                            elseif (!empty($matches)){
+                                $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'add_field','type'=>$itype?:'short_text']], 200);
+                            }
+                        }
+                        if (!empty($intent['id'])){
+                            $fid = (int)$intent['id']; $itype = $itype ?: 'short_text';
+                            return new WP_REST_Response([
+                                'ok'=>true,
+                                'action'=>'confirm',
+                                'message'=>'یک سوال '+($itype==='short_text'?'پاسخ کوتاه':'از نوع '+$itype)+' به فرم '+$fid+' اضافه شود؟',
+                                'confirm_action'=>['action'=>'add_field','params'=>['id'=>$fid,'type'=>$itype]]
+                            ], 200);
+                        }
+                    }
                     // Map title->id if id is missing but title is present
                     if (!empty($intent['title']) && empty($intent['id'])){
                         $matches = $find_by_title((string)$intent['title'], 5);
@@ -1284,6 +1341,25 @@ class Api
         $action = (string)($payload['action'] ?? '');
         $params = is_array($payload['params'] ?? null) ? $payload['params'] : [];
         try {
+            if ($action === 'add_field' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $type = isset($params['type']) ? (string)$params['type'] : 'short_text';
+                // Load current fields and snapshot for audit
+                $before = FieldRepository::listByForm($fid);
+                $fields = $before;
+                // Compute insert index (append at end)
+                $insertAt = count($fields);
+                // Default props for short_text (server-side mirror of tool-defaults)
+                $defaults = [ 'type'=>'short_text', 'label'=>'پاسخ کوتاه', 'format'=>'free_text', 'required'=>false, 'show_description'=>false, 'description'=>'', 'placeholder'=>'', 'question'=>'', 'numbered'=>true ];
+                if ($type !== 'short_text') { $defaults['type'] = $type; }
+                $fields[] = [ 'props' => $defaults ];
+                FieldRepository::replaceAll($fid, $fields);
+                $after = FieldRepository::listByForm($fid);
+                $undo = Audit::log('update_form_fields', 'form', $fid, ['fields'=>$before], ['fields'=>$after]);
+                // Determine new index by comparing lengths
+                $newIndex = max(0, count($after) - 1);
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_editor', 'id'=>$fid, 'index'=>$newIndex, 'undo_token'=>$undo], 200);
+            }
             if ($action === 'create_form' && !empty($params['title'])){
                 $req = new WP_REST_Request('POST', '/arshline/v1/forms');
                 $req->set_body_params(['title'=>(string)$params['title']]);
@@ -1431,7 +1507,7 @@ class Api
               . 'Your ONLY job is to convert Persian admin commands into a single strict JSON object. '
               . 'Do NOT chat, do NOT add explanations, do NOT ask follow-up questions. Output JSON ONLY. '
               . 'Schema: '
-              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_editor|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title","title?":string,"id?":number,"index?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal|undo|go_back","params?":object}. '
+              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_editor|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title|add_field","title?":string,"id?":number,"index?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal|undo|go_back","type?":"short_text|long_text|multiple_choice|dropdown|rating","params?":object}. '
               . 'Examples: '
               . '"ایجاد فرم با عنوان فرم تست" => {"action":"create_form","title":"فرم تست"}. '
               . '"حذف فرم 12" => {"action":"delete_form","id":12}. '
@@ -1450,6 +1526,7 @@ class Api
               . '"غیرفعال کن فرم 8" => {"action":"close_form","id":8}. '
               . '"پیش‌نویس کن فرم 4" => {"action":"draft_form","id":4}. '
               . '"عنوان فرم 2 را به فرم مشتریان تغییر بده" => {"action":"update_form_title","id":2,"title":"فرم مشتریان"}. '
+              . '"یک سوال پاسخ کوتاه در فرم 5 اضافه کن" => {"action":"add_field","id":5,"type":"short_text"}. '
               . 'If unclear, reply {"action":"unknown"}.';
             $body = [
                 'model' => $model,
@@ -2055,6 +2132,16 @@ class Api
                             Audit::markUndone($token);
                             return new WP_REST_Response(['ok'=>true, 'restored_meta_keys'=>array_keys($metaPrev)], 200);
                         }
+                    }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'invalid_target'], 400);
+                }
+                if ($action === 'update_form_fields'){
+                    $fid = (int)($row['target_id'] ?? 0);
+                    if ($fid > 0){
+                        $prevFields = is_array($before['fields'] ?? null) ? $before['fields'] : [];
+                        FieldRepository::replaceAll($fid, $prevFields);
+                        Audit::markUndone($token);
+                        return new WP_REST_Response(['ok'=>true, 'restored_fields'=>true], 200);
                     }
                     return new WP_REST_Response(['ok'=>false,'error'=>'invalid_target'], 400);
                 }
