@@ -1668,3 +1668,15 @@ body.preview-only .arshline-main {
 .ar-modern-cards > .ar-card.ar-card--teal {
     background: linear-gradient(to bottom, #287bff, #f321d7) !important;
 }
+
+/* Soft action button (used for Undo) */
+.ar-btn.ar-btn--soft {
+    background: color-mix(in srgb, var(--primary, #3b82f6) 12%, transparent);
+    color: var(--primary, #1e40af);
+    border: 1px solid color-mix(in srgb, var(--primary, #3b82f6) 30%, transparent);
+}
+.dark .ar-btn.ar-btn--soft {
+    background: color-mix(in srgb, var(--primary, #93c5fd) 20%, transparent);
+    color: var(--primary, #93c5fd);
+    border-color: color-mix(in srgb, var(--primary, #93c5fd) 35%, transparent);
+}

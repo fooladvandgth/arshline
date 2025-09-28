@@ -20,7 +20,11 @@
     var runBtn = document.getElementById('arAiRun');
     var clearBtn = document.getElementById('arAiClear');
     var cmdEl = document.getElementById('arAiCmd');
-    var outEl = document.getElementById('arAiOut');
+  var outEl = document.getElementById('arAiOut');
+  var undoBtn = document.getElementById('arAiUndo');
+  // UI action stack for client-side undo (non-destructive UI ops)
+  var uiStack = []; // items: {type, payload, undo: fn}
+  var lastServerUndoToken = '';
 
     if (!panel || !outEl) {
       try { console.warn('[ARSH][AI] panel elements not found; skipping bind'); } catch(_){ }
@@ -47,6 +51,7 @@
         outEl.scrollTop = outEl.scrollHeight;
       } catch(_){ }
     }
+  function logConsole(action, detail){ try { console.log('[HOSHYAR][UNDO]', action, detail||''); } catch(_){ } }
     function attachUndoUI(token){
       try {
         if (!token || !outEl) return;
@@ -124,9 +129,37 @@
           return;
         }
         if (j.action === 'help' && j.capabilities){ appendOut({ capabilities: j.capabilities }); return; }
-        if (j.action === 'ui' && j.target === 'toggle_theme'){ try { var t = document.getElementById('arThemeToggle'); if (t) t.click(); } catch(_){ } return; }
-        if (j.action === 'open_tab' && j.tab){ try { if (typeof window.renderTab === 'function') window.renderTab(String(j.tab)); else if (typeof window.arRenderTab === 'function') window.arRenderTab(String(j.tab)); } catch(_){ } return; }
-        if (j.action === 'open_builder' && j.id){ try { if (typeof window.setHash==='function') setHash('builder/'+parseInt(j.id)); } catch(_){ } try { if (typeof window.renderTab==='function') window.renderTab('forms'); } catch(_){ } return; }
+        if (j.action === 'ui' && j.target === 'toggle_theme'){
+          try {
+            var t = document.getElementById('arThemeToggle');
+            var prev = t ? (t.getAttribute('aria-checked')==='true') : null;
+            if (t) t.click();
+            // push undo for theme toggle
+            uiStack.push({ type:'toggle_theme', payload:{ prev: prev }, undo:function(){ if (t) t.click(); } });
+            logConsole('UI action', 'toggle_theme');
+          } catch(_){ }
+          return;
+        }
+        if (j.action === 'open_tab' && j.tab){
+          try {
+            var prevHash = location.hash;
+            if (typeof window.renderTab === 'function') window.renderTab(String(j.tab)); else if (typeof window.arRenderTab === 'function') window.arRenderTab(String(j.tab));
+            // push undo: go back to previous tab
+            uiStack.push({ type:'open_tab', payload:{ prevHash: prevHash }, undo:function(){ try { if (prevHash) { if (typeof window.setHash==='function') setHash(prevHash.replace(/^#/,'')); } } catch(_){ } } });
+            logConsole('UI action', { open_tab: j.tab });
+          } catch(_){ }
+          return;
+        }
+        if (j.action === 'open_builder' && j.id){
+          try {
+            var prevHash2 = location.hash;
+            if (typeof window.setHash==='function') setHash('builder/'+parseInt(j.id));
+            if (typeof window.renderTab==='function') window.renderTab('forms');
+            uiStack.push({ type:'open_builder', payload:{ prevHash: prevHash2 }, undo:function(){ try { if (prevHash2) { if (typeof window.setHash==='function') setHash(prevHash2.replace(/^#/,'')); } } catch(_){ } } });
+            logConsole('UI action', { open_builder: j.id });
+          } catch(_){ }
+          return;
+        }
         if ((j.action === 'download' || j.action === 'export') && j.url){ try { window.open(String(j.url), '_blank'); } catch(_){ } return; }
         if (j.url && !j.action){ try { window.open(String(j.url), '_blank'); } catch(_){ } return; }
       } catch(_){ }
@@ -144,11 +177,35 @@
         saveHist(cmd, j || txt || {});
         if (r.ok && j && j.ok !== false){ handleAgentAction(j); notify('انجام شد', 'success'); }
         else { notify('اجرا ناموفق بود', 'error'); }
-        if (j && j.undo_token){ attachUndoUI(j.undo_token); }
+        if (j && j.undo_token){ lastServerUndoToken = String(j.undo_token||''); attachUndoUI(j.undo_token); logConsole('Server undo token', lastServerUndoToken); }
       } catch(e){ appendOut(String(e)); notify('خطا در اجرای دستور', 'error'); }
     }
 
     if (runBtn) runBtn.addEventListener('click', runAgent);
+    if (undoBtn) undoBtn.addEventListener('click', async function(){
+      // Prefer client-side UI undo; if none, fallback to server undo token; else list recent audit
+      try {
+        if (uiStack.length){
+          var item = uiStack.pop();
+          if (item && typeof item.undo === 'function'){ item.undo(); notify('بازگردانی UI انجام شد', 'success'); logConsole('UI undo', item.type); return; }
+        }
+        if (lastServerUndoToken){
+          try {
+            var r = await fetch(ARSHLINE_REST + 'ai/undo', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: lastServerUndoToken }) });
+            var t = ''; try { t = await r.clone().text(); } catch(_){ }
+            var j = null; try { j = t ? JSON.parse(t) : await r.json(); } catch(_){ }
+            appendOut(j || (t || ('HTTP '+r.status)));
+            if (r.ok && j && j.ok){ notify('بازگردانی انجام شد', 'success'); logConsole('Server undo', lastServerUndoToken); lastServerUndoToken=''; try { if (typeof window.renderTab==='function') window.renderTab('forms'); } catch(_){ } return; }
+          } catch(e){ appendOut(String(e)); }
+        }
+        // Fallback: show last 10 actions
+        appendOut('> فهرست بازگردانی‌های اخیر');
+        var rr = await fetch(ARSHLINE_REST + 'ai/audit?limit=10', { method:'GET', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} });
+        var tt = ''; try { tt = await rr.clone().text(); } catch(_){ }
+        var jj = null; try { jj = tt ? JSON.parse(tt) : await rr.json(); } catch(_){ }
+        appendOut(jj || (tt || ('HTTP '+rr.status)));
+      } catch(e){ appendOut(String(e)); }
+    });
     if (cmdEl) cmdEl.addEventListener('keydown', function(e){ if (e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); runAgent(); }});
     try { if ((sessionStorage.getItem('arAiOpen')||'')==='1') setOpen(true); } catch(_){ }
 
@@ -157,7 +214,7 @@
       var api = {
         open: function(){ setOpen(true); },
         run: function(cmd){ if (cmdEl) { cmdEl.value = String(cmd||''); } runAgent(); },
-        undo: function(token){ attachUndoUI(String(token||'')); }
+        undo: function(token){ if (token) { lastServerUndoToken = String(token); } attachUndoUI(String(token||'')); }
       };
       // Backward-compat and new modular alias
       window.ARSH_AI = api;

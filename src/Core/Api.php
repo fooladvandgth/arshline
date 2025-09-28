@@ -885,17 +885,23 @@ class Api
                         'enabled' => ($key === 'ai_enabled') ? (bool)$value : $cur['enabled'],
                         'model' => ($key === 'ai_model') ? (string)$value : $cur['model'],
                     ];
+                    $before = ['config'=>$cur];
                     $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
                     $r->set_body_params(['config'=>$cfg]);
-                    return self::update_ai_config($r);
+                    $resp = self::update_ai_config($r);
+                    $undo = Audit::log('set_setting', 'settings', null, $before, ['config'=>$cfg]);
+                    if ($resp instanceof WP_REST_Response){ $data = $resp->get_data(); $data['undo_token'] = $undo; return new WP_REST_Response($data, $resp->get_status()); }
+                    return $resp;
                 } else {
                     $cur = get_option('arshline_settings', []);
                     $arr = is_array($cur) ? $cur : [];
+                    $before = ['settings'=>$arr];
                     if ($key === 'min_submit_seconds') $arr['min_submit_seconds'] = max(0, (int)$value);
                     if ($key === 'rate_limit_per_min') $arr['rate_limit_per_min'] = max(0, (int)$value);
                     if ($key === 'block_svg') $arr['block_svg'] = (bool)$value;
                     update_option('arshline_settings', $arr, false);
-                    return new WP_REST_Response(['ok'=>true, 'settings'=> self::get_global_settings()], 200);
+                    $undo = Audit::log('set_setting', 'settings', null, $before, ['settings'=>$arr]);
+                    return new WP_REST_Response(['ok'=>true, 'settings'=> self::get_global_settings(), 'undo_token'=>$undo], 200);
                 }
             }
         } catch (\Throwable $e) {
@@ -1496,6 +1502,25 @@ class Api
                         return new WP_REST_Response(['ok'=>false,'error'=>'delete_failed'], 500);
                     }
                 }
+            }
+            if ($scope === 'settings' && $action === 'set_setting'){
+                // Swap entire settings/config back using before snapshot
+                $before = is_array($before) ? $before : [];
+                if (isset($before['config'])){
+                    $cfg = $before['config'];
+                    $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
+                    $r->set_body_params(['config'=>$cfg]);
+                    self::update_ai_config($r);
+                    Audit::markUndone($token);
+                    return new WP_REST_Response(['ok'=>true, 'restored'=>'ai_config'], 200);
+                }
+                if (isset($before['settings'])){
+                    $arr = $before['settings'];
+                    if (is_array($arr)) update_option('arshline_settings', $arr, false);
+                    Audit::markUndone($token);
+                    return new WP_REST_Response(['ok'=>true, 'restored'=>'settings'], 200);
+                }
+                return new WP_REST_Response(['ok'=>false,'error'=>'invalid_before_state'], 400);
             }
             return new WP_REST_Response(['ok'=>false,'error'=>'unsupported_undo'], 400);
         } catch (\Throwable $e) {
