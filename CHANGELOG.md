@@ -1,3 +1,15 @@
+## v2.5.0 — داشبورد ماژولار + مسیریاب مرکزی (Stable)
+
+- تاریخ: 2025-09-28
+- شرح: پایدارترین و کامل‌ترین نسخه‌ی افزونه تا امروز؛ ماژولارسازی کنترلر داشبورد، افزودن روتر مرکزی، اتصال کامل منوی سایدبار به مسیریابی (رفع قفل روی داشبورد)، و پاک‌سازی هد قالب با اتکای کامل به enqueue. FULL mode برای کنترلر خارجی فعال شد و بلاک اینلاین صرفاً نقش فallback دارد.
+- تغییرات کلیدی:
+	- Router: `assets/js/core/router.js` با APIهای setHash/routeFromHash/arRenderTab/setActive/init و جلوگیری از دوباره‌اجرایی
+	- Controller: `assets/js/dashboard-controller.js` مالک `renderTab`، اتصال به روتر، اکسپورت توابع builder/editor/preview/results و اجتناب از bindهای مضاعف
+	- Sidebar: hrefهای `#dashboard/#forms/#reports/#users/#settings` + کلیک‌هندلر برای setHash و رندر تب؛ هایلایت آیتم فعال
+	- Template: فعال‌سازی FULL mode و عبور از کنترلر اینلاین در حضور کنترلر خارجی؛ ساده‌سازی head و بارگذاری ماژول‌ها
+	- UI/UX: فونت Vazir، تم تاریک پایدار، بهبود کارت‌های KPI و دونات، حفظ انتخاب‌ها در localStorage
+- سازگاری: مسیریابی سازگار با hash و دکمه‌های Back/Forward؛ لینک‌های عمیق (builder/editor/preview/results) از طریق hash
+
 ## v2.0.2 — پایدار ، فرم و گزارش سالم (Re-release)
 
 - تاریخ: 2025-09-26

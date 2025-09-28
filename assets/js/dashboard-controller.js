@@ -155,9 +155,27 @@
       arRenderTab('dashboard');
     }
     var AR_FULL = !!(window && window.ARSH_CTRL_FULL);
-    if (AR_FULL){
+    // In FULL mode, if a centralized router exists, defer hash routing to it to avoid double-handling
+    if (AR_FULL && !window.ARSH_ROUTER){
       window.addEventListener('hashchange', function(){ if (_arNavSilence>0) return; routeFromHash(); });
     }
+    // Sidebar navigation: drive routing on click
+    try {
+      links.forEach(function(a){
+        a.addEventListener('click', function(e){
+          try { e.preventDefault(); } catch(_){ }
+          var tab = a.getAttribute('data-tab');
+          if (!tab) return;
+          if (window.ARSH_ROUTER){
+            try { window.ARSH_ROUTER.setHash(tab); } catch(_){ }
+            try { window.ARSH_ROUTER.arRenderTab(tab); } catch(_){ }
+          } else {
+            try { setHash(tab); } catch(_){ }
+            try { renderTab(tab); } catch(_){ }
+          }
+        });
+      });
+    } catch(_){ }
 
     // theme switch (sun/moon)
     var themeToggle = document.getElementById('arThemeToggle');
@@ -179,6 +197,276 @@
     function getTypeIcon(type){ switch(type){ case 'short_text': return 'create-outline'; case 'long_text': return 'newspaper-outline'; case 'multiple_choice': case 'multiple-choice': return 'list-outline'; case 'dropdown': return 'chevron-down-outline'; case 'welcome': return 'happy-outline'; case 'thank_you': return 'checkmark-done-outline'; default: return 'help-circle-outline'; } }
     function getTypeLabel(type){ switch(type){ case 'short_text': return 'پاسخ کوتاه'; case 'long_text': return 'پاسخ طولانی'; case 'multiple_choice': case 'multiple-choice': return 'چندگزینه‌ای'; case 'dropdown': return 'لیست کشویی'; case 'welcome': return 'پیام خوش‌آمد'; case 'thank_you': return 'پیام تشکر'; default: return 'نامشخص'; } }
     function card(title, subtitle, icon){ var ic = icon ? ('<span style="font-size:22px;margin-inline-start:.4rem;opacity:.85">'+icon+'</span>') : ''; return '<div class="card glass" style="display:flex;align-items:center;gap:.6rem;">'+ic+'<div><div class="title">'+title+'</div><div class="hint">'+(subtitle||'')+'</div></div></div>'; }
+
+    // Centralized tab renderer (ported from template)
+    function renderTab(tab){
+      try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
+      try { if (['dashboard','forms','reports','users','settings'].includes(tab)) setHash(tab); } catch(_){ }
+      try { setSidebarClosed(false, false); } catch(_){ }
+      setActive(tab);
+      var content = document.getElementById('arshlineDashboardContent');
+      var headerActions = document.getElementById('arHeaderActions');
+      if (headerActions) { headerActions.innerHTML = '<button id="arHeaderCreateForm" class="ar-btn">+ فرم جدید</button>'; }
+      var globalHeaderCreateBtn = document.getElementById('arHeaderCreateForm');
+      if (globalHeaderCreateBtn) {
+        globalHeaderCreateBtn.addEventListener('click', function(){ window._arOpenCreateInlineOnce = true; renderTab('forms'); });
+      }
+      if (tab === 'dashboard'){
+        content.innerHTML = ''+
+          '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
+          '<div class="ar-modern-cards">\
+            <div class="ar-card ar-card--blue">\
+              <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
+              <div class="content"><h2>فرم‌ساز پیشرفته</h2><p>(در حال توسعه)</p></div>\
+            </div>\
+            <div class="ar-card ar-card--amber">\
+              <div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>\
+              <div class="content"><h2>مدیریت پاسخ‌ها</h2><p>(در حال توسعه)</p></div>\
+            </div>\
+            <div class="ar-card ar-card--violet">\
+              <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
+              <div class="content"><h2>تحلیل و گزارش</h2><p>(در حال توسعه)</p></div>\
+            </div>\
+            <div class="ar-card ar-card--teal">\
+              <div class="icon"><ion-icon name="settings-outline"></ion-icon></div>\
+              <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
+            </div>\
+          </div>'+
+          '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
+            '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
+              '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                '<div><div class="hint">همه فرم‌ها</div><div id="arKpiForms" class="title">0</div></div>'+
+                '<ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+              '</div>'+
+              '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                '<div><div class="hint">فرم‌های فعال</div><div id="arKpiFormsActive" class="title">0</div></div>'+
+                '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+              '</div>'+
+              '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                '<div><div class="hint">فرم‌های غیرفعال</div><div id="arKpiFormsDisabled" class="title">0</div></div>'+
+                '<ion-icon name="ban-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+              '</div>'+
+              '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                '<div><div class="hint">پاسخ‌ها</div><div id="arKpiSubs" class="title">0</div></div>'+
+                '<ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+              '</div>'+
+              '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+                '<div><div class="hint">کاربران</div><div id="arKpiUsers" class="title">0</div></div>'+
+                '<ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+              '</div>'+
+            '</div>'+
+          '</div>'+
+          '<div class="card glass" style="padding:1rem;">'+
+            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
+              '<span class="title">روند ارسال‌ها</span>'+
+              '<span class="hint">۳۰ روز اخیر</span>'+
+              '<span style="flex:1 1 auto"></span>'+
+              '<select id="arStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+            '</div>'+
+            '<div style="display:flex; flex-wrap:wrap; gap:.8rem; align-items:stretch;">'+
+              '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChart"></canvas></div>'+
+              '<div style="width:160px; flex:0 0 160px; height:140px;"><canvas id="arFormsDonut"></canvas></div>'+
+            '</div>'+
+          '</div>';
+        (function(){
+          var daysSel = document.getElementById('arStatsDays');
+          var ctx = document.getElementById('arSubsChart');
+          var donutCtx = document.getElementById('arFormsDonut');
+          var chart = null, donut = null;
+          function palette(){ var dark = document.body.classList.contains('dark'); return { grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)', text: dark ? '#e5e7eb' : '#374151', line: dark ? '#60a5fa' : '#2563eb', fill: dark ? 'rgba(96,165,250,.15)' : 'rgba(37,99,235,.12)', active: dark ? '#34d399' : '#10b981', disabled: dark ? '#f87171' : '#ef4444' }; }
+          function renderChart(labels, data){ var pal = palette(); if (!ctx) return; try { if (chart){ chart.destroy(); chart=null; } } catch(_){ } if (!window.Chart) return; chart = new window.Chart(ctx, { type:'line', data:{ labels:labels, datasets:[{ label:'ارسال‌ها', data:data, borderColor:pal.line, backgroundColor:pal.fill, fill:true, tension:.3, pointRadius:2, borderWidth:2 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:6, right:8, bottom:6, left:8 } }, scales:{ x:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, maxRotation:0, autoSkip:true, maxTicksLimit:10 } }, y:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, precision:0 } } }, plugins:{ legend:{ labels:{ color:pal.text } }, tooltip:{ intersect:false, mode:'index' } } } }); }
+          function renderDonut(activeCnt, disabledCnt){ if (!donutCtx || !window.Chart) return; var pal = palette(); try{ if(donut){ donut.destroy(); donut=null; } } catch(_){ } donut = new window.Chart(donutCtx, { type:'doughnut', data:{ labels:['فعال','غیرفعال'], datasets:[{ data:[activeCnt, disabledCnt], backgroundColor:[pal.active,pal.disabled], borderColor:[pal.active,pal.disabled], borderWidth:1 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ color:pal.text } }, tooltip:{ callbacks:{ label:function(ctx){ var v=ctx.parsed; var sum=(activeCnt+disabledCnt)||1; var pct=Math.round((v/sum)*100); return ctx.label+': '+v+' ('+pct+'%)'; } } } }, cutout:'55%' } }); }
+          function applyCounts(c){ function set(id,v){ var el=document.getElementById(id); if(el) el.textContent=String(v); } var total=c.forms||0; var active=c.forms_active||0; var disabled=Math.max(total-active,0); set('arKpiForms', total); set('arKpiFormsActive', active); set('arKpiFormsDisabled', disabled); set('arKpiSubs', c.submissions||0); set('arKpiUsers', c.users||0); try{ renderDonut(active,disabled); } catch(_){ } }
+          function load(days){ try { var url = new URL(ARSHLINE_REST + 'stats'); url.searchParams.set('days', String(days||30)); fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { applyCounts(data.counts||{}); var ser=data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } }).catch(function(err){ console.error('[ARSH] stats failed', err); notify('دریافت آمار ناموفق بود', 'error'); }); } catch(e){ console.error(e); } }
+          if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
+          load(30);
+          try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart && chart.config && chart.config.data && chart.config.data.labels; var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data; if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v); var a = parseInt((document.getElementById('arKpiFormsActive')||{}).textContent||'0')||0; var d = parseInt((document.getElementById('arKpiFormsDisabled')||{}).textContent||'0')||0; renderDonut(a, d); } catch(_){ } }); } } catch(_){ }
+        })();
+      } else if (tab === 'forms'){
+        content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
+            <span class="title">فرم‌ها</span>\
+            <div style="display:flex;gap:.5rem;align-items:center;margin-inline-start:auto;flex-wrap:wrap">\
+              <input id="arFormSearch" class="ar-input" placeholder="جستجو عنوان/شناسه" style="min-width:220px"/>\
+              <input id="arFormDateFrom" type="date" class="ar-input" title="از تاریخ"/>\
+              <input id="arFormDateTo" type="date" class="ar-input" title="تا تاریخ"/>\
+              <select id="arFormStatusFilter" class="ar-select" title="وضعیت">\
+                <option value="">همه وضعیت‌ها</option>\
+                <option value="published">فعال</option>\
+                <option value="draft">پیش‌نویس</option>\
+                <option value="disabled">غیرفعال</option>\
+              </select>\
+              <button id="arCreateFormBtn" class="ar-btn ar-btn--soft">+ فرم جدید</button>\
+            </div>\
+          </div>\
+          <div id="arCreateInline" style="display:none;align-items:center;gap:.5rem;margin-bottom:.8rem;">\
+            <input id="arNewFormTitle" class="ar-input" placeholder="عنوان فرم" style="min-width:220px"/>\
+            <button id="arCreateFormSubmit" class="ar-btn">ایجاد</button>\
+            <button id="arCreateFormCancel" class="ar-btn ar-btn--outline">انصراف</button>\
+          </div>\
+          <div id="arFormsList" class="hint">در حال بارگذاری...</div>\
+        </div>';
+        var createBtn = document.getElementById('arCreateFormBtn');
+        var headerCreateBtn = document.getElementById('arHeaderCreateForm');
+        var inlineWrap = document.getElementById('arCreateInline');
+        var submitBtn = document.getElementById('arCreateFormSubmit');
+        var cancelBtn = document.getElementById('arCreateFormCancel');
+        var formSearch = document.getElementById('arFormSearch');
+        var formDF = document.getElementById('arFormDateFrom');
+        var formDT = document.getElementById('arFormDateTo');
+        var formSF = document.getElementById('arFormStatusFilter');
+        if (!ARSHLINE_CAN_MANAGE && createBtn){ createBtn.style.display = 'none'; }
+        if (createBtn) createBtn.addEventListener('click', function(){ if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex'; if (!showing){ var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } } });
+        if (headerCreateBtn) headerCreateBtn.addEventListener('click', function(){ if (!inlineWrap) return; inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } });
+        if (cancelBtn) cancelBtn.addEventListener('click', function(){ if (inlineWrap) inlineWrap.style.display = 'none'; });
+        if (submitBtn) submitBtn.addEventListener('click', function(){ var titleEl = document.getElementById('arNewFormTitle'); var title = (titleEl && titleEl.value.trim()) || 'فرم جدید'; fetch(ARSHLINE_REST + 'forms', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) }).then(async function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } var t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); }).then(function(obj){ if (obj && obj.id){ notify('فرم ایجاد شد', 'success'); renderFormBuilder(parseInt(obj.id)); } else { notify('ایجاد فرم ناموفق بود. لطفاً دسترسی و دیتابیس را بررسی کنید.', 'error'); if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); } } }).catch(function(e){ try { console.error('[ARSH] create_form failed:', e); } catch(_){ } notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); } }); });
+        (function(){ try { var inp=document.getElementById('arNewFormTitle'); if (inp){ inp.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); if (submitBtn) submitBtn.click(); } }); } } catch(_){ } })();
+        fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
+          var all = Array.isArray(forms) ? forms : [];
+          var box = document.getElementById('arFormsList'); if (!box) return;
+          function badge(status){ var lab = status==='published'?'فعال':(status==='disabled'?'غیرفعال':'پیش‌نویس'); var col = status==='published'?'#06b6d4':(status==='disabled'?'#ef4444':'#a3a3a3'); return '<span class="hint" style="background:'+col+'20;color:'+col+';padding:.15rem .4rem;border-radius:999px;font-size:12px;">'+lab+'</span>'; }
+          function applyFilters(){ var term=(formSearch&&formSearch.value.trim())||''; var df=(formDF&&formDF.value)||''; var dt=(formDT&&formDT.value)||''; var sf=(formSF&&formSF.value)||''; var list = all.filter(function(f){ var ok=true; if (term){ var t=(f.title||'')+' '+String(f.id||''); ok = t.indexOf(term)!==-1; } if (ok && df){ ok = String(f.created_at||'').slice(0,10) >= df; } if (ok && dt){ ok = String(f.created_at||'').slice(0,10) <= dt; } if (ok && sf){ ok = String(f.status||'') === sf; } return ok; }); if (list.length===0){ box.innerHTML = '<div class="hint">فرمی مطابق جستجو یافت نشد.</div>'; return; } var html = list.map(function(f){ return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
+            <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div>\
+            <div style="display:flex;gap:.6rem;">\
+              '+badge(String(f.status||''))+'\
+              <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
+              <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
+              <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
+              '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
+            </div>\
+          </div>'; }).join(''); box.innerHTML = html; box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); }); box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); }); box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; renderFormResults(id); }); }); if (ARSHLINE_CAN_MANAGE) { box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); }); }
+          }
+          applyFilters();
+          if (formSearch) formSearch.addEventListener('input', function(){ clearTimeout(formSearch._t); formSearch._t = setTimeout(applyFilters, 200); });
+          if (formDF) formDF.addEventListener('change', applyFilters);
+          if (formDT) formDT.addEventListener('change', applyFilters);
+          if (formSF) formSF.addEventListener('change', applyFilters);
+          if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
+        }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
+      } else if (tab === 'reports'){
+        content.innerHTML = ''+
+          '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
+          '  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
+          '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+          '      <div><div class="hint">همه فرم‌ها</div><div id="arRptKpiForms" class="title">0</div></div>'+
+          '      <ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+          '    </div>'+
+          '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+          '      <div><div class="hint">فرم‌های فعال</div><div id="arRptKpiFormsActive" class="title">0</div></div>'+
+          '      <ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+          '    </div>'+
+          '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+          '      <div><div class="hint">فرم‌های غیرفعال</div><div id="arRptKpiFormsDisabled" class="title">0</div></div>'+
+          '      <ion-icon name="ban-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+          '    </div>'+
+          '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+          '      <div><div class="hint">پاسخ‌ها</div><div id="arRptKpiSubs" class="title">0</div></div>'+
+          '      <ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+          '    </div>'+
+          '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
+          '      <div><div class="hint">کاربران</div><div id="arRptKpiUsers" class="title">0</div></div>'+
+          '      <ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
+          '    </div>'+
+          '  </div>'+
+          '</div>'+
+          '<div class="card glass" style="padding:1rem;">'+
+          '  <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
+          '    <span class="title">روند ارسال‌ها</span>'+
+          '    <span class="hint">۳۰ روز اخیر</span>'+
+          '    <span style="flex:1 1 auto"></span>'+
+          '    <select id="arRptStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+          '  </div>'+
+          '  <div style="width:100%; max-width:360px; height:140px;"><canvas id="arRptSubsChart"></canvas></div>'+
+          '</div>';
+        (function(){
+          var daysSel = document.getElementById('arRptStatsDays');
+          var ctx = document.getElementById('arRptSubsChart');
+          var chart = null;
+          function palette(){ var dark = document.body.classList.contains('dark'); return { grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)', text: dark ? '#e5e7eb' : '#374151', line: dark ? '#34d399' : '#059669', fill: dark ? 'rgba(52,211,153,.15)' : 'rgba(5,150,105,.12)' }; }
+          function renderChart(labels, data){ var pal=palette(); if (!ctx) return; try{ if(chart){ chart.destroy(); chart=null; } } catch(_){ } if (!window.Chart) return; chart = new window.Chart(ctx, { type:'line', data:{ labels:labels, datasets:[{ label:'ارسال‌ها', data:data, borderColor:pal.line, backgroundColor:pal.fill, fill:true, tension:.3, pointRadius:1.5, borderWidth:1.5 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:6, right:8, bottom:6, left:8 } }, scales:{ x:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, maxRotation:0, autoSkip:true, maxTicksLimit:10 } }, y:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, precision:0 } } }, plugins:{ legend:{ labels:{ color:pal.text } }, tooltip:{ intersect:false, mode:'index' } } } }); }
+          function applyCounts(c){ function set(id,v){ var el=document.getElementById(id); if (el) el.textContent=String(v||0); } set('arRptKpiForms', c.forms); set('arRptKpiFormsActive', c.forms_active); set('arRptKpiFormsDisabled', c.forms_disabled); set('arRptKpiSubs', c.submissions); set('arRptKpiUsers', c.users); }
+          function load(days){ try { var url=new URL(ARSHLINE_REST + 'stats'); url.searchParams.set('days', String(days||30)); fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ applyCounts(data.counts||{}); var ser=data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); }).catch(function(err){ console.error('[ARSH] stats failed', err); notify('دریافت آمار ناموفق بود', 'error'); }); } catch(e){ console.error(e); } }
+          if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
+          load(30);
+          try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = (chart && chart.config && chart.config.data && chart.config.data.labels) || []; var v = (chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data) || []; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
+        })();
+      } else if (tab === 'users'){
+        content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
+          <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
+          <div class="card glass"><span class="title">همکاری تیمی</span><div class="hint">دعوت هم‌تیمی‌ها (Placeholder)</div></div>\
+        </div>';
+      } else if (tab === 'settings'){
+        content.innerHTML = '\
+          <div class="card glass" style="padding:1rem;display:flex;flex-direction:column;gap:.8rem;">\
+            <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">\
+              <button class="ar-btn ar-btn--soft" data-s-tab="security">امنیت</button>\
+              <button class="ar-btn ar-btn--soft" data-s-tab="ai">هوش مصنوعی</button>\
+              <button class="ar-btn ar-btn--soft" data-s-tab="users">کاربران</button>\
+            </div>\
+            <div id="arGlobalSettingsPanels">\
+              <div id="arS_Security" class="s-panel">\
+                <div class="title">تنظیمات امنیتی (سراسری)</div>\
+                <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                  <label><input type="checkbox" id="gsHoneypot"/> Honeypot</label>\
+                  <span class="hint">حداقل ثانیه</span><input id="gsMinSec" type="number" min="0" step="1" class="ar-input" style="width:100px"/>\
+                  <span class="hint">ارسال/دقیقه</span><input id="gsRatePerMin" type="number" min="0" step="1" class="ar-input" style="width:100px"/>\
+                  <span class="hint">پنجره (دقیقه)</span><input id="gsRateWindow" type="number" min="1" step="1" class="ar-input" style="width:100px"/>\
+                </div>\
+                <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                  <label><input type="checkbox" id="gsCaptchaEnabled"/> reCAPTCHA</label>\
+                  <span class="hint">Site Key</span><input id="gsCaptchaSite" class="ar-input" style="min-width:220px"/>\
+                  <span class="hint">Secret</span><input id="gsCaptchaSecret" type="password" class="ar-input" style="min-width:220px"/>\
+                  <span class="hint">نسخه</span><select id="gsCaptchaVersion" class="ar-select"><option value="v2">v2</option><option value="v3">v3</option></select>\
+                </div>\
+                <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                  <span class="hint">حداکثر اندازه آپلود (KB)</span><input id="gsUploadKB" type="number" min="50" max="4096" step="10" class="ar-input" style="width:120px"/>\
+                  <label><input type="checkbox" id="gsBlockSvg"/> مسدود کردن SVG</label>\
+                </div>\
+                <div><button id="gsSaveSecurity" class="ar-btn">ذخیره امنیت</button></div>\
+              </div>\
+              <div id="arS_AI" class="s-panel" style="display:none;">\
+                <div class="title">تنظیمات هوش مصنوعی (سراسری)</div>\
+                <label><input type="checkbox" id="gsAiEnabled"/> فعال‌سازی هوش مصنوعی ضداسپم</label>\
+                <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                  <span class="hint">آستانه امتیاز (0 تا 1)</span><input id="gsAiThreshold" type="number" min="0" max="1" step="0.05" class="ar-input" style="width:120px"/>\
+                </div>\
+                <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                  <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
+                  <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
+                  <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-5-mini">gpt-5-mini</option></select>\
+                  <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
+                </div>\
+                <div class="field" style="display:flex;flex-direction:column;gap:.4rem;">\
+                  <div class="hint">دستور عامل (Agent): مثلا «ایجاد فرم با عنوان فرم تست» یا «حذف فرم 12»</div>\
+                  <textarea id="aiAgentCmd" class="ar-input" style="min-height:72px"></textarea>\
+                  <div><button id="aiAgentRun" class="ar-btn">اجرای دستور</button></div>\
+                  <pre id="aiAgentOut" style="background:rgba(2,6,23,.06); padding:.6rem;border-radius:8px;max-height:180px;overflow:auto;"></pre>\
+                </div>\
+                <div><button id="gsSaveAI" class="ar-btn">ذخیره هوش مصنوعی</button></div>\
+              </div>\
+              <div id="arS_Users" class="s-panel" style="display:none;">\
+                <div class="title">کاربران و دسترسی‌ها (Placeholder)</div>\
+                <div class="hint">به‌زودی: نقش‌ها، دسترسی‌ها، تیم‌ها</div>\
+              </div>\
+            </div>\
+          </div>';
+        (function(){ try { var btns = content.querySelectorAll('[data-s-tab]'); function show(which){ ['Security','AI','Users'].forEach(function(k){ var el = document.getElementById('arS_'+k); if (el) el.style.display = (k.toLowerCase()===which)?'block':'none'; }); btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-s-tab')===which); }); } btns.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-s-tab')); }); }); show('security'); } catch(_){ } })();
+        fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+          .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+          .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try { var hp=document.getElementById('gsHoneypot'); if(hp) hp.checked=!!s.anti_spam_honeypot; var ms=document.getElementById('gsMinSec'); if(ms) ms.value=String(s.min_submit_seconds||0); var rpm=document.getElementById('gsRatePerMin'); if(rpm) rpm.value=String(s.rate_limit_per_min||0); var rwin=document.getElementById('gsRateWindow'); if(rwin) rwin.value=String(s.rate_limit_window_min||1); var ce=document.getElementById('gsCaptchaEnabled'); if(ce) ce.checked=!!s.captcha_enabled; var cs=document.getElementById('gsCaptchaSite'); if(cs) cs.value=s.captcha_site_key||''; var ck=document.getElementById('gsCaptchaSecret'); if(ck) ck.value=s.captcha_secret_key||''; var cv=document.getElementById('gsCaptchaVersion'); if(cv) cv.value=s.captcha_version||'v2'; var uk=document.getElementById('gsUploadKB'); if(uk) uk.value=String(s.upload_max_kb||300); var bsvg=document.getElementById('gsBlockSvg'); if(bsvg) bsvg.checked=(s.block_svg !== false); var aiE=document.getElementById('gsAiEnabled'); if(aiE) aiE.checked=!!s.ai_enabled; var aiT=document.getElementById('gsAiThreshold'); if(aiT) aiT.value=String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5)); function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; } updC(); if (ce) ce.addEventListener('change', updC); } catch(_){ } })
+          .then(function(){ return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(resp){ try { var c = resp && resp.config ? resp.config : {}; var bu=document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || ''; var mo=document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o-mini'; } catch(_){ } }); })
+          .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
+        function putSettings(part){ return fetch(ARSHLINE_REST + 'settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ settings: part }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
+        function putAiConfig(cfg){ return fetch(ARSHLINE_REST + 'ai/config', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ config: cfg }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
+        var saveSec=document.getElementById('gsSaveSecurity'); if (saveSec){ saveSec.addEventListener('click', function(){ var payload = { anti_spam_honeypot: !!(document.getElementById('gsHoneypot')?.checked), min_submit_seconds: Math.max(0, parseInt(document.getElementById('gsMinSec')?.value||'0')||0), rate_limit_per_min: Math.max(0, parseInt(document.getElementById('gsRatePerMin')?.value||'0')||0), rate_limit_window_min: Math.max(1, parseInt(document.getElementById('gsRateWindow')?.value||'1')||1), captcha_enabled: !!(document.getElementById('gsCaptchaEnabled')?.checked), captcha_site_key: String(document.getElementById('gsCaptchaSite')?.value||''), captcha_secret_key: String(document.getElementById('gsCaptchaSecret')?.value||''), captcha_version: String(document.getElementById('gsCaptchaVersion')?.value||'v2'), upload_max_kb: Math.max(50, Math.min(4096, parseInt(document.getElementById('gsUploadKB')?.value||'300')||300)), block_svg: !!(document.getElementById('gsBlockSvg')?.checked) }; putSettings(payload).then(function(){ notify('تنظیمات امنیت ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات امنیت ناموفق بود', 'error'); }); }); }
+        var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)) }; var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: String(document.getElementById('gsAiModel')?.value||'') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
+        var testBtn=document.getElementById('gsAiTest'); if (testBtn){ testBtn.addEventListener('click', function(){ fetch(ARSHLINE_REST + 'ai/test', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); }).then(function(res){ if (res.body && res.body.ok){ notify('اتصال موفق بود (HTTP '+(res.body.status||res.status)+')', 'success'); } else { notify('اتصال ناموفق بود', 'error'); } }).catch(function(){ notify('خطا در تست اتصال', 'error'); }); }); }
+        var runBtn = document.getElementById('aiAgentRun'); if (runBtn){ runBtn.addEventListener('click', function(){ var cmdEl = document.getElementById('aiAgentCmd'); var outEl = document.getElementById('aiAgentOut'); var cmd = (cmdEl && cmdEl.value) ? String(cmdEl.value) : ''; if (!cmd){ notify('دستور خالی است', 'warn'); return; } fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); }).then(function(res){ outEl && (outEl.textContent = JSON.stringify(res.body||{}, null, 2)); if (res.ok && res.body && res.body.ok){ notify('انجام شد', 'success'); } else { notify('اجرا ناموفق بود', 'error'); } }).catch(function(){ notify('خطا در اجرای دستور', 'error'); }); }); }
+      } else {
+        // default
+        renderTab('dashboard');
+      }
+    }
 
     // begin extracted functions copied (with minor adjustments) from template
     
@@ -867,7 +1155,7 @@
         });
     }
 
-    // Expose functions globally for compatibility
+    // Expose functions globally for compatibility and plug into router
     try {
       window.renderFormResults = renderFormResults;
       window.renderFormPreview = renderFormPreview;
@@ -875,6 +1163,19 @@
       window.renderFormBuilder = renderFormBuilder;
       window.addNewField = addNewField;
       window.saveFields = saveFields;
+      // Expose main tab renderer and initialize router once
+      window.renderTab = renderTab;
+      if (window.ARSH_ROUTER){
+        try { window.ARSH_ROUTER.arRenderTab = renderTab; } catch(_){ }
+        if (!window._arRouterBooted){ try { window._arRouterBooted = true; window.ARSH_ROUTER.init(); } catch(_){ } }
+      } else {
+        // Fallback: simple initial render if router is not present
+        try {
+          var initial = (location.hash||'').replace('#','').trim();
+          if (!initial){ try { initial = localStorage.getItem('arshLastTab') || 'dashboard'; } catch(_){ initial = 'dashboard'; } }
+          renderTab(initial);
+        } catch(_){ }
+      }
       // Signal to template to skip inline controller block to avoid duplication
       window.ARSH_CTRL_EXTERNAL = true;
       window.ARSH_CTRL_PARTIAL = true;

@@ -52,7 +52,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tools-registry.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tool-defaults.js?ver=' . $version ); ?>"></script>
             <!-- Core router -->
-            <!-- Note: Do NOT enable FULL mode yet; external controller still relies on inline renderTab. -->
+            <!-- FULL mode is enabled below; external controller owns renderTab and routing. -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/router.js?ver=' . $version ); ?>"></script>
             <!-- UI modules: notify, auth, input masks -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/notify.js?ver=' . $version ); ?>"></script>
@@ -70,6 +70,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <!-- Externalized controller (extracted from inline block) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
+    // Enable FULL mode so inline controller is skipped when external is present
+    try { window.ARSH_CTRL_FULL = true; } catch(_){ }
     /* =========================================================================
        BLOCK: dashboard-controller
        Purpose: Orchestrates dashboard behavior: sidebar routing/tabs, theme &
@@ -79,7 +81,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
        Exports: none (DOM side-effects only)
        Future extraction: assets/js/dashboard-controller.js
        ========================================================================= */
-    // Guard: Skip inline ONLY when external controller is in FULL mode; otherwise allow inline to render tabs.
+    // Guard: Skip inline when external controller is in FULL mode; otherwise allow inline to render tabs.
     if (window.ARSH_CTRL_EXTERNAL && window.ARSH_CTRL_FULL) { try { console.debug('ARSH: external controller FULL; skipping inline dashboard-controller'); } catch(_){} } else {
     try { console.debug('[ARSH] inline dashboard-controller active (FULL mode off)'); } catch(_){}
     // Tabs: render content per menu item
@@ -3302,11 +3304,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <div class="logo"><span class="label">عرشلاین</span></div>
             <button id="arSidebarToggle" class="toggle" aria-expanded="true" title="باز/بسته کردن منو"><span class="chev">❮</span></button>
             <nav>
-                <a href="#" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
-                <a href="#" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
-                <a href="#" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
-                <a href="#" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
-                <a href="#" data-tab="settings"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 7.8 7.8 0 0 1-2.6.9 1 1 0 0 0-.8.9V21a2 2 0 0 1-4 0v-.1a1 1 0 0 0-.8-.9 7.8 7.8 0 0 1-2.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1A7.8 7.8 0 0 1 3 12a7.8 7.8 0 0 1 .9-2.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 7.8 7.8 0 0 1 2.6-.9 1 1 0 0 0 .8-.9V3a2 2 0 0 1 4 0v.1a1 1 0 0 0 .8.9 7.8 7.8 0 0 1 2.6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 7.8 7.8 0 0 1 .9 2.6Z" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">تنظیمات</span></a>
+                <a href="#dashboard" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
+                <a href="#forms" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
+                <a href="#reports" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
+                <a href="#users" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
+                <a href="#settings" data-tab="settings"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 7.8 7.8 0 0 1-2.6.9 1 1 0 0 0-.8.9V21a2 2 0 0 1-4 0v-.1a1 1 0 0 0-.8-.9 7.8 7.8 0 0 1-2.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1A7.8 7.8 0 0 1 3 12a7.8 7.8 0 0 1 .9-2.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 7.8 7.8 0 0 1 2.6-.9 1 1 0 0 0 .8-.9V3a2 2 0 0 1 4 0v.1a1 1 0 0 0 .8.9 7.8 7.8 0 0 1 2.6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 7.8 7.8 0 0 1 .9 2.6Z" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">تنظیمات</span></a>
             </nav>
         </aside>
         <main class="arshline-main">
