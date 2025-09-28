@@ -61,7 +61,7 @@
         btn.addEventListener('click', async function(){
           try {
             btn.disabled = true; btn.textContent='در حال بازگردانی…';
-            var r = await fetch(ARSHLINE_REST + 'ai/undo', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: String(token) }) });
+            var r = await fetch(buildRest('ai/undo'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: String(token) }) });
             var t = ''; try { t = await r.clone().text(); } catch(_){ }
             var j = null; try { j = t ? JSON.parse(t) : await r.json(); } catch(_){ }
             appendOut(j || (t || ('HTTP '+r.status)));
@@ -78,6 +78,19 @@
     function loadHist(){ try { var h = JSON.parse(sessionStorage.getItem('arAiHist')||'[]'); if (Array.isArray(h) && h.length && outEl){ outEl.textContent = h.map(function(x){ return '> '+(x.cmd||'')+'\n'+JSON.stringify(x.res||{}, null, 2); }).join('\n\n'); } } catch(_){ } }
     loadHist();
 
+    function buildRest(path, qs){
+      try {
+        var base = ARSHLINE_REST || '';
+        if (!qs) return base + path;
+        var hasQ = base.indexOf('?') >= 0;
+        var sep = hasQ ? '&' : '?';
+        if (typeof qs === 'string') return base + path + sep + qs;
+        var parts = [];
+        for (var k in qs){ if (Object.prototype.hasOwnProperty.call(qs,k)) { parts.push(encodeURIComponent(k)+'='+encodeURIComponent(String(qs[k]))); } }
+        return base + path + (parts.length ? (sep + parts.join('&')) : '');
+      } catch(_){ return (ARSHLINE_REST||'') + path; }
+    }
+
     function handleAgentAction(j){
       try {
         if (!j) return;
@@ -90,7 +103,7 @@
             var no = document.createElement('button'); no.className='ar-btn ar-btn--outline'; no.textContent='انصراف'; no.style.marginInlineStart='.5rem';
             yes.addEventListener('click', async function(){
               try {
-                var r2 = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: j.confirm_action }) });
+                var r2 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: j.confirm_action }) });
                 var txt2 = ''; try { txt2 = await r2.clone().text(); } catch(_){ }
                 var j2 = null; try { j2 = txt2 ? JSON.parse(txt2) : await r2.json(); } catch(_){ }
                 appendOut(j2 || (txt2 || ('HTTP '+r2.status)));
@@ -114,7 +127,7 @@
               b.addEventListener('click', async function(){
                 if (j.clarify_action){
                   const ca = j.clarify_action; const pa = {}; pa[j.param_key] = opt.value;
-                  var r3 = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: { action: ca.action, params: pa } }) });
+                  var r3 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: { action: ca.action, params: pa } }) });
                   var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
                   var j3 = null; try { j3 = t3 ? JSON.parse(t3) : await r3.json(); } catch(_){ }
                   appendOut(j3 || (t3 || ('HTTP '+r3.status)));
@@ -143,9 +156,11 @@
         if (j.action === 'open_tab' && j.tab){
           try {
             var prevHash = location.hash;
-            if (typeof window.renderTab === 'function') window.renderTab(String(j.tab)); else if (typeof window.arRenderTab === 'function') window.arRenderTab(String(j.tab));
-            // push undo: go back to previous tab
-            uiStack.push({ type:'open_tab', payload:{ prevHash: prevHash }, undo:function(){ try { if (prevHash) { if (typeof window.setHash==='function') setHash(prevHash.replace(/^#/,'')); } } catch(_){ } } });
+            var nextTab = String(j.tab);
+            if (typeof window.setHash === 'function') { try { setHash(nextTab); } catch(_){ } } else { try { location.hash = '#' + nextTab; } catch(_){ } }
+            if (typeof window.renderTab === 'function') window.renderTab(nextTab); else if (typeof window.arRenderTab === 'function') window.arRenderTab(nextTab);
+            // push undo: go back to previous tab (ensure render happens)
+            uiStack.push({ type:'open_tab', payload:{ prevHash: prevHash }, undo:function(){ try { var prevTab = (prevHash||'').replace(/^#/, '').split('/')[0] || 'dashboard'; if (typeof window.setHash==='function') setHash(prevTab); else { try { location.hash = '#' + prevTab; } catch(_){ } } if (typeof window.renderTab==='function') window.renderTab(prevTab); } catch(_){ } } });
             logConsole('UI action', { open_tab: j.tab });
           } catch(_){ }
           return;
@@ -153,9 +168,10 @@
         if (j.action === 'open_builder' && j.id){
           try {
             var prevHash2 = location.hash;
-            if (typeof window.setHash==='function') setHash('builder/'+parseInt(j.id));
+            var builderHash = 'builder/'+parseInt(j.id);
+            if (typeof window.setHash==='function') setHash(builderHash); else { try { location.hash = '#' + builderHash; } catch(_){ } }
             if (typeof window.renderTab==='function') window.renderTab('forms');
-            uiStack.push({ type:'open_builder', payload:{ prevHash: prevHash2 }, undo:function(){ try { if (prevHash2) { if (typeof window.setHash==='function') setHash(prevHash2.replace(/^#/,'')); } } catch(_){ } } });
+            uiStack.push({ type:'open_builder', payload:{ prevHash: prevHash2 }, undo:function(){ try { var prevTab2 = (prevHash2||'').replace(/^#/, '').split('/')[0] || 'dashboard'; if (typeof window.setHash==='function') setHash(prevTab2); else { try { location.hash = '#' + prevTab2; } catch(_){ } } if (typeof window.renderTab==='function') window.renderTab(prevTab2); } catch(_){ } } });
             logConsole('UI action', { open_builder: j.id });
           } catch(_){ }
           return;
@@ -170,7 +186,7 @@
       if (!cmd){ notify('دستور خالی است', 'warn'); return; }
       appendOut('> '+cmd);
       try {
-        var r = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) });
+  var r = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) });
         var txt = ''; try { txt = await r.clone().text(); } catch(_){ }
         var j = null; try { j = txt ? JSON.parse(txt) : await r.json(); } catch(_){ }
         appendOut(j || (txt || ('HTTP '+r.status)));
@@ -182,7 +198,7 @@
     }
 
     if (runBtn) runBtn.addEventListener('click', runAgent);
-    if (undoBtn) undoBtn.addEventListener('click', async function(){
+  if (undoBtn) undoBtn.addEventListener('click', async function(){
       // Prefer client-side UI undo; if none, fallback to server undo token; else list recent audit
       try {
         if (uiStack.length){
@@ -191,7 +207,7 @@
         }
         if (lastServerUndoToken){
           try {
-            var r = await fetch(ARSHLINE_REST + 'ai/undo', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: lastServerUndoToken }) });
+            var r = await fetch(buildRest('ai/undo'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: lastServerUndoToken }) });
             var t = ''; try { t = await r.clone().text(); } catch(_){ }
             var j = null; try { j = t ? JSON.parse(t) : await r.json(); } catch(_){ }
             appendOut(j || (t || ('HTTP '+r.status)));
@@ -200,7 +216,7 @@
         }
         // Fallback: show last 10 actions
         appendOut('> فهرست بازگردانی‌های اخیر');
-        var rr = await fetch(ARSHLINE_REST + 'ai/audit?limit=10', { method:'GET', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} });
+        var rr = await fetch(buildRest('ai/audit', 'limit=10'), { method:'GET', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} });
         var tt = ''; try { tt = await rr.clone().text(); } catch(_){ }
         var jj = null; try { jj = tt ? JSON.parse(tt) : await rr.json(); } catch(_){ }
         appendOut(jj || (tt || ('HTTP '+rr.status)));
