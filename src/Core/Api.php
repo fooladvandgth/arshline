@@ -765,6 +765,38 @@ class Api
                 }
                 // fallthrough to unknown later
             }
+            // Title-first open builder: "{title} رو باز کن/وا کن" (implicit form)
+            if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:باز\s*کن|باز\s*کردن|وا\s*کن)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                if (!preg_match('/^(?:فرم|forms?)$/iu', $name)){
+                    $matches = $find_by_title($name, 5);
+                    if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                        $m1 = $matches[0];
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
+                    if (!empty($matches)){
+                        $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                        return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                    }
+                }
+            }
+            // Results by title: "نتایج [فرم] {title}"
+            if (preg_match('/^نتایج\s*(?:فرم)?\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>$matches[0]['id']], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'نتایج کدام فرم را باز کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_results']], 200);
+                }
+            }
             // Title-based open builder with form-first order: "فرم {title} رو ادیت/ویرایش کن"
             if (preg_match('/^فرم\s+(.+?)\s*(?:را|رو)?\s*(?:ویرایش|ادیت|edit)(?:\s*کن)?$/iu', $cmd, $m)){
                 $name = trim((string)$m[1]);
@@ -1046,6 +1078,17 @@ class Api
                 $intent = self::llm_parse_command($cmd, $s);
                 if (is_array($intent) && isset($intent['action'])){
                     $action = (string)$intent['action'];
+                    // Map title->id if id is missing but title is present
+                    if (!empty($intent['title']) && empty($intent['id'])){
+                        $matches = $find_by_title((string)$intent['title'], 5);
+                        if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                        elseif (!empty($matches)){
+                            $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                            $msg = ($action==='open_results') ? 'نتایج کدام فرم را باز کنم؟' : 'کدام فرم را ویرایش کنم؟';
+                            $clarifyTarget = ($action==='open_results') ? 'open_results' : 'open_builder';
+                            return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>$msg,'param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>$clarifyTarget]], 200);
+                        }
+                    }
                     if ($action === 'create_form' && !empty($intent['title'])){
                         $req = new WP_REST_Request('POST', '/arshline/v1/forms');
                         $req->set_body_params(['title'=>(string)$intent['title']]);
@@ -1122,6 +1165,8 @@ class Api
                             'confirm_action'=>['action'=>'update_form_title','params'=>['id'=>$fid,'title'=>$title]]
                         ], 200);
                     }
+                    // If LLM says unknown, fall through to suggestions
+                    if ($action === 'unknown'){ /* handled below */ }
                 }
             }
             // Final fallback: suggest next steps instead of plain unknown
@@ -1141,7 +1186,9 @@ class Api
                     }
                 }
             }
-            return new WP_REST_Response(['ok'=>false,'error'=>'unknown_command','message'=>'دستور واضح نیست. نمونه‌ها: «ویرایش فرم 12»، «حذف فرم 5»، «لیست فرم‌ها»'], 200);
+            // Provide suggestions instead of bare unknown
+            $suggest = [ 'نمونه‌ها' => ['ویرایش فرم 12','فرم مشتریان رو ادیت کن','نتایج فرم 5','لیست فرم‌ها'] ];
+            return new WP_REST_Response(['ok'=>false,'error'=>'unknown_command','message'=>'دستور واضح نیست.','suggestions'=>$suggest], 200);
         } catch (\Throwable $e) {
             return new WP_REST_Response(['ok'=>false,'error'=>'agent_error'], 200);
         }
@@ -1309,6 +1356,9 @@ class Api
               . '"لینک عمومی فرم 7" => {"action":"public_link","id":7}. '
               . '"لیست فرم ها" => {"action":"list_forms"}. '
               . '"باز کردن فرم 9" => {"action":"open_builder","id":9}. '
+              . '"فرم مشتریان رو ادیت کن" => {"action":"open_builder","title":"فرم مشتریان"}. '
+              . '"آزمایش جدید رو باز کن" => {"action":"open_builder","title":"آزمایش جدید"}. '
+              . '"نتایج فرم مشتریان" => {"action":"open_results","title":"فرم مشتریان"}. '
               . '"باز کردن تنظیمات" => {"action":"open_tab","tab":"settings"}. '
               . '"خروجی فرم 5" => {"action":"export_csv","id":5}. '
               . '"کمک" => {"action":"help"}. '
