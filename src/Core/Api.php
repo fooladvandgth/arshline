@@ -627,6 +627,16 @@ class Api
             usort($scored, function($x,$y){ return $y['score'] <=> $x['score']; });
             return array_slice($scored, 0, max(1, $limit));
         };
+        // Allow site owner to control auto-confirm threshold for non-destructive title matches
+        $get_auto_confirm_threshold = function(): float {
+            $default = 0.75; // if >= this score and exactly one match, execute directly
+            if (function_exists('apply_filters')){
+                $val = apply_filters('arshline_ai_title_auto_confirm_threshold', $default);
+                $num = is_numeric($val) ? (float)$val : $default;
+                return max(0.0, min(1.0, $num));
+            }
+            return $default;
+        };
         // New structured intents for Hoshyar (هوشیار)
         $intentName = (string)($request->get_param('intent') ?? '');
         $intentName = trim($intentName);
@@ -750,14 +760,19 @@ class Api
                 $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
                 if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200); }
                 $matches = $find_by_title($name, 5);
-                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                if (count($matches) === 1){
                     $m1 = $matches[0];
-                    return new WP_REST_Response([
-                        'ok'=>true,
-                        'action'=>'confirm',
-                        'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
-                        'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
-                    ], 200);
+                    if ($m1['score'] >= $get_auto_confirm_threshold()){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                    }
+                    if ($m1['score'] >= 0.6){
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
                 }
                 if (!empty($matches)){
                     $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
@@ -768,6 +783,22 @@ class Api
             // Title-first open builder: "{title} رو باز کن/وا کن" (implicit form)
             if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:باز\s*کن|باز\s*کردن|وا\s*کن)$/iu', $cmd, $m)){
                 $name = trim((string)$m[1]);
+                // Guard: if the requested name is an app tab, prefer opening that tab instead of treating it as a form title
+                $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $name); // remove ZWNJ/RLM
+                $raw = preg_replace('/\s+/u', ' ', $raw);
+                $tabMap = [
+                    'داشبورد' => 'dashboard', 'خانه' => 'dashboard',
+                    'فرم ها' => 'forms', 'فرم‌ها' => 'forms', 'فرمها' => 'forms', 'فرم' => 'forms',
+                    'گزارشات' => 'reports', 'گزارش' => 'reports', 'آمار' => 'reports',
+                    'کاربران' => 'users', 'کاربر' => 'users', 'اعضا' => 'users',
+                    'تنظیمات' => 'settings', 'تنظیم' => 'settings', 'ستینگ' => 'settings', 'پیکربندی' => 'settings',
+                ];
+                // Normalize some common variants
+                $rawNorm = str_replace(['‌'], ' ', $raw); // Persian half-space to normal space
+                $rawNorm = trim($rawNorm);
+                if (isset($tabMap[$rawNorm])){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tabMap[$rawNorm]], 200);
+                }
                 if (!preg_match('/^(?:فرم|forms?)$/iu', $name)){
                     $matches = $find_by_title($name, 5);
                     if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
@@ -804,14 +835,19 @@ class Api
                 $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
                 if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200); }
                 $matches = $find_by_title($name, 5);
-                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                if (count($matches) === 1){
                     $m1 = $matches[0];
-                    return new WP_REST_Response([
-                        'ok'=>true,
-                        'action'=>'confirm',
-                        'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
-                        'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
-                    ], 200);
+                    if ($m1['score'] >= $get_auto_confirm_threshold()){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                    }
+                    if ($m1['score'] >= 0.6){
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
                 }
                 if (!empty($matches)){
                     $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
@@ -821,17 +857,27 @@ class Api
             // Title-only to edit (implicit "فرم" omitted): "{title} رو ادیت کن" | "{title} را ویرایش کن"
             if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:ویرایش|ادیت|edit)(?:\s*کن)?$/iu', $cmd, $m)){
                 $name = trim((string)$m[1]);
-                // Ignore obvious generic words to reduce false positives
-                if (!preg_match('/^(?:فرم|forms?)$/iu', $name)){
+                // Prevent treating known tab names as form titles in odd phrases like "داشبورد رو ادیت کن"
+                $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $name);
+                $raw = preg_replace('/\s+/u', ' ', $raw);
+                $tabSyns = ['داشبورد','خانه','فرم ها','فرم‌ها','فرمها','گزارشات','گزارش','آمار','کاربران','کاربر','اعضا','تنظیمات','تنظیم','ستینگ','پیکربندی'];
+                if (in_array($raw, $tabSyns, true)){
+                    // Do not match as a form title; let navigation handlers decide
+                } else if (!preg_match('/^(?:فرم|forms?)$/iu', $name)){
                     $matches = $find_by_title($name, 5);
-                    if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    if (count($matches) === 1){
                         $m1 = $matches[0];
-                        return new WP_REST_Response([
-                            'ok'=>true,
-                            'action'=>'confirm',
-                            'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
-                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
-                        ], 200);
+                        if ($m1['score'] >= $get_auto_confirm_threshold()){
+                            return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                        }
+                        if ($m1['score'] >= 0.6){
+                            return new WP_REST_Response([
+                                'ok'=>true,
+                                'action'=>'confirm',
+                                'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                                'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                            ], 200);
+                        }
                     }
                     if (!empty($matches)){
                         $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
@@ -921,6 +967,42 @@ class Api
                 $tab = $map[$raw] ?? ($raw === 'فرم ها' ? 'forms' : 'dashboard');
                 return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tab], 200);
             }
+            // Colloquial navigation verbs: "بازش کن", "واکن", "ببر به X", "برو تو X"
+            if (preg_match('/^(?:بازش\s*کن|وا\s*کن|واکن|ببر\s*به|برو\s*تو|برو\s*به)\s*(داشبورد|فرم\s*ها|فرم|گزارشات|کاربران|تنظیمات)$/u', $cmd, $m)){
+                $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', (string)$m[1]);
+                $raw = preg_replace('/\s+/u', ' ', $raw);
+                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرم'=>'forms', 'گزارشات'=>'reports', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
+                $tab = $map[$raw] ?? ($raw === 'فرم ها' || $raw === 'فرم' ? 'forms' : 'dashboard');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tab], 200);
+            }
+            // Colloquial: "برو تو فرم <id>" | "برو تو فرم {title}"
+            if (preg_match('/^(?:برو\s*تو|برو\s*به|ببر\s*به)\s*فرم\s*(.+)$/u', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200);
+                }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1){
+                    $m1 = $matches[0];
+                    if ($m1['score'] >= $get_auto_confirm_threshold()){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                    }
+                    if ($m1['score'] >= 0.6){
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان باز کردن «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را باز کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                }
+            }
             // Open tab without target -> clarify
             if (preg_match('/^باز\s*کردن\s*$/u', $cmd)){
                 $opts = [
@@ -964,10 +1046,10 @@ class Api
                     return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'نتایج کدام فرم را نمایش دهم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_results']], 200);
                 }
             }
-            // Heuristic colloquial navigation: "منوی فرم‌ها رو باز کن"، "برو به فرم‌ها"، "منو تنظیمات"
+            // Heuristic colloquial navigation: "منوی فرم‌ها رو باز کن"، "برو به فرم‌ها", "منو تنظیمات" + tolerate "بازش کن" and "واکن"
             {
                 $plain = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $cmd); // remove ZWNJ, RLM
-                $hasNavVerb = preg_match('/(منو|منوی|باز\s*کن|باز|وا\s*کن|واکن|برو\s*به|برو|نمایش|نشون\s*بده)/u', $plain) === 1;
+                $hasNavVerb = preg_match('/(منو|منوی|باز\s*کن|بازش\s*کن|باز|وا\s*کن|واکن|برو\s*به|برو\s*تو|برو|ببر\s*به|نمایش|نشون\s*بده)/u', $plain) === 1;
                 $syns = [
                     'forms' => ['فرم ها','فرمها','فرم‌ها','فرم'],
                     'dashboard' => ['داشبورد','خانه'],
