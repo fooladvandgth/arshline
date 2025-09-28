@@ -797,6 +797,21 @@ class Api
                 $data = $caps instanceof WP_REST_Response ? $caps->get_data() : ['capabilities'=>[]];
                 return new WP_REST_Response(['ok'=>true, 'action'=>'help', 'capabilities'=>$data['capabilities'] ?? []], 200);
             }
+            // New Form (natural phrases): e.g., "فرم جدید می خوام", "یک فرم جدید میخوام", "میخوام یک فرم جدید"
+            // We treat these as a request to create a new form with a sensible default title.
+            if (
+                preg_match('/^(?:می\s*خوام|میخوام)\s*(?:یه|یک)?\s*فرم\s*جدید$/u', $cmd)
+                || preg_match('/^(?:یه|یک)?\s*فرم\s*جدید\s*(?:می\s*خوام|میخوام)$/u', $cmd)
+                || preg_match('/^(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید$/u', $cmd)
+            ){
+                $defTitle = apply_filters('arshline_ai_new_form_default_title', 'فرم جدید');
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'ایجاد فرم جدید با عنوان «'.(string)$defTitle.'» تایید می‌کنید؟',
+                    'confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>(string)$defTitle] ]
+                ], 200);
+            }
             // Create form: "ایجاد فرم با عنوان X"
             if (preg_match('/^ایجاد\s*فرم\s*با\s*عنوان\s*(.+)$/u', $cmd, $m)){
                 $title = trim($m[1]);
@@ -1453,7 +1468,20 @@ class Api
                 $req = new WP_REST_Request('POST', '/arshline/v1/forms');
                 $req->set_body_params(['title'=>(string)$params['title']]);
                 $res = self::create_form($req);
-                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                if ($res instanceof WP_REST_Response){
+                    $data = $res->get_data();
+                    if (is_array($data) && !empty($data['id'])){
+                        // Navigate to builder for the new form and surface undo token
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'open_builder',
+                            'id'=>(int)$data['id'],
+                            'undo_token'=> ($data['undo_token'] ?? '')
+                        ], 200);
+                    }
+                    return $res;
+                }
+                return new WP_REST_Response(['ok'=>true], 200);
             }
             if ($action === 'open_builder' && !empty($params['id'])){
                 return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>(int)$params['id']], 200);
