@@ -51,6 +51,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <!-- Extracted: tools-registry and core defaults -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tools-registry.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tool-defaults.js?ver=' . $version ); ?>"></script>
+            <!-- Core router -->
+            <script>
+            // Enable FULL mode for external controller after router loads
+            try { window.ARSH_CTRL_FULL = true; console.debug('[ARSH] ARSH_CTRL_FULL = true'); } catch(_){}
+            </script>
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/router.js?ver=' . $version ); ?>"></script>
             <!-- UI modules: notify, auth, input masks -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/notify.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/auth.js?ver=' . $version ); ?>"></script>
