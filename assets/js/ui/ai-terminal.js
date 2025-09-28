@@ -168,6 +168,13 @@
         return base + path + (parts.length ? (sep + parts.join('&')) : '');
       } catch(_){ return (ARSHLINE_REST||'') + path; }
     }
+    function getUiContext(){
+      try {
+        var h = (location.hash||'').replace(/^#/, '');
+        var tab = (h.split('/')[0]||'dashboard') || 'dashboard';
+        return { ui_tab: tab, ui_route: h };
+      } catch(_){ return { ui_tab: 'dashboard', ui_route: '' }; }
+    }
 
     function handleAgentAction(j){
       try {
@@ -182,6 +189,7 @@
             yes.addEventListener('click', async function(){
               try {
                 var r2 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: j.confirm_action }) });
+                var r2 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ confirm_action: j.confirm_action }, getUiContext())) });
                 var txt2 = ''; try { txt2 = await r2.clone().text(); } catch(_){ }
                 var j2 = null; try { j2 = txt2 ? JSON.parse(txt2) : await r2.json(); } catch(_){ }
                 var friendly2 = humanizeResponse(j2, txt2, r2.ok);
@@ -207,6 +215,8 @@
                 if (j.clarify_action){
                   var ca = j.clarify_action; var pa = {}; pa[j.param_key] = opt.value;
                   var r3 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: { action: ca.action, params: pa } }) });
+                  var r3 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ confirm_action: { action: ca.action, params: pa } }, getUiContext())) });
+  var r = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ command: cmd }, getUiContext())) });
                   var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
                   var j3 = null; try { j3 = t3 ? JSON.parse(t3) : await r3.json(); } catch(_){ }
                   appendOut(humanizeResponse(j3, t3, r3.ok));

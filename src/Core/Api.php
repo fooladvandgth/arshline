@@ -637,6 +637,43 @@ class Api
             }
             return $default;
         };
+        // UI context for page-aware LLM prompting
+        $ui_tab = (string)($request->get_param('ui_tab') ?? '');
+        $ui_tab = $ui_tab !== '' ? $ui_tab : 'dashboard';
+        $ui_route = (string)($request->get_param('ui_route') ?? '');
+        // Build a concise capability shortlist relevant to the current tab
+        $capsResp = self::get_ai_capabilities($request);
+        $capsData = $capsResp instanceof WP_REST_Response ? $capsResp->get_data() : ['capabilities'=>[]];
+        $allCaps = $capsData['capabilities'] ?? [];
+        $filterCaps = function(array $all, string $tab) {
+            $takeIds = [];
+            $tab = strtolower($tab);
+            if ($tab === 'forms' || strpos($tab, 'builder') !== false){
+                $takeIds = ['open_tab','open_builder','open_editor','public_link','list_forms','create_form','delete_form','open_form','close_form','draft_form','update_form_title','export_csv','ui','help'];
+            } elseif ($tab === 'reports'){
+                $takeIds = ['open_tab','export_csv','list_forms','ui','help'];
+            } elseif ($tab === 'settings'){
+                $takeIds = ['open_tab','set_setting','ui','help'];
+            } else {
+                $takeIds = ['open_tab','list_forms','open_builder','public_link','ui','help'];
+            }
+            $out = [];
+            foreach ($all as $group){
+                if (!is_array($group['items'] ?? null)) continue;
+                foreach (($group['items'] ?? []) as $it){
+                    $id = (string)($it['id'] ?? '');
+                    if ($id !== '' && in_array($id, $takeIds, true)){
+                        $out[] = [
+                            'id' => $id,
+                            'label' => (string)($it['label'] ?? $id),
+                            'examples' => is_array($it['examples'] ?? null) ? array_slice($it['examples'], 0, 2) : [],
+                        ];
+                    }
+                }
+            }
+            return $out;
+        };
+        $kb = $filterCaps(is_array($allCaps) ? $allCaps : [], $ui_tab);
         // New structured intents for Hoshyar (هوشیار)
         $intentName = (string)($request->get_param('intent') ?? '');
         $intentName = trim($intentName);
@@ -665,6 +702,59 @@ class Api
         }
     if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
         try {
+            // Parser routing based on AI mode
+            $s = self::get_ai_settings();
+            $parserMode = $s['parser'] ?? 'hybrid';
+            $llmReady = ($s['enabled'] && !empty($s['base_url']) && !empty($s['api_key']));
+            if ($llmReady && $parserMode === 'llm'){
+                $intent = self::llm_parse_command($cmd, $s, [ 'ui_tab' => $ui_tab, 'ui_route' => $ui_route, 'kb' => $kb ]);
+                if (is_array($intent) && isset($intent['action'])){
+                    $action = (string)$intent['action'];
+                    // Map add_field with title->id when needed
+                    if ($action === 'add_field'){
+                        $itype = (string)($intent['type'] ?? '');
+                        if (!empty($intent['title']) && empty($intent['id'])){
+                            $matches = $find_by_title((string)$intent['title'], 5);
+                            if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                            elseif (!empty($matches)){
+                                $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'add_field','type'=>$itype?:'short_text']], 200);
+                            }
+                        }
+                        if (!empty($intent['id'])){
+                            $fid = (int)$intent['id']; $itype = $itype ?: 'short_text';
+                            return new WP_REST_Response([
+                                'ok'=>true,
+                                'action'=>'confirm',
+                                'message'=>'یک سوال '+($itype==='short_text'?'پاسخ کوتاه':'از نوع '+$itype)+' به فرم '+$fid+' اضافه شود؟',
+                                'confirm_action'=>['action'=>'add_field','params'=>['id'=>$fid,'type'=>$itype]]
+                            ], 200);
+                        }
+                    }
+                    // Map title->id if id is missing but title is present
+                    if (!empty($intent['title']) && empty($intent['id'])){
+                        $matches = $find_by_title((string)$intent['title'], 5);
+                        if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                        elseif (!empty($matches)){
+                            $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                            $msg = ($action==='open_results') ? 'نتایج کدام فرم را باز کنم؟' : 'کدام فرم را ویرایش کنم؟';
+                            $clarifyTarget = ($action==='open_results') ? 'open_results' : 'open_builder';
+                            return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>$msg,'param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>$clarifyTarget]], 200);
+                        }
+                    }
+                    // Pass-through common actions
+                    if (!empty($intent['action'])){
+                        if ($action === 'open_tab' && !empty($intent['tab'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_tab','tab'=>(string)$intent['tab']], 200);
+                        if ($action === 'open_builder' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_builder','id'=>(int)$intent['id']], 200);
+                        if ($action === 'open_results' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_results','id'=>(int)$intent['id']], 200);
+                        if ($action === 'open_editor' && !empty($intent['id'])){ $idx = isset($intent['index']) ? (int)$intent['index'] : 0; return new WP_REST_Response(['ok'=>true,'action'=>'open_editor','id'=>(int)$intent['id'],'index'=>$idx], 200); }
+                        if ($action === 'create_form' && !empty($intent['title'])) return new WP_REST_Response(['ok'=>true,'action'=>'confirm','message'=>'ایجاد فرم جدید با عنوان «'.(string)$intent['title'].'» تایید می‌کنید؟','confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>(string)$intent['title']] ]], 200);
+                        if ($action === 'delete_form' && !empty($intent['id'])){ $fid = (int)$intent['id']; return new WP_REST_Response(['ok'=>true,'action'=>'confirm','message'=>'حذف فرم شماره '.$fid.' تایید می‌کنید؟ این عمل قابل بازگشت نیست.','confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$fid] ]], 200); }
+                        if ($action === 'list_forms'){ $forms = self::get_forms_list(); return new WP_REST_Response(['ok'=>true, 'action'=>'list_forms', 'forms'=>$forms], 200); }
+                    }
+                }
+                // else continue to internal parsing
+            }
             // Add field (short_text) — examples:
             // "(یک )?سوال (پاسخ کوتاه|کوتاه|short_text) (در فرم (\d+|{title}))? اضافه کن|بساز"
             // New phrasing support: "افزودن سوال پاسخ کوتاه (به|در) فرم X"
@@ -1188,12 +1278,11 @@ class Api
                 $forms = self::get_forms_list();
                 return new WP_REST_Response(['ok'=>true, 'action'=>'list_forms', 'forms'=>$forms], 200);
             }
-            // If not matched, try LLM-assisted parsing when configured
+            // If not matched, try LLM-assisted parsing when configured (hybrid fallback)
             $s = self::get_ai_settings();
-            // Use LLM parsing only when enabled, configured, and parser is 'llm' or 'hybrid'
             $parserMode = $s['parser'] ?? 'hybrid';
-            if ($s['enabled'] && in_array($parserMode, ['llm','hybrid'], true) && $s['base_url'] && $s['api_key']){
-                $intent = self::llm_parse_command($cmd, $s);
+            if ($s['enabled'] && $parserMode === 'hybrid' && $s['base_url'] && $s['api_key']){
+                $intent = self::llm_parse_command($cmd, $s, [ 'ui_tab' => $ui_tab, 'ui_route' => $ui_route, 'kb' => $kb ]);
                 if (is_array($intent) && isset($intent['action'])){
                     $action = (string)$intent['action'];
                     // Map add_field with title->id when needed
@@ -1497,7 +1586,7 @@ class Api
      * into a structured intent. Expected JSON output schema:
      * { action: "create_form"|"delete_form"|"public_link", title?: string, id?: number }
      */
-    protected static function llm_parse_command(string $cmd, array $s)
+    protected static function llm_parse_command(string $cmd, array $s, array $ctx = [])
     {
         try {
             $base = rtrim((string)$s['base_url'], '/');
@@ -1527,6 +1616,10 @@ class Api
               . '"پیش‌نویس کن فرم 4" => {"action":"draft_form","id":4}. '
               . '"عنوان فرم 2 را به فرم مشتریان تغییر بده" => {"action":"update_form_title","id":2,"title":"فرم مشتریان"}. '
               . '"یک سوال پاسخ کوتاه در فرم 5 اضافه کن" => {"action":"add_field","id":5,"type":"short_text"}. '
+              . 'Context: you may use the following current UI hints to disambiguate. '
+              . 'UI Tab: ' . (!empty($ctx['ui_tab']) ? $ctx['ui_tab'] : 'unknown') . '. '
+              . 'UI Route: ' . (!empty($ctx['ui_route']) ? $ctx['ui_route'] : '') . '. '
+              . 'Capabilities shortlist (IDs + labels; choose closest): ' . wp_json_encode($ctx['kb'] ?? []) . '. '
               . 'If unclear, reply {"action":"unknown"}.';
             $body = [
                 'model' => $model,
