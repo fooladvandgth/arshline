@@ -1,30 +1,34 @@
+/* =========================================================================
+   FILE: assets/js/ui/auth.js
+   Purpose: Centralized 401 handler with toast and redirect action
+   Exports: window.handle401 (back-compat), window.ARSHLINE.Auth.handle401
+   Guards: ARSH_AUTH_INIT
+   ========================================================================= */
 (function(){
-  'use strict';
+  if (typeof window === 'undefined') return;
+  if (window.ARSH_AUTH_INIT) return; window.ARSH_AUTH_INIT = true;
+
   function handle401(){
     try {
-      var loginUrl = (typeof ARSHLINE_LOGIN_URL !== 'undefined' && ARSHLINE_LOGIN_URL) ||
-                     (window.ARSHLINE_DASHBOARD && window.ARSHLINE_DASHBOARD.loginUrl) || '';
-      var notify = (window.ARSH && window.ARSH.UI && window.ARSH.UI.notify) || window.notify;
-      if (typeof notify === 'function'){
-        notify('نشست شما منقضی شده یا دسترسی کافی ندارید.', {
-          type: 'error',
-          duration: 5000,
-          actionLabel: loginUrl ? 'ورود' : undefined,
-          onAction: function(){ if (loginUrl) location.href = loginUrl; }
+      if (typeof window.notify === 'function'){
+        window.notify('نشست شما منقضی شده یا دسترسی کافی ندارید.', {
+          type: 'error', duration: 5000, actionLabel: 'ورود',
+          onAction: function(){ if (window.ARSHLINE_LOGIN_URL) location.href = window.ARSHLINE_LOGIN_URL; }
+        });
+      } else if (window.ARSHLINE && typeof window.ARSHLINE.notify === 'function'){
+        window.ARSHLINE.notify('نشست شما منقضی شده یا دسترسی کافی ندارید.', {
+          type: 'error', duration: 5000, actionLabel: 'ورود',
+          onAction: function(){ if (window.ARSHLINE_LOGIN_URL) location.href = window.ARSHLINE_LOGIN_URL; }
         });
       } else {
         alert('401 Unauthorized: لطفاً وارد شوید.');
-        if (loginUrl) location.href = loginUrl;
       }
-    } catch (_) {
-      try { console.warn('handle401 fallback'); } catch(__){}
-    }
+    } catch(_){ }
   }
-  try {
-    window.ARSH = window.ARSH || {};
-    window.ARSH.Auth = window.ARSH.Auth || {};
-    window.ARSH.Auth.handle401 = handle401;
-    // Back-compat global
-    if (typeof window.handle401 !== 'function') window.handle401 = handle401;
-  } catch(_){ }
+
+  // Public API
+  window.ARSHLINE = window.ARSHLINE || {};
+  window.ARSHLINE.Auth = { handle401: handle401 };
+  // Back-compat global
+  window.handle401 = handle401;
 })();

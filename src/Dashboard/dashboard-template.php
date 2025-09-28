@@ -51,6 +51,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <!-- Extracted: tools-registry and core defaults -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tools-registry.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tool-defaults.js?ver=' . $version ); ?>"></script>
+            <!-- UI modules: notify, auth, input masks -->
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/notify.js?ver=' . $version ); ?>"></script>
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/auth.js?ver=' . $version ); ?>"></script>
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/input-masks.js?ver=' . $version ); ?>"></script>
     <!-- Load external tool modules (must come after Tools registry) -->
     <!-- Load main dashboard JavaScript -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
@@ -60,21 +64,87 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <!-- UI modules: notifications, auth (401), input masks -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/ui/notify.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/ui/auth.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/ui/input-masks.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <!-- Externalized controller (extracted from inline block) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
     /* =========================================================================
-    <!-- Chart.js for charts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- Persian datepicker (optional) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
+       BLOCK: dashboard-controller
+       Purpose: Orchestrates dashboard behavior: sidebar routing/tabs, theme &
+                sidebar toggles, results list, form builder, and preview flows.
+       Dependencies: runtime-config, tools-registry, external tool modules,
+                     assets/js/dashboard.js
+       Exports: none (DOM side-effects only)
+       Future extraction: assets/js/dashboard-controller.js
+       ========================================================================= */
+    // Guard: skip inline controller ONLY when external controller runs in FULL mode.
+    // In PARTIAL mode, we still need inline routing/renderTab for initial render.
+    if (window.ARSH_CTRL_EXTERNAL && window.ARSH_CTRL_FULL) { try { console.debug('ARSH: external FULL controller present; skipping inline dashboard-controller'); } catch(_){} } else {
+    // Tabs: render content per menu item
+    document.addEventListener('DOMContentLoaded', function() {
+    var content = document.getElementById('arshlineDashboardContent');
+        var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
+        var sidebar = document.querySelector('.arshline-sidebar');
+        var sidebarToggle = document.getElementById('arSidebarToggle');
+        // Debug helpers
+        // Allow enabling debug via URL: ?arshdbg=1 (or disable with ?arshdbg=0)
+        try {
+            var _dbgQS = new URLSearchParams(window.location.search).get('arshdbg');
+            if (_dbgQS === '1' || _dbgQS === 'true') { localStorage.setItem('arshDebug', '1'); }
+            else if (_dbgQS === '0' || _dbgQS === 'false') { localStorage.removeItem('arshDebug'); }
+        } catch(_){ }
+        var AR_DEBUG = false;
+        try { AR_DEBUG = (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+    // Optional capture mode: set localStorage.arshDebugCapture = '1' to enable
+    try {
+        if (localStorage.getItem('arshDebugCapture') === '1') {
+            window._arConsoleLog = [];
+            (function(){
+                var methods = ['log','warn','error','info'];
+                methods.forEach(function(m){
+                    var orig = console[m] ? console[m].bind(console) : function(){};
+                    console[m] = function(){
+                        try {
+                            window._arConsoleLog.push({ level: m, args: Array.from(arguments), ts: Date.now() });
+                        } catch(_){ }
+                        try {
+                            orig.apply(console, arguments);
+                        } catch(_){ }
+                    };
+                });
+                // small overlay
+                var ov = document.createElement('div');
+                ov.id = 'arsh-console-capture';
+                ov.style.cssText = 'position:fixed;left:8px;bottom:8px;max-width:420px;max-height:220px;overflow:auto;background:rgba(0,0,0,.8);color:#fff;padding:8px;border-radius:8px;font-size:12px;z-index:99999;';
+                ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>';
+                ov.addEventListener('click', function(){
+                    try {
+                        ov.style.display = 'none';
+                    } catch(_){ }
+                });
+                document.body.appendChild(ov);
+                window._arLogDump = function(){
+                    try {
+                        if (!window._arConsoleLog) return;
+                        ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>' + window._arConsoleLog.slice(-200).map(function(r){
+                            return '<div style="margin-bottom:4px;color:' + (r.level === 'error' ? '#ff8080' : (r.level === 'warn' ? '#ffd080' : '#d0d0ff')) + '">[' + new Date(r.ts).toLocaleTimeString() + '] <b>' + r.level + '</b> ' + r.args.map(function(a){
+                                try {
+                                    return (typeof a === 'string') ? a : JSON.stringify(a);
+                                } catch(_){
+                                    return String(a);
+                                }
+                            }).join(' ') + '</div>';
+                        }).join('');
+                    } catch(_){ }
+                };
+            })();
+        }
+    } catch(_){ }
+    function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+    // Always print errors to console, regardless of AR_DEBUG
+    function cerror(){ if (typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
+        try { window.arshSetDebug = function(v){ try { localStorage.setItem('arshDebug', v ? '1' : '0'); } catch(_){ } }; } catch(_){ }
+
         function setSidebarClosed(closed, persist){
             if (!sidebar) return;
             sidebar.classList.toggle('closed', !!closed);
@@ -3264,6 +3334,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <pre id="arAiOut"></pre>
         </div>
     </div>
+<script src="<?php echo esc_url( plugins_url('assets/js/ui/ai-terminal.js', dirname(__DIR__, 2).'/arshline.php') ); ?>?ver=<?php echo esc_attr($version); ?>"></script>
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
 <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
@@ -3274,122 +3345,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
-<script>
-// Toast notifications (polished, reusable)
-function ensureToastWrap(){
-    var w = document.getElementById('arToastWrap');
-    if (!w){
-        w = document.createElement('div');
-        w.id = 'arToastWrap';
-        w.className = 'ar-toast-wrap';
-        document.body.appendChild(w);
-    }
-    return w;
-}
-function notify(message, opts){
-    var wrap = ensureToastWrap();
-    var el = document.createElement('div');
-    var type = (typeof opts === 'string') ? opts : (opts && opts.type) || 'info';
-    var variant = ['success','error','info','warn'].includes(type) ? type : 'info';
-    el.className = 'ar-toast ar-toast--'+variant;
-    var icon = document.createElement('span');
-    icon.className = 'ar-toast-ic';
-    icon.textContent = (variant==='success') ? '✔' : (variant==='error') ? '✖' : (variant==='warn') ? '⚠' : 'ℹ';
-    var text = document.createElement('span');
-    text.textContent = message;
-    el.appendChild(icon);
-    el.appendChild(text);
-    var hasAction = opts && opts.actionLabel && typeof opts.onAction === 'function';
-    if (hasAction){
-        var btn = document.createElement('button');
-        btn.textContent = opts.actionLabel;
-        btn.style.cssText = 'margin-inline-start:.6rem;padding:.25rem .6rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;';
-        btn.addEventListener('click', function(){ opts.onAction(); el.remove(); });
-        el.appendChild(btn);
-    }
-    wrap.appendChild(el);
-    var duration = (opts && opts.duration) || 2800;
-    setTimeout(function(){ el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; }, Math.max(200, duration - 500));
-    setTimeout(function(){ el.remove(); }, duration);
-}
-// Centralized 401 handler
-function handle401(){
-    try {
-        notify('نشست شما منقضی شده یا دسترسی کافی ندارید.', { type:'error', duration: 5000, actionLabel: 'ورود', onAction: function(){ if (ARSHLINE_LOGIN_URL) location.href = ARSHLINE_LOGIN_URL; }});
-    } catch(_){ alert('401 Unauthorized: لطفاً وارد شوید.'); }
-}
-</script>
-<script>
-// Input masks for preview inputs
-function applyInputMask(inp, props){
-    var fmt = props.format || 'free_text';
-    function normalizeDigits(str){
-        var fa = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
-        var ar = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
-        return (str||'').replace(/[۰-۹٠-٩]/g, function(d){
-            var i = fa.indexOf(d); if (i>-1) return String(i);
-            var j = ar.indexOf(d); if (j>-1) return String(j);
-            return d;
-        });
-    }
-    function clampLen(){}
-    function digitsOnly(){ inp.value = normalizeDigits(inp.value).replace(/\D+/g,''); }
-    function allowChars(regex){ var s = normalizeDigits(inp.value); inp.value = (s.match(regex)||[]).join(''); }
-    function setInvalid(msg){ inp.style.borderColor = '#b91c1c'; if (msg) inp.title = msg; }
-    function clearInvalid(){ inp.style.borderColor = ''; inp.title = ''; }
-    inp.addEventListener('input', function(){
-        inp.value = normalizeDigits(inp.value);
-        switch(fmt){
-            case 'numeric': digitsOnly(); break;
-            case 'mobile_ir': inp.value = inp.value.replace(/[^\d]/g,''); if (/^9\d/.test(inp.value)) inp.value = '0'+inp.value; if (inp.value.startsWith('98')) inp.value = '0'+inp.value.slice(2); if (inp.value.length>11) inp.value = inp.value.slice(0,11); break;
-            case 'mobile_intl': inp.value = inp.value.replace(/(?!^)[^\d]/g,'').replace(/^([^+\d])+/,''); if (!inp.value.startsWith('+')) inp.value = '+'+inp.value.replace(/\+/g,''); inp.value = inp.value.replace(/(.*\d{15}).*$/, '$1'); break;
-            case 'tel': inp.value = inp.value.replace(/[^0-9\-\+\s\(\)]/g,''); break;
-            case 'ip': inp.value = inp.value.replace(/[^0-9\.]/g,'').replace(/\.\.+/g,'.'); break;
-                case 'rating': return 'امتیازدهی'; // Added label for rating
-            case 'fa_letters': allowChars(/[\u0600-\u06FF\s]/g); break;
-            case 'en_letters': allowChars(/[A-Za-z\s]/g); break;
-            case 'date_jalali': inp.value = inp.value.replace(/[^0-9/]/g,'').slice(0,10); break;
-            case 'national_id_ir': inp.value = inp.value.replace(/\D+/g,'').slice(0,10); break;
-            case 'postal_code_ir': inp.value = inp.value.replace(/\D+/g,'').slice(0,10); break;
-            default: break;
-        }
-        clampLen();
-    });
-    inp.addEventListener('blur', function(){
-        clearInvalid();
-        var v = inp.value.trim(); if (!v) return;
-        var msg = null;
-        switch(fmt){
-            case 'email': if (!/^\S+@\S+\.\S+$/.test(v)) setInvalid('ایمیل نامعتبر است'); break;
-            case 'mobile_ir': if (!/^(\+98|0)?9\d{9}$/.test(v)) setInvalid('شماره موبایل ایران نامعتبر است'); break;
-            case 'mobile_intl': if (!/^\+?[1-9]\d{7,14}$/.test(v)) setInvalid('شماره موبایل بین‌المللی نامعتبر است'); break;
-            case 'tel': if (!/^[0-9\-\+\s\(\)]{5,20}$/.test(v)) setInvalid('شماره تلفن نامعتبر است'); break;
-            case 'numeric': if (!/^\d+$/.test(v)) setInvalid('فقط عددی'); break;
-            case 'fa_letters': if (!/^[\u0600-\u06FF\s]+$/.test(v)) setInvalid('فقط حروف فارسی'); break;
-            case 'en_letters': if (!/^[A-Za-z\s]+$/.test(v)) setInvalid('فقط حروف انگلیسی'); break;
-            case 'ip': if (!/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v)) setInvalid('IP نامعتبر است'); break;
-            case 'time': if (!/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(v)) setInvalid('زمان نامعتبر است'); break;
-            case 'date_jalali': if (!/^\d{4}\/(0[1-6]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ شمسی نامعتبر است'); break;
-            case 'date_greg': if (!/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ میلادی نامعتبر است'); break;
-            case 'national_id_ir':
-                var nid = v.padStart(10,'0');
-                if (!/^\d{10}$/.test(nid)) { setInvalid('کد ملی نامعتبر است'); break; }
-                if (/^(\d)\1{9}$/.test(nid)) { setInvalid('کد ملی نامعتبر است'); break; }
-                var sum = 0; for (var i=0;i<9;i++){ sum += parseInt(nid[i]) * (10 - i); }
-                var r = sum % 11; var c = parseInt(nid[9]);
-                if (!((r<2 && c===r) || (r>=2 && c===(11-r)))) setInvalid('کد ملی نامعتبر است');
-                break;
-            case 'postal_code_ir':
-                var pc = v;
-                if (!/^\d{10}$/.test(pc)) { setInvalid('کد پستی نامعتبر است'); break; }
-                if (/^(\d)\1{9}$/.test(pc)) { setInvalid('کد پستی نامعتبر است'); break; }
-                break;
-            default: break;
-        }
-        inp.setAttribute('aria-invalid', inp.style.borderColor ? 'true' : 'false');
-    });
-}
-</script>
+<!-- UI modules wired: notify/auth/input-masks -->
 
 <!-- Ionicons for modern cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
