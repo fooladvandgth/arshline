@@ -3050,6 +3050,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
                                                 <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
                                                 <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-5-mini">gpt-5-mini</option></select>\
+                                                <span class="hint">تحلیلگر</span><select id="gsAiParser" class="ar-select"><option value="internal">هوشیار داخلی</option><option value="hybrid">هیبرید (پیش‌فرض)</option><option value="llm">OpenAI LLM</option></select>\
                                                 <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
                                             </div>\
                                             <div class="field" style="display:flex;flex-direction:column;gap:.4rem;">\
@@ -3104,7 +3105,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var c = resp && resp.config ? resp.config : {};
                             var bu = document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || '';
                             var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o-mini';
-                            // Do not prefill API key for safety; user can paste to update
+                            var pa = document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid';
+                            var ak = document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || '';
                         } catch(_){ } });
                     })
                                         .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
@@ -3141,7 +3143,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         enabled: ai_enabled,
                         base_url: String(document.getElementById('gsAiBaseUrl')?.value||''),
                         api_key: String(document.getElementById('gsAiApiKey')?.value||''),
-                        model: String(document.getElementById('gsAiModel')?.value||'')
+                        model: String(document.getElementById('gsAiModel')?.value||''),
+                        parser: String(document.getElementById('gsAiParser')?.value||'hybrid')
                     };
                     putSettings(payload)
                         .then(function(){ return putAiConfig(cfg); })

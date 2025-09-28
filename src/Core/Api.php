@@ -514,7 +514,9 @@ class Api
         $key = substr($key, 0, 2000);
         $enabled = isset($arr['ai_enabled']) ? (bool)$arr['ai_enabled'] : false;
         $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'gpt-4o-mini';
-        return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model ];
+    $parser = isset($arr['ai_parser']) && is_scalar($arr['ai_parser']) ? (string)$arr['ai_parser'] : 'hybrid'; // 'internal' | 'hybrid' | 'llm'
+    $parser = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid';
+        return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'parser' => $parser ];
     }
     public static function get_ai_config(WP_REST_Request $request)
     {
@@ -528,12 +530,14 @@ class Api
         $key  = is_scalar($cfg['api_key'] ?? '') ? trim((string)$cfg['api_key']) : '';
         $enabled = (bool)($cfg['enabled'] ?? false);
         $model = is_scalar($cfg['model'] ?? '') ? trim((string)$cfg['model']) : '';
+    $parser = is_scalar($cfg['parser'] ?? '') ? trim((string)$cfg['parser']) : '';
         $cur = get_option('arshline_settings', []);
         $arr = is_array($cur) ? $cur : [];
         $arr['ai_base_url'] = substr($base, 0, 500);
         $arr['ai_api_key']  = substr($key, 0, 2000);
         $arr['ai_enabled']  = $enabled;
         if ($model !== ''){ $arr['ai_model'] = substr(preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $model), 0, 100); }
+    if ($parser !== ''){ $arr['ai_parser'] = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid'; }
         update_option('arshline_settings', $arr, false);
         return new WP_REST_Response(['ok'=>true, 'config'=> self::get_ai_settings()], 200);
     }
@@ -566,13 +570,17 @@ class Api
                     [ 'id' => 'list_forms', 'label' => 'نمایش لیست فرم‌ها', 'params' => [], 'confirm' => false, 'examples' => [ 'لیست فرم ها' ] ],
                     [ 'id' => 'create_form', 'label' => 'ایجاد فرم جدید', 'params' => ['title' => 'string'], 'confirm' => true, 'examples' => [ 'ایجاد فرم با عنوان فرم تست' ] ],
                     [ 'id' => 'delete_form', 'label' => 'حذف فرم', 'params' => ['id' => 'number'], 'confirm' => true, 'examples' => [ 'حذف فرم 5' ] ],
+                    [ 'id' => 'open_form', 'label' => 'فعال کردن فرم (انتشار)', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'فعال کن فرم 3', 'انتشار فرم 3' ] ],
+                    [ 'id' => 'close_form', 'label' => 'بستن/غیرفعال کردن فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'غیرفعال کن فرم 8', 'بستن فرم 8' ] ],
+                    [ 'id' => 'draft_form', 'label' => 'بازگرداندن به پیش‌نویس', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'پیش‌نویس کن فرم 4' ] ],
+                    [ 'id' => 'update_form_title', 'label' => 'تغییر عنوان فرم', 'params' => ['id' => 'number', 'title' => 'string'], 'confirm' => true, 'examples' => [ 'عنوان فرم 2 را به فرم مشتریان تغییر بده' ] ],
                     [ 'id' => 'export_csv', 'label' => 'خروجی CSV از ارسال‌ها', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'خروجی فرم 5' ] ],
                 ],
             ],
             'settings' => [
                 'title' => 'تنظیمات',
                 'items' => [
-                    [ 'id' => 'set_setting', 'label' => 'تغییر تنظیمات سراسری', 'params' => ['key' => 'ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model', 'value' => 'string|number|boolean'], 'confirm' => true, 'examples' => [ 'فعال کردن هوش مصنوعی', 'مدل را روی gpt-5-mini بگذار' ] ],
+                    [ 'id' => 'set_setting', 'label' => 'تغییر تنظیمات سراسری', 'params' => ['key' => 'ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model|ai_parser', 'value' => 'string|number|boolean'], 'confirm' => true, 'examples' => [ 'فعال کردن هوش مصنوعی', 'مدل را روی gpt-5-mini بگذار', 'تحلیل دستورات با اوپن‌ای‌آی', 'تحلیلگر را هیبرید کن' ] ],
                 ],
             ],
             'ui' => [
@@ -593,6 +601,30 @@ class Api
     }
     public static function ai_agent(WP_REST_Request $request)
     {
+        // Helper closures for fuzzy matching titles and normalizing Persian strings
+        $normalize = function(string $s): string {
+            $s = trim($s);
+            $s = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $s); // ZWNJ,RLM
+            $s = preg_replace('/\s+/u',' ', $s);
+            return mb_strtolower($s, 'UTF-8');
+        };
+        $score_title = function(string $q, string $t) use ($normalize): float {
+            $q = $normalize($q); $t = $normalize($t);
+            if ($q === '' || $t === '') return 0.0;
+            if (mb_strpos($t, $q, 0, 'UTF-8') !== false) return 1.0; // strong contains
+            // fallback: normalized similarity (similar_text is byte-based; acceptable here)
+            $a = $q; $b = $t; $pct = 0.0; similar_text($a, $b, $pct); return max(0.0, min(1.0, $pct/100.0));
+        };
+        $find_by_title = function(string $q, int $limit = 5) use ($score_title){
+            $forms = self::get_forms_list();
+            $scored = [];
+            foreach ($forms as $f){
+                $s = $score_title($q, (string)($f['title'] ?? ''));
+                if ($s > 0){ $scored[] = [ 'id'=>(int)$f['id'], 'title'=>(string)$f['title'], 'score'=>$s ]; }
+            }
+            usort($scored, function($x,$y){ return $y['score'] <=> $x['score']; });
+            return array_slice($scored, 0, max(1, $limit));
+        };
         // New structured intents for Hoshyar (هوشیار)
         $intentName = (string)($request->get_param('intent') ?? '');
         $intentName = trim($intentName);
@@ -609,10 +641,15 @@ class Api
         // Legacy command-based flow (backward-compat)
         $cmd = (string)($request->get_param('command') ?? '');
         $cmd = trim($cmd);
-        // Execute previously confirmed action directly
+        // Execute previously confirmed action directly (accept legacy 'type' as well)
         $confirmPayload = $request->get_param('confirm_action');
-        if (is_array($confirmPayload) && isset($confirmPayload['action'])){
-            return self::execute_confirmed_action($confirmPayload);
+        if (is_array($confirmPayload)){
+            if (!isset($confirmPayload['action']) && isset($confirmPayload['type'])){
+                $confirmPayload['action'] = (string)$confirmPayload['type'];
+            }
+            if (isset($confirmPayload['action'])){
+                return self::execute_confirmed_action($confirmPayload);
+            }
         }
     if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
         try {
@@ -662,6 +699,119 @@ class Api
                 $url = ($token && $status==='published') ? home_url('/?arshline='.rawurlencode($token)) : '';
                 return new WP_REST_Response(['ok'=> (bool)$url, 'url'=>$url, 'token'=>$token], 200);
             }
+            // Activate/publish form: "فعال کن فرم <id>" | "انتشار فرم <id>"
+            if (preg_match('/^(?:فعال\s*کن|فعال\s*کردن|انتشار)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'published']);
+                $res = self::update_form($req);
+                if ($res instanceof WP_REST_Response){ return $res; }
+                return new WP_REST_Response(['ok'=>true], 200);
+            }
+            // Disable/close form: "غیرفعال کن فرم <id>" | "بستن فرم <id>"
+            if (preg_match('/^(?:غیرفعال\s*کن|غیرفعال\s*کردن|بستن)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'disabled']);
+                $res = self::update_form($req);
+                if ($res instanceof WP_REST_Response){ return $res; }
+                return new WP_REST_Response(['ok'=>true], 200);
+            }
+            // Draft form: "پیش نویس کن فرم <id>" | "بازگرداندن به پیش‌نویس فرم <id>"
+            if (preg_match('/^(?:پیش\s*نویس\s*کن|پیش‌نویس\s*کن|بازگرداندن\s*به\s*پیش‌نویس)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'draft']);
+                $res = self::update_form($req);
+                if ($res instanceof WP_REST_Response){ return $res; }
+                return new WP_REST_Response(['ok'=>true], 200);
+            }
+            // Update title: "عنوان فرم <id> را به X تغییر بده/بذار/کن"
+            if (preg_match('/^عنوان\s*فرم\s*(\d+)\s*(?:را)?\s*به\s*(.+)\s*(?:تغییر\s*بده|تغییر\s*ده|بگذار|بذار|قرار\s*ده|کن)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $title = trim((string)$m[2]);
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'عنوان فرم '.$fid.' به «'.$title.'» تغییر داده شود؟',
+                    'confirm_action'=> [ 'action'=>'update_form_title', 'params'=>['id'=>$fid, 'title'=>$title] ]
+                ], 200);
+            }
+            // Title-based open builder: "ویرایش/ادیت فرم {title}" when no numeric id
+            if (preg_match('/^(?:ویرایش|ادیت|edit|باز\s*کردن|بازش\s*کن|سازنده)\s*فرم\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                // Attempt Persian digit to int first
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200); }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    $m1 = $matches[0];
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                        'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                    ], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                }
+                // fallthrough to unknown later
+            }
+            // Title-based open builder with form-first order: "فرم {title} رو ادیت/ویرایش کن"
+            if (preg_match('/^فرم\s+(.+?)\s*(?:را|رو)?\s*(?:ویرایش|ادیت|edit)(?:\s*کن)?$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200); }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    $m1 = $matches[0];
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                        'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                    ], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                }
+            }
+            // Title-based delete: "حذف فرم {title}"
+            if (preg_match('/^(?:حذف|پاک(?:\s*کردن)?|delete)\s*فرم\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'حذف فرم شماره '.$num.' تایید می‌کنید؟ این عمل قابل بازگشت نیست.',
+                        'confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$num] ]
+                    ], 200);
+                }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    $m1 = $matches[0];
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'آیا منظورتان حذف «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟ حذف غیرقابل بازگشت است.',
+                        'confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$m1['id']] ]
+                    ], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را حذف کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'delete_form']], 200);
+                }
+            }
             // List forms: "لیست فرم ها" | "نمایش فرم ها"
             if (preg_match('/^(لیست|نمایش)\s*فرم(?:\s*ها)?$/u', $cmd)){
                 $req = new WP_REST_Request('GET', '/arshline/v1/forms');
@@ -708,10 +858,36 @@ class Api
                 $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
                 return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
             }
+            // Open results by id: "نتایج فرم <id>" | "نمایش نتایج فرم <id>"
+            if (preg_match('/^(?:نتایج|نمایش\s*نتایج)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>$fid], 200);
+            }
+            // Open results by title (no id)
+            if (preg_match('/^(?:نتایج|نمایش\s*نتایج)\s*فرم\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>$num], 200); }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    $m1 = $matches[0];
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'نتایج «'.$m1['title'].'» (شناسه '.$m1['id'].') نمایش داده شود؟',
+                        'confirm_action'=> [ 'action'=>'open_results', 'params'=>['id'=>$m1['id']] ]
+                    ], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'نتایج کدام فرم را نمایش دهم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_results']], 200);
+                }
+            }
             // Heuristic colloquial navigation: "منوی فرم‌ها رو باز کن"، "برو به فرم‌ها"، "منو تنظیمات"
             {
                 $plain = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $cmd); // remove ZWNJ, RLM
-                $hasNavVerb = preg_match('/(منو|منوی|باز\s*کن|باز|برو\s*به|برو|نمایش|نشون\s*بده)/u', $plain) === 1;
+                $hasNavVerb = preg_match('/(منو|منوی|باز\s*کن|باز|وا\s*کن|واکن|برو\s*به|برو|نمایش|نشون\s*بده)/u', $plain) === 1;
                 $syns = [
                     'forms' => ['فرم ها','فرمها','فرم‌ها','فرم'],
                     'dashboard' => ['داشبورد','خانه'],
@@ -723,8 +899,21 @@ class Api
                 foreach ($syns as $tabKey => $words){
                     foreach ($words as $w){ if ($w !== '' && mb_strpos($plain, $w) !== false){ $foundTab = $tabKey; break 2; } }
                 }
+                // Extra tolerance for 'forms' and 'dashboard' if not matched strictly
+                if (!$foundTab){
+                    // Any occurrence of 'فرم' (with/without half-space/plurals) → forms
+                    if (preg_match('/فرم[\s‌]*ها?/u', $plain) || mb_strpos($plain, 'فرم') !== false){ $foundTab = 'forms'; }
+                    // Any token starting with 'داشب' → dashboard
+                    if (!$foundTab && mb_strpos($plain, 'داشب') !== false){ $foundTab = 'dashboard'; }
+                }
                 if ($foundTab && ($hasNavVerb || mb_strpos($plain, 'منو') !== false)){
                     return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$foundTab], 200);
+                }
+                // Tolerate common typos for dashboard: e.g., "داشبودر" → detect via prefix 'داشب'
+                if (!$foundTab && ($hasNavVerb || mb_strpos($plain, 'منو') !== false)){
+                    if (mb_strpos($plain, 'داشب') !== false){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>'dashboard'], 200);
+                    }
                 }
             }
             // Colloquial Persian digit map for id parsing
@@ -732,8 +921,8 @@ class Api
             $toInt = function($s) use ($fa2en){ return (int) strtr(preg_replace('/\D+/u','', (string)$s), $fa2en); };
 
             // Colloquial: open/edit form builder by id
-            if (preg_match('/^(ویرایش|باز(?:\s*کن)?|بازش\s*کن|سازنده)\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
-              || preg_match('/^فرم\s*([0-9۰-۹]+)\s*(?:را|رو)?\s*(ویرایش|باز)(?:\s*کن)?$/iu', $cmd, $m)){
+                        if (preg_match('/^(ویرایش|ادیت|edit|باز(?:\s*کن)?|بازش\s*کن|سازنده)\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
+                            || preg_match('/^فرم\s*([0-9۰-۹]+)\s*(?:را|رو)?\s*(ویرایش|ادیت|edit|باز)(?:\s*کن)?$/iu', $cmd, $m)){
                 $fid = $toInt($m[2] ?? $m[1]);
                 if ($fid > 0){
                     return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$fid], 200);
@@ -768,6 +957,24 @@ class Api
                 }
             }
 
+            // Create a new blank form and open builder (no title specified)
+            // Examples: "یک فرم جدید باز کن", "فرم جدید باز کن", "فرم جدید بساز", "یک فرم جدید بساز"
+            if (preg_match('/^(?:یک\s*)?فرم\s*جدید\s*(?:باز\s*کن|بساز|ایجاد\s*کن)$/u', $cmd)
+                || preg_match('/^(?:باز\s*کردن\s*)?فرم\s*جدید$/u', $cmd)){
+                // Create a draft form with default title and return open_builder
+                $req = new WP_REST_Request('POST', '/arshline/v1/forms');
+                // Title left empty to let create_form apply its default (or we could pass 'فرم جدید')
+                $res = self::create_form($req);
+                if ($res instanceof WP_REST_Response){
+                    $data = $res->get_data();
+                    $newId = isset($data['id']) ? (int)$data['id'] : 0;
+                    if ($newId > 0){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$newId, 'undo_token'=>($data['undo_token']??null)], 200);
+                    }
+                }
+                return new WP_REST_Response(['ok'=>false, 'error'=>'create_failed'], 500);
+            }
+
             // Colloquial: export csv by id
             if (preg_match('/^(اکسپورت|خروجی|دانلود)\s*(?:csv\s*)?(?:از\s*)?فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
               || preg_match('/^csv\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)){
@@ -785,7 +992,9 @@ class Api
             }
             // If not matched, try LLM-assisted parsing when configured
             $s = self::get_ai_settings();
-            if ($s['enabled'] && $s['base_url'] && $s['api_key']){
+            // Use LLM parsing only when enabled, configured, and parser is 'llm' or 'hybrid'
+            $parserMode = $s['parser'] ?? 'hybrid';
+            if ($s['enabled'] && in_array($parserMode, ['llm','hybrid'], true) && $s['base_url'] && $s['api_key']){
                 $intent = self::llm_parse_command($cmd, $s);
                 if (is_array($intent) && isset($intent['action'])){
                     $action = (string)$intent['action'];
@@ -831,9 +1040,60 @@ class Api
                         $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
                         return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
                     }
+                    if ($action === 'open_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $req->set_body_params(['status'=>'published']);
+                        $res = self::update_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'close_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $req->set_body_params(['status'=>'disabled']);
+                        $res = self::update_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'draft_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $req->set_body_params(['status'=>'draft']);
+                        $res = self::update_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'update_form_title' && !empty($intent['id']) && isset($intent['title'])){
+                        $fid = (int)$intent['id'];
+                        $title = (string)$intent['title'];
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'عنوان فرم '.$fid.' به «'.$title.'» تغییر داده شود؟',
+                            'confirm_action'=>['action'=>'update_form_title','params'=>['id'=>$fid,'title'=>$title]]
+                        ], 200);
+                    }
                 }
             }
-            return new WP_REST_Response(['ok'=>false,'error'=>'unknown_command'], 200);
+            // Final fallback: suggest next steps instead of plain unknown
+            $plain = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $cmd);
+            $hasEdit = preg_match('/(ویرایش|ادیت|edit|باز\s*کردن|بازش\s*کن|سازنده)/u', $plain) === 1;
+            $hasDel = preg_match('/(حذف|پاک(?:\s*کردن)?|delete)/iu', $plain) === 1;
+            if ($hasEdit || $hasDel){
+                // Try last token after the word "فرم" as a possible name
+                if (preg_match('/فرم\s+(.+)$/u', $plain, $mm)){
+                    $guess = trim((string)$mm[1]);
+                    $matches = $find_by_title($guess, 5);
+                    if (!empty($matches)){
+                        $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                        $act = $hasDel ? 'delete_form' : 'open_builder';
+                        $msg = $hasDel ? 'کدام فرم را حذف کنم؟' : 'کدام فرم را ویرایش کنم؟';
+                        return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>$msg,'param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>$act]], 200);
+                    }
+                }
+            }
+            return new WP_REST_Response(['ok'=>false,'error'=>'unknown_command','message'=>'دستور واضح نیست. نمونه‌ها: «ویرایش فرم 12»، «حذف فرم 5»، «لیست فرم‌ها»'], 200);
         } catch (\Throwable $e) {
             return new WP_REST_Response(['ok'=>false,'error'=>'agent_error'], 200);
         }
@@ -859,6 +1119,9 @@ class Api
             if ($action === 'open_tab' && !empty($params['tab'])){
                 return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>(string)$params['tab']], 200);
             }
+            if ($action === 'open_results' && !empty($params['id'])){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>(int)$params['id']], 200);
+            }
             if ($action === 'export_csv' && !empty($params['id'])){
                 $fid = (int)$params['id'];
                 $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
@@ -873,7 +1136,7 @@ class Api
             }
             if ($action === 'set_setting' && !empty($params['key'])){
                 $key = (string)$params['key']; $value = $params['value'] ?? null;
-                $allowed = ['ai_enabled','ai_model','min_submit_seconds','rate_limit_per_min','block_svg'];
+                $allowed = ['ai_enabled','ai_model','min_submit_seconds','rate_limit_per_min','block_svg','ai_parser'];
                 if (!in_array($key, $allowed, true)){
                     return new WP_REST_Response(['ok'=>false, 'error'=>'invalid_setting'], 200);
                 }
@@ -884,6 +1147,23 @@ class Api
                         'api_key' => $cur['api_key'],
                         'enabled' => ($key === 'ai_enabled') ? (bool)$value : $cur['enabled'],
                         'model' => ($key === 'ai_model') ? (string)$value : $cur['model'],
+                        'parser' => $cur['parser'],
+                    ];
+                    $before = ['config'=>$cur];
+                    $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
+                    $r->set_body_params(['config'=>$cfg]);
+                    $resp = self::update_ai_config($r);
+                    $undo = Audit::log('set_setting', 'settings', null, $before, ['config'=>$cfg]);
+                    if ($resp instanceof WP_REST_Response){ $data = $resp->get_data(); $data['undo_token'] = $undo; return new WP_REST_Response($data, $resp->get_status()); }
+                    return $resp;
+                } elseif ($key === 'ai_parser'){
+                    $cur = self::get_ai_settings();
+                    $cfg = [
+                        'base_url' => $cur['base_url'],
+                        'api_key' => $cur['api_key'],
+                        'enabled' => $cur['enabled'],
+                        'model' => $cur['model'],
+                        'parser' => in_array((string)$value, ['internal','hybrid','llm'], true) ? (string)$value : 'hybrid',
                     ];
                     $before = ['config'=>$cur];
                     $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
@@ -904,10 +1184,59 @@ class Api
                     return new WP_REST_Response(['ok'=>true, 'settings'=> self::get_global_settings(), 'undo_token'=>$undo], 200);
                 }
             }
+            if ($action === 'open_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'published']);
+                $res = self::update_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'close_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'disabled']);
+                $res = self::update_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'draft_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'draft']);
+                $res = self::update_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'update_form_title' && !empty($params['id']) && isset($params['title'])){
+                $fid = (int)$params['id'];
+                $title = (string)$params['title'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid.'/meta');
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['meta'=>['title'=>$title]]);
+                $res = self::update_meta($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
         } catch (\Throwable $e) {
             return new WP_REST_Response(['ok'=>false, 'error'=>'confirm_execute_failed'], 200);
         }
         return new WP_REST_Response(['ok'=>false, 'error'=>'unknown_confirm_action'], 200);
+    }
+
+    /**
+     * Minimal forms list for agent suggestions: [{id,title}]
+     */
+    protected static function get_forms_list(): array
+    {
+        global $wpdb;
+        $table = Helpers::tableName('forms');
+        $rows = $wpdb->get_results("SELECT id, status, meta FROM {$table} ORDER BY id DESC LIMIT 200", ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $r){
+            $meta = json_decode($r['meta'] ?: '{}', true);
+            $out[] = [ 'id'=>(int)$r['id'], 'title'=>(string)($meta['title'] ?? 'بدون عنوان') ];
+        }
+        return $out;
     }
 
     /**
@@ -921,9 +1250,11 @@ class Api
             $base = rtrim((string)$s['base_url'], '/');
             $model = (string)($s['model'] ?? 'gpt-4o-mini');
             $url = $base . '/v1/chat/completions';
-          $sys = 'You are an assistant that converts Persian admin commands about the Arshline dashboard into JSON actions. '
-              . 'Respond ONLY with a single JSON object. Schema: '
-              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_tab|export_csv|help|set_setting|ui","title?":string,"id?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal","params?":object}. '
+          $sys = 'You are a deterministic command parser for the Arshline dashboard. '
+              . 'Your ONLY job is to convert Persian admin commands into a single strict JSON object. '
+              . 'Do NOT chat, do NOT add explanations, do NOT ask follow-up questions. Output JSON ONLY. '
+              . 'Schema: '
+              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title","title?":string,"id?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal","params?":object}. '
               . 'Examples: '
               . '"ایجاد فرم با عنوان فرم تست" => {"action":"create_form","title":"فرم تست"}. '
               . '"حذف فرم 12" => {"action":"delete_form","id":12}. '
@@ -935,6 +1266,10 @@ class Api
               . '"کمک" => {"action":"help"}. '
               . '"مدل را روی gpt-4o-mini بگذار" => {"action":"set_setting","key":"ai_model","value":"gpt-4o-mini"}. '
               . '"حالت تاریک را فعال کن" => {"action":"ui","target":"toggle_theme","params":{"mode":"dark"}}. '
+              . '"فعال کن فرم 3" => {"action":"open_form","id":3}. '
+              . '"غیرفعال کن فرم 8" => {"action":"close_form","id":8}. '
+              . '"پیش‌نویس کن فرم 4" => {"action":"draft_form","id":4}. '
+              . '"عنوان فرم 2 را به فرم مشتریان تغییر بده" => {"action":"update_form_title","id":2,"title":"فرم مشتریان"}. '
               . 'If unclear, reply {"action":"unknown"}.';
             $body = [
                 'model' => $model,
@@ -1000,9 +1335,17 @@ class Api
         if (!is_array($meta)) $meta = [];
         // Normalize and sanitize incoming meta before merging
         $meta = self::sanitize_meta_input($meta);
-        $form->meta = array_merge(is_array($form->meta)?$form->meta:[], $meta);
+        $beforeAll = is_array($form->meta)? $form->meta : [];
+        // Capture only the keys being changed for audit diff
+        $beforeSubset = [];
+        foreach ($meta as $k => $_){ $beforeSubset[$k] = $beforeAll[$k] ?? null; }
+        $form->meta = array_merge($beforeAll, $meta);
         FormRepository::save($form);
-        return new WP_REST_Response(['ok'=>true, 'meta'=>$form->meta], 200);
+        $afterSubset = [];
+        foreach ($meta as $k => $_){ $afterSubset[$k] = $form->meta[$k] ?? null; }
+        // Log audit with undo token
+        $undo = Audit::log('update_form_meta', 'form', $id, ['meta'=>$beforeSubset], ['meta'=>$afterSubset]);
+        return new WP_REST_Response(['ok'=>true, 'meta'=>$form->meta, 'undo_token'=>$undo], 200);
     }
 
     public static function get_submissions(WP_REST_Request $request)
@@ -1502,6 +1845,39 @@ class Api
                         return new WP_REST_Response(['ok'=>false,'error'=>'delete_failed'], 500);
                     }
                 }
+                if ($action === 'update_form_status'){
+                    $fid = (int)($row['target_id'] ?? 0);
+                    if ($fid > 0){
+                        $form = FormRepository::find($fid);
+                        if ($form){
+                            $prev = isset($before['status']) ? (string)$before['status'] : 'draft';
+                            $form->status = in_array($prev, ['draft','published','disabled'], true) ? $prev : 'draft';
+                            FormRepository::save($form);
+                            Audit::markUndone($token);
+                            return new WP_REST_Response(['ok'=>true, 'restored_status'=>$form->status], 200);
+                        }
+                    }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'invalid_target'], 400);
+                }
+                if ($action === 'update_form_meta'){
+                    $fid = (int)($row['target_id'] ?? 0);
+                    if ($fid > 0){
+                        $form = FormRepository::find($fid);
+                        if ($form){
+                            $metaPrev = is_array($before['meta'] ?? null) ? $before['meta'] : [];
+                            $metaAll = is_array($form->meta) ? $form->meta : [];
+                            foreach ($metaPrev as $k => $v){
+                                if ($v === null) { unset($metaAll[$k]); }
+                                else { $metaAll[$k] = $v; }
+                            }
+                            $form->meta = $metaAll;
+                            FormRepository::save($form);
+                            Audit::markUndone($token);
+                            return new WP_REST_Response(['ok'=>true, 'restored_meta_keys'=>array_keys($metaPrev)], 200);
+                        }
+                    }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'invalid_target'], 400);
+                }
             }
             if ($scope === 'settings' && $action === 'set_setting'){
                 // Swap entire settings/config back using before snapshot
@@ -1558,15 +1934,23 @@ class Api
         $form = FormRepository::find($id);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
         $status = (string)($request->get_param('status') ?? '');
+        $undo = null;
         if ($status !== ''){
             $allowed = ['draft','published','disabled'];
             if (!in_array($status, $allowed, true)){
                 return new WP_REST_Response(['error'=>'invalid_status'], 400);
             }
+            $beforeStatus = $form->status;
             $form->status = $status;
+            // Only log when status actually changes
+            if ($beforeStatus !== $status){
+                $undo = Audit::log('update_form_status', 'form', $id, ['status'=>$beforeStatus], ['status'=>$status]);
+            }
         }
         FormRepository::save($form);
-        return new WP_REST_Response(['ok'=>true, 'id'=>$form->id, 'status'=>$form->status], 200);
+        $resp = ['ok'=>true, 'id'=>$form->id, 'status'=>$form->status];
+        if ($undo){ $resp['undo_token'] = $undo; }
+        return new WP_REST_Response($resp, 200);
     }
 
     public static function upload_image(WP_REST_Request $request)

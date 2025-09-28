@@ -191,9 +191,24 @@
             var prevHash2 = location.hash;
             var builderHash = 'builder/'+parseInt(j.id);
             if (typeof window.setHash==='function') setHash(builderHash); else { try { location.hash = '#' + builderHash; } catch(_){ } }
-            if (typeof window.renderTab==='function') window.renderTab('forms');
+            // Trigger routing immediately to render the builder
+            try { if (window.ARSH_ROUTER && typeof window.ARSH_ROUTER.routeFromHash==='function') { window.ARSH_ROUTER.routeFromHash(); }
+              else if (typeof window.renderFormBuilder==='function') { window.renderFormBuilder(parseInt(j.id)); }
+              else if (typeof window.renderTab==='function') { window.renderTab('forms'); }
+            } catch(_){ if (typeof window.renderTab==='function') window.renderTab('forms'); }
             uiStack.push({ type:'open_builder', payload:{ prevHash: prevHash2 }, undo:function(){ try { var prevTab2 = (prevHash2||'').replace(/^#/, '').split('/')[0] || 'dashboard'; if (typeof window.setHash==='function') setHash(prevTab2); else { try { location.hash = '#' + prevTab2; } catch(_){ } } if (typeof window.renderTab==='function') window.renderTab(prevTab2); } catch(_){ } } });
             logConsole('UI action', { open_builder: j.id });
+          } catch(_){ }
+          return;
+        }
+        if (j.action === 'open_results' && j.id){
+          try {
+            var prevHash3 = location.hash;
+            var resultsHash = 'results/'+parseInt(j.id);
+            if (typeof window.setHash==='function') setHash(resultsHash); else { try { location.hash = '#' + resultsHash; } catch(_){ } }
+            if (typeof window.renderTab==='function') window.renderTab('forms');
+            uiStack.push({ type:'open_results', payload:{ prevHash: prevHash3 }, undo:function(){ try { var prevTab3 = (prevHash3||'').replace(/^#/, '').split('/')[0] || 'dashboard'; if (typeof window.setHash==='function') setHash(prevTab3); else { try { location.hash = '#' + prevTab3; } catch(_){ } } if (typeof window.renderTab==='function') window.renderTab(prevTab3); } catch(_){ } } });
+            logConsole('UI action', { open_results: j.id });
           } catch(_){ }
           return;
         }

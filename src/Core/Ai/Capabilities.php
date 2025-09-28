@@ -21,6 +21,10 @@ class Capabilities
             // Placeholders for future mutating ops (require confirmation)
             [ 'id' => 'form_create', 'label' => 'ایجاد فرم جدید', 'intent' => 'form_create', 'kind' => 'forms', 'mutating' => true ],
             [ 'id' => 'form_delete', 'label' => 'حذف فرم', 'intent' => 'form_delete', 'kind' => 'forms', 'mutating' => true ],
+            [ 'id' => 'open_form', 'label' => 'انتشار/فعال‌سازی فرم', 'intent' => 'open_form', 'params' => ['id' => 'number'], 'kind' => 'forms', 'mutating' => true ],
+            [ 'id' => 'close_form', 'label' => 'بستن/غیرفعال کردن فرم', 'intent' => 'close_form', 'params' => ['id' => 'number'], 'kind' => 'forms', 'mutating' => true ],
+            [ 'id' => 'draft_form', 'label' => 'بازگردانی به پیش‌نویس', 'intent' => 'draft_form', 'params' => ['id' => 'number'], 'kind' => 'forms', 'mutating' => true ],
+            [ 'id' => 'update_form_title', 'label' => 'تغییر عنوان فرم', 'intent' => 'update_form_title', 'params' => ['id' => 'number', 'title' => 'string'], 'kind' => 'forms', 'mutating' => true ],
         ];
     }
 }

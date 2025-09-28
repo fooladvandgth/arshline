@@ -24,6 +24,28 @@ This document outlines the modular AI (Hoshyar) strategy for the Arshline plugin
 - Open/download URLs
 - Confirm/clarify prompts (two-step operations)
 
+## Recently added (server-backed, undoable)
+
+These actions are executed via REST with audit logging and return an `undo_token` that you can revert through `POST /arshline/v1/ai/undo`:
+
+- Forms lifecycle
+   - Open/Publish form: examples — «فعال کن فرم 3», «انتشار فرم 3» → `PUT /forms/{id} { status: "published" }`
+   - Close/Disable form: examples — «غیرفعال کن فرم 8», «بستن فرم 8» → `PUT /forms/{id} { status: "disabled" }`
+   - Draft form: examples — «پیش‌نویس کن فرم 4» → `PUT /forms/{id} { status: "draft" }`
+- Edit form meta
+   - Update title: example — «عنوان فرم 2 را به فرم مشتریان تغییر بده» → `PUT /forms/{id}/meta { meta: { title: "فرم مشتریان" } }`
+
+All four actions log an audit entry (`update_form_status` or `update_form_meta`) and include `undo_token` in the JSON response.
+
+## Clarify, Did‑you‑mean, and Confirmation
+
+- Clarify (disambiguation): When a command references a form by name/title instead of ID (e.g., «فرم نیو رو ادیت کن»), the agent performs fuzzy matching on existing form titles and responds with `action: "clarify"` and an options list. Pick one to proceed. If a single strong match is found, you'll get a confirmation prompt for that exact form.
+- Did‑you‑mean: The fuzzy matcher is tolerant to spacing, ZWNJ, and minor typos; it suggests closest matches when intent is clear (edit/delete by name).
+- Confirmation gates: Destructive or state‑changing operations request confirmation first. Examples:
+   - Delete: «حذف فرم مشتریان» → clarify/confirm, then `delete_form` on selection.
+   - Rename: «عنوان فرم 12 را به "فرم مشتریان" تغییر بده» → `action: "confirm"` then executes `update_form_title` upon approval and returns `undo_token`.
+   - Status changes (publish/disable/draft) execute directly and still return `undo_token` for safety.
+
 ## Plugin Functional Areas (Candidates for AI)
 
 1. Dashboard
@@ -33,7 +55,8 @@ This document outlines the modular AI (Hoshyar) strategy for the Arshline plugin
    - Create a new form (title)
    - Search/filter forms (title, status, date range)
    - Open builder/editor for a form
-   - Duplicate/rename/archive/activate/deactivate forms
+   - Activate/disable/draft forms (publish/close/draft)
+   - Rename form (update title)
    - Delete form (with confirmation)
 3. Builder / Editor
    - Add a question (type, label, help text)
