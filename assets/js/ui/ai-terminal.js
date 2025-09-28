@@ -31,15 +31,36 @@
       return;
     }
 
+    var lastActiveEl = null;
     function setOpen(b){
-      panel.classList.toggle('open', !!b);
-      panel.setAttribute('aria-hidden', b? 'false':'true');
-      if (b && cmdEl) { try { cmdEl.focus(); } catch(_){ } }
-      try { sessionStorage.setItem('arAiOpen', b? '1':'0'); } catch(_){ }
-      try { console.debug('[ARSH][AI] setOpen', b); } catch(_){ }
+      if (!panel) return;
+      var open = !!b;
+      if (open){
+        // Restore interactivity and show
+        try { panel.classList.add('open'); panel.setAttribute('aria-hidden','false'); panel.removeAttribute('inert'); } catch(_){ }
+        // Remember current focus and move focus inside the panel
+        try { lastActiveEl = document.activeElement; } catch(_){ lastActiveEl = null; }
+        if (cmdEl) { try { cmdEl.focus(); } catch(_){ } }
+      } else {
+        // Hide and mark inert to keep AT consistent
+        try { panel.classList.remove('open'); panel.setAttribute('aria-hidden','true'); panel.setAttribute('inert',''); } catch(_){ }
+        // If focus remained inside the panel, move it out (prefer FAB, else last active, else blur)
+        try {
+          var ae = document.activeElement;
+          if (ae && panel.contains(ae)){
+            if (fab && typeof fab.focus==='function') { fab.focus(); }
+            else if (lastActiveEl && document.contains(lastActiveEl) && typeof lastActiveEl.focus==='function') { lastActiveEl.focus(); }
+            else if (typeof ae.blur==='function') { ae.blur(); }
+          }
+        } catch(_){ }
+      }
+      try { sessionStorage.setItem('arAiOpen', open? '1':'0'); } catch(_){ }
+      try { console.debug('[ARSH][AI] setOpen', open); } catch(_){ }
     }
-    if (fab) fab.addEventListener('click', function(){ var isOpen = panel.classList.contains('open'); setOpen(!isOpen); });
+  if (fab) fab.addEventListener('click', function(){ var isOpen = panel.classList.contains('open'); setOpen(!isOpen); });
     if (closeBtn) closeBtn.addEventListener('click', function(){ setOpen(false); });
+  // Allow ESC to close and move focus out safely
+  try { document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && panel && panel.classList.contains('open')) { e.preventDefault(); setOpen(false); } }); } catch(_){ }
     if (clearBtn) clearBtn.addEventListener('click', function(){ if(outEl) outEl.textContent=''; if(cmdEl) cmdEl.value=''; try { sessionStorage.removeItem('arAiHist'); } catch(_){ } });
 
     function appendOut(o){
