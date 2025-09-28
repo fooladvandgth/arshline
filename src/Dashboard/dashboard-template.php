@@ -60,6 +60,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <!-- Externalized controller (extracted from inline block) -->
+    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
     /* =========================================================================
        BLOCK: dashboard-controller
@@ -70,6 +72,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
        Exports: none (DOM side-effects only)
        Future extraction: assets/js/dashboard-controller.js
        ========================================================================= */
+    // Guard: if external controller is present, skip this inline block to avoid duplication
+    if (window.ARSH_CTRL_EXTERNAL) { try { console.debug('ARSH: external controller present; skipping inline dashboard-controller'); } catch(_){} } else {
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
@@ -3281,6 +3285,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         // Allow other modules to trigger AI terminal
         try { window.ARSH_AI = { open: function(){ var p=document.getElementById('arAiPanel'); if(!p) return; p.classList.add('open'); p.setAttribute('aria-hidden','false'); }, run: function(cmd){ var t=document.getElementById('arAiCmd'); if(t){ t.value=String(cmd||''); } var b=document.getElementById('arAiRun'); if(b){ b.click(); } } }; } catch(_){ }
     });
+    }
     </script>
     </head>
     <body>
