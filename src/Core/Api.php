@@ -11,6 +11,7 @@ use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\Forms\FormValidator;
 use Arshline\Modules\Forms\FieldRepository;
+use Arshline\Core\Ai\Hoshyar;
 
 class Api
 {
@@ -277,7 +278,7 @@ class Api
         ]);
         register_rest_route('arshline/v1', '/ai/test', [
             'methods' => 'POST',
-            'callback' => [self::class, 'test_ai_connect'],
+                'callback' => [self::class, 'test_ai_connect'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         register_rest_route('arshline/v1', '/ai/capabilities', [
@@ -576,6 +577,20 @@ class Api
     }
     public static function ai_agent(WP_REST_Request $request)
     {
+        // New structured intents for Hoshyar (هوشیار)
+        $intentName = (string)($request->get_param('intent') ?? '');
+        $intentName = trim($intentName);
+        if ($intentName !== ''){
+            try {
+                $params = $request->get_param('params');
+                if (!is_array($params)) $params = [];
+                $out = Hoshyar::agent([ 'intent' => $intentName, 'params' => $params ]);
+                return new WP_REST_Response($out, 200);
+            } catch (\Throwable $e) {
+                return new WP_REST_Response(['ok'=>false,'error'=>'hoshyar_error'], 200);
+            }
+        }
+        // Legacy command-based flow (backward-compat)
         $cmd = (string)($request->get_param('command') ?? '');
         $cmd = trim($cmd);
         // Execute previously confirmed action directly
@@ -583,7 +598,7 @@ class Api
         if (is_array($confirmPayload) && isset($confirmPayload['action'])){
             return self::execute_confirmed_action($confirmPayload);
         }
-        if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
+    if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
         try {
             // Help / capabilities
             if (preg_match('/^(کمک|راهنما|لیست\s*دستورات)$/u', $cmd)){

@@ -3324,10 +3324,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         </main>
     </div>
     <!-- Floating AI Terminal -->
-    <button id="arAiFab" class="ar-ai-fab" title="ترمینال هوش مصنوعی">هوش مصنوعی ▷</button>
+    <button id="arAiFab" class="ar-ai-fab" title="ترمینال هوشیار">هوشیار ▷</button>
     <div id="arAiPanel" class="ar-ai-panel" aria-hidden="true">
         <div class="ar-ai-header">
-            <div class="title">ترمینال هوش مصنوعی</div>
+            <div class="title">ترمینال هوشیار</div>
             <button id="arAiClose" class="ar-ai-close" aria-label="بستن">✕</button>
         </div>
         <div class="ar-ai-body">

@@ -129,10 +129,13 @@
 
     // Public API
     try {
-      window.ARSH_AI = {
+      var api = {
         open: function(){ setOpen(true); },
         run: function(cmd){ if (cmdEl) { cmdEl.value = String(cmd||''); } runAgent(); }
       };
+      // Backward-compat and new modular alias
+      window.ARSH_AI = api;
+      window.HOSHYAR = api;
       console.debug('[ARSH][AI] ready');
     } catch(_){ }
   });
