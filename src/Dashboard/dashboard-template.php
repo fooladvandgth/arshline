@@ -81,6 +81,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
        ========================================================================= */
     // Guard: Skip inline ONLY when external controller is in FULL mode; otherwise allow inline to render tabs.
     if (window.ARSH_CTRL_EXTERNAL && window.ARSH_CTRL_FULL) { try { console.debug('ARSH: external controller FULL; skipping inline dashboard-controller'); } catch(_){} } else {
+    try { console.debug('[ARSH] inline dashboard-controller active (FULL mode off)'); } catch(_){}
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
