@@ -1,3 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute version and notes path
+        shell: pwsh
+        run: |
+          $m = Select-String -Path 'arshline.php' -Pattern '^\s*\*\s*Version:\s*([0-9]+\.[0-9]+\.[0-9]+)'
+          if (-not $m) { throw 'Cannot determine version from arshline.php' }
+          $v = $m.Matches[0].Groups[1].Value
+          "RELEASE_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $notes = "tools/releases/RELEASE_$v.md"
+          if (Test-Path $notes) { "RELEASE_NOTES=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append }
+
+      - name: Build ZIP
+        shell: pwsh
+        run: |
+          pwsh -File tools/releases/make-zip.ps1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tools/releases/out/*.zip
+          fail_on_unmatched_files: true
+          body_path: ${{ env.RELEASE_NOTES }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 name: Release plugin
 
 on:

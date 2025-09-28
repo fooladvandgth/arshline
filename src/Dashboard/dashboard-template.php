@@ -67,8 +67,42 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/tools/welcome.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/tools/thank_you.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <!-- Externalized controller (extracted from inline block) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+        <?php
+    // Console-capture config and script (template bypasses wp_head, so we include manually)
+    $capture_enabled_wp = (bool) get_option('arshline_capture_console_events', false);
+    $gs = get_option('arshline_settings', []);
+    $capture_enabled_gs = is_array($gs) && !empty($gs['console_capture']);
+    $capture_enabled = $capture_enabled_wp || $capture_enabled_gs;
+        $run_tests = isset($_GET['arsh_capture_test']) && current_user_can('manage_options');
+        $cap_strings = [
+                'moduleEnabled' => __('ماژول ثبت رویداد فعال شد.', 'arshline'),
+                'moduleDisabled' => __('ماژول ثبت رویداد غیرفعال است.', 'arshline'),
+                'testStart' => __('آغاز تست واحد ماژول ثبت رویداد…', 'arshline'),
+                'testPass' => __('موفق', 'arshline'),
+                'testFail' => __('ناموفق', 'arshline'),
+                'testDone' => __('پایان تست‌ها', 'arshline'),
+        ];
+        ?>
+        <script>
+        // Provide ARSHLINE_CAPTURE config inline
+        window.ARSHLINE_CAPTURE = {
+            enabled: <?php echo $capture_enabled ? 'true' : 'false'; ?>,
+            runTests: <?php echo $run_tests ? 'true' : 'false'; ?>,
+            strings: <?php echo wp_json_encode($cap_strings, JSON_UNESCAPED_UNICODE); ?>
+        };
+        </script>
+<?php if ( current_user_can('manage_options') && ! get_option('arshline_capture_console_events', false) ) : ?>
+    <div style="direction:rtl;background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:10px 12px;margin:12px;border-radius:8px;font-size:13px">
+        <strong>راهنما:</strong> برای دیباگ رویدادهای سمت کلاینت،
+        <a href="<?php echo esc_url( admin_url('options-general.php?page=arshline-settings') ); ?>">به تنظیمات عرشلاین</a>
+        بروید و گزینه «فعال‌سازی ثبت رویدادهای کنسول» را روشن کنید.
+    </div>
+<?php endif; ?>
+        <script src="<?php echo esc_url( $plugin_url . '/assets/js/modules/console-capture.js?ver=' . $version ); ?>"></script>
     <script>
     // Enable FULL mode so inline controller is skipped when external is present
     try { window.ARSH_CTRL_FULL = true; } catch(_){ }

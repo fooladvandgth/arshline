@@ -13,6 +13,9 @@ use Arshline\Modules\Forms\FormValidator;
 use Arshline\Modules\Forms\FieldRepository;
 use Arshline\Core\Ai\Hoshyar;
 use Arshline\Support\Audit;
+use Arshline\Modules\UserGroups\GroupRepository;
+use Arshline\Modules\UserGroups\MemberRepository;
+use Arshline\Modules\UserGroups\FormGroupAccessRepository;
 
 class Api
 {
@@ -320,6 +323,234 @@ class Api
                 'file' => [ 'required' => false ],
             ],
         ]);
+
+        // User Groups Management (admin-only)
+        register_rest_route('arshline/v1', '/user-groups', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'ug_list_groups'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'ug_create_group'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'args' => [
+                    'name' => [ 'type' => 'string', 'required' => true ],
+                    'meta' => [ 'required' => false ],
+                ]
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)', [
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'ug_update_group'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'ug_delete_group'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'ug_list_members'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'ug_add_members'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'args' => [ 'members' => [ 'required' => true ] ]
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/(?P<member_id>\\d+)', [
+            'methods' => 'DELETE',
+            'callback' => [self::class, 'ug_delete_member'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/(?P<member_id>\\d+)/token', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'ug_ensure_member_token'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+
+        // Form ↔ Group access mapping (admin-only)
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/access/groups', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_form_access_groups'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'set_form_access_groups'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'args' => [ 'group_ids' => [ 'required' => true ] ],
+            ],
+        ]);
+    }
+
+    // ========== User Groups Handlers ==========
+    public static function ug_list_groups(WP_REST_Request $r)
+    {
+        $rows = GroupRepository::all();
+        $out = array_map(function($g){ return [
+            'id' => $g->id,
+            'name' => $g->name,
+            'meta' => $g->meta,
+            'created_at' => $g->created_at,
+            'updated_at' => $g->updated_at,
+        ]; }, $rows);
+        return new WP_REST_Response($out, 200);
+    }
+    public static function ug_create_group(WP_REST_Request $r)
+    {
+        $name = trim((string)$r->get_param('name'));
+        if ($name === '') return new WP_REST_Response(['message' => 'نام گروه الزامی است.'], 422);
+        $meta = $r->get_param('meta'); if (!is_array($meta)) $meta = [];
+        $g = new \Arshline\Modules\UserGroups\Group(['name' => $name, 'meta' => $meta]);
+        $id = GroupRepository::save($g);
+        return new WP_REST_Response(['id' => $id], 201);
+    }
+    public static function ug_update_group(WP_REST_Request $r)
+    {
+        $id = (int)$r['group_id'];
+        $g = GroupRepository::find($id);
+        if (!$g) return new WP_REST_Response(['message' => 'گروه یافت نشد.'], 404);
+        $name = $r->get_param('name'); if (is_string($name)) $g->name = trim($name);
+        $meta = $r->get_param('meta'); if (is_array($meta)) $g->meta = $meta;
+        GroupRepository::save($g);
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+    public static function ug_delete_group(WP_REST_Request $r)
+    {
+        $id = (int)$r['group_id'];
+        $ok = GroupRepository::delete($id);
+        return new WP_REST_Response(['ok' => (bool)$ok], $ok?200:404);
+    }
+    public static function ug_list_members(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $rows = MemberRepository::list($gid, 500);
+        $out = array_map(function($m){ return [
+            'id' => $m->id,
+            'group_id' => $m->group_id,
+            'name' => $m->name,
+            'phone' => $m->phone,
+            'data' => $m->data,
+            'token' => $m->token,
+            'created_at' => $m->created_at,
+        ];}, $rows);
+        return new WP_REST_Response($out, 200);
+    }
+    public static function ug_add_members(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $members = $r->get_param('members');
+        if (!is_array($members)) return new WP_REST_Response(['message' => 'members باید آرایه باشد.'], 422);
+        $n = MemberRepository::addBulk($gid, $members);
+        return new WP_REST_Response(['inserted' => $n], 201);
+    }
+    public static function ug_delete_member(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $mid = (int)$r['member_id'];
+        $ok = MemberRepository::delete($gid, $mid);
+        return new WP_REST_Response(['ok' => (bool)$ok], $ok?200:404);
+    }
+    public static function ug_ensure_member_token(WP_REST_Request $r)
+    {
+        $mid = (int)$r['member_id'];
+        $tok = MemberRepository::ensureToken($mid);
+        if (!$tok) return new WP_REST_Response(['message' => 'عضو یافت نشد.'], 404);
+        return new WP_REST_Response(['token' => $tok], 200);
+    }
+
+    // ========== Form ↔ Group access mapping (admin-only) ==========
+    public static function get_form_access_groups(WP_REST_Request $r)
+    {
+        $fid = (int)$r['form_id'];
+        if ($fid <= 0) return new WP_REST_Response(['group_ids' => []], 200);
+        $ids = FormGroupAccessRepository::getGroupIds($fid);
+        return new WP_REST_Response(['group_ids' => array_values($ids)], 200);
+    }
+    public static function set_form_access_groups(WP_REST_Request $r)
+    {
+        $fid = (int)$r['form_id'];
+        if ($fid <= 0) return new WP_REST_Response(['error'=>'invalid_form_id'], 400);
+        $arr = $r->get_param('group_ids');
+        if (!is_array($arr)) $arr = [];
+        $ids = array_values(array_unique(array_map('intval', $arr)));
+        FormGroupAccessRepository::setGroupIds($fid, $ids);
+        return new WP_REST_Response(['ok'=>true, 'group_ids'=>$ids], 200);
+    }
+
+    // ===== Access control helpers =====
+    /**
+     * Check whether the current requester can access the given form via either:
+     * - Logged-in WP user belonging to at least one allowed group (via filter hook), or
+     * - A valid member token provided as request param `member_token` or header `X-Arsh-Member-Token`.
+     * Returns [allowed:boolean, member?:array].
+     */
+    protected static function enforce_form_group_access($formId, WP_REST_Request $r): array
+    {
+        $formId = (int)$formId;
+        $allowedGroups = FormGroupAccessRepository::getGroupIds($formId);
+        // If no mapping exists, treat as public for backward-compat
+        if (empty($allowedGroups)) return [ true, null ];
+
+        // 1) Member token path (preferred for visitors)
+        $tok = '';
+        $p = $r->get_param('member_token'); if (is_string($p)) $tok = trim($p);
+        if ($tok === ''){
+            // Try headers
+            if (method_exists($r, 'get_header')){
+                $tok = (string)($r->get_header('X-Arsh-Member-Token') ?: $r->get_header('x-arsh-member-token'));
+                $tok = trim($tok);
+            }
+        }
+        if ($tok !== ''){
+            $m = MemberRepository::verifyToken($tok);
+            if ($m && in_array((int)$m->group_id, $allowedGroups, true)){
+                // Attach member to request context for later personalization
+                return [ true, [
+                    'id' => (int)$m->id,
+                    'group_id' => (int)$m->group_id,
+                    'name' => (string)$m->name,
+                    'phone' => (string)$m->phone,
+                    'data' => is_array($m->data) ? $m->data : [],
+                ] ];
+            }
+        }
+
+        // 2) Logged-in WP user path — allow integrators to declare user→group mapping via filter
+        $uid = get_current_user_id();
+        if ($uid > 0 && function_exists('apply_filters')){
+            $userGroupIds = apply_filters('arshline_user_group_ids', [], $uid);
+            if (is_array($userGroupIds)){
+                $userGroupIds = array_map('intval', $userGroupIds);
+                foreach ($userGroupIds as $gid){ if (in_array($gid, $allowedGroups, true)) return [ true, null ]; }
+            }
+        }
+        return [ false, null ];
+    }
+
+    /** Replace #placeholders using member data for title/description meta (server-side hydration). */
+    protected static function hydrate_meta_with_member(array $meta, ?array $member): array
+    {
+        if (!$member) return $meta;
+        $repl = [];
+        // Flatten member for simple replacement keys
+        $repl['name'] = (string)($member['name'] ?? '');
+        $repl['phone'] = (string)($member['phone'] ?? '');
+        $data = is_array($member['data'] ?? null) ? ($member['data']) : [];
+        foreach ($data as $k => $v){ if (is_scalar($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)) { $repl[(string)$k] = (string)$v; } }
+        $replaceIn = function($s) use ($repl){ if (!is_string($s) || $s==='') return $s; return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k,$repl) ? (string)$repl[$k] : $m[0]; }, $s); };
+        if (isset($meta['title'])) $meta['title'] = $replaceIn($meta['title']);
+        if (isset($meta['description'])) $meta['description'] = $replaceIn($meta['description']);
+        return $meta;
     }
 
     /**
@@ -467,11 +698,24 @@ class Api
         if ($form->status !== 'published'){
             return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
         }
+        // Enforce group-based access if any mapping exists
+        list($ok, $member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
         $fields = FieldRepository::listByForm($id);
+        // Minimal personalization via GET params for title/description placeholders like #name
+        $meta = $form->meta;
+        $params = $request->get_params();
+        $repl = [];
+        foreach ($params as $k=>$v){ if (is_string($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)) { $repl[$k] = $v; } }
+        $replaceIn = function($s) use ($repl){ if (!is_string($s) || $s==='') return $s; return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k,$repl) ? (string)$repl[$k] : $m[0]; }, $s); };
+        if (isset($meta['title'])) $meta['title'] = $replaceIn($meta['title']);
+        if (isset($meta['description'])) $meta['description'] = $replaceIn($meta['description']);
+        // Then apply member-based hydration for server-side personalization
+        $meta = self::hydrate_meta_with_member($meta, $member);
         $payload = [
             'id' => $form->id,
             'status' => $form->status,
-            'meta' => $form->meta,
+            'meta' => $meta,
             'fields' => $fields,
         ];
         return new WP_REST_Response($payload, 200);
@@ -1686,12 +1930,24 @@ class Api
         if ($form->status !== 'published'){
             return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
         }
+        // When accessing by public token, still enforce group mapping if present (require member token or user membership)
+        list($ok, $member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
         $fields = FieldRepository::listByForm($form->id);
+        // Minimal personalization via GET params for title/description
+        $meta = $form->meta;
+        $params = $request->get_params();
+        $repl = [];
+        foreach ($params as $k=>$v){ if (is_string($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)) { $repl[$k] = $v; } }
+        $replaceIn = function($s) use ($repl){ if (!is_string($s) || $s==='') return $s; return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k,$repl) ? (string)$repl[$k] : $m[0]; }, $s); };
+        if (isset($meta['title'])) $meta['title'] = $replaceIn($meta['title']);
+        if (isset($meta['description'])) $meta['description'] = $replaceIn($meta['description']);
+        $meta = self::hydrate_meta_with_member($meta, $member);
         return new WP_REST_Response([
             'id' => $form->id,
             'token' => $form->public_token,
             'status' => $form->status,
-            'meta' => $form->meta,
+            'meta' => $meta,
             'fields' => $fields,
         ], 200);
     }
@@ -1895,6 +2151,9 @@ class Api
         if ($form->status !== 'published'){
             return new WP_REST_Response(['error' => 'form_disabled'], 403);
         }
+        // Enforce group-based access for submissions as well
+        list($ok, $member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
     $global = self::get_global_settings();
     $meta = array_merge($global, is_array($form->meta) ? $form->meta : []);
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
@@ -1965,6 +2224,15 @@ class Api
             'meta' => [ 'summary' => 'ایجاد از REST' ],
             'values' => $values,
         ];
+        // Optionally include member context into submission meta for later personalization
+        if (is_array($member)){
+            $submissionData['meta']['member'] = [
+                'id' => (int)$member['id'],
+                'group_id' => (int)$member['group_id'],
+                'name' => (string)$member['name'],
+                'phone' => (string)$member['phone'],
+            ];
+        }
         $submission = new Submission($submissionData);
         $id = SubmissionRepository::save($submission);
         foreach ($values as $idx => $entry) {
@@ -1986,6 +2254,9 @@ class Api
         if ($form->status !== 'published'){
             return new WP_REST_Response(['error' => 'form_disabled'], 403);
         }
+        // Enforce group-based access (member token or logged-in membership)
+        list($ok, $_member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
         $request['form_id'] = $form->id;
         return self::create_submission($request);
     }
@@ -2002,6 +2273,9 @@ class Api
         if (!$form) return new WP_REST_Response('<div class="ar-alert ar-alert--err">فرم یافت نشد.</div>', 200);
     $global = self::get_global_settings();
     $meta = array_merge($global, is_array($form->meta) ? $form->meta : []);
+        // Enforce access
+        list($ok, $_member) = self::enforce_form_group_access($form->id, $request);
+        if (!$ok){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">دسترسی مجاز نیست.</div>', 200); }
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         $now = time();
         // Honeypot (htmx submit may include hp/ts fields)
@@ -2097,6 +2371,9 @@ class Api
         if ($form->status !== 'published'){
             return new WP_REST_Response('<div class="ar-alert ar-alert--err">این فرم در حال حاضر فعال نیست.</div>', 200);
         }
+        // Enforce access
+        list($ok, $_member) = self::enforce_form_group_access($form->id, $request);
+        if (!$ok){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">دسترسی مجاز نیست.</div>', 200); }
         $request['form_id'] = $form->id;
         return self::create_submission_htmx($request);
     }

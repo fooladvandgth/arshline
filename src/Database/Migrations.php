@@ -17,6 +17,55 @@ class Migrations
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY public_token_unique (public_token)
             ) ENGINE=InnoDB;",
+            // User Groups: تعریف گروه‌های کاربری
+            'user_groups' => "CREATE TABLE IF NOT EXISTS {prefix}x_user_groups (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(190) NOT NULL,
+                meta JSON NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY group_name_unique (name)
+            ) ENGINE=InnoDB;",
+            // User Group Fields: فیلدهای سفارشی هر گروه (متغیرها)
+            'user_group_fields' => "CREATE TABLE IF NOT EXISTS {prefix}x_user_group_fields (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                group_id BIGINT UNSIGNED NOT NULL,
+                name VARCHAR(64) NOT NULL,
+                label VARCHAR(190) NOT NULL,
+                type VARCHAR(32) NOT NULL DEFAULT 'text',
+                options JSON NULL,
+                required TINYINT(1) DEFAULT 0,
+                sort INT UNSIGNED DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (group_id) REFERENCES {prefix}x_user_groups(id) ON DELETE CASCADE,
+                UNIQUE KEY group_field_unique (group_id, name),
+                KEY group_idx (group_id)
+            ) ENGINE=InnoDB;",
+            // Group Members: اعضای هر گروه + توکن شخصی‌سازی شده
+            'user_group_members' => "CREATE TABLE IF NOT EXISTS {prefix}x_user_group_members (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                group_id BIGINT UNSIGNED NOT NULL,
+                name VARCHAR(190) NOT NULL,
+                phone VARCHAR(32) NOT NULL,
+                data JSON NULL,
+                token VARCHAR(64) NULL,
+                token_hash CHAR(64) NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (group_id) REFERENCES {prefix}x_user_groups(id) ON DELETE CASCADE,
+                KEY group_idx (group_id),
+                KEY phone_idx (phone),
+                UNIQUE KEY token_hash_unique (token_hash)
+            ) ENGINE=InnoDB;",
+            // Form-Group Access: اتصال فرم‌ها به گروه‌ها
+            'form_group_access' => "CREATE TABLE IF NOT EXISTS {prefix}x_form_group_access (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                form_id BIGINT UNSIGNED NOT NULL,
+                group_id BIGINT UNSIGNED NOT NULL,
+                FOREIGN KEY (form_id) REFERENCES {prefix}x_forms(id) ON DELETE CASCADE,
+                FOREIGN KEY (group_id) REFERENCES {prefix}x_user_groups(id) ON DELETE CASCADE,
+                UNIQUE KEY form_group_unique (form_id, group_id)
+            ) ENGINE=InnoDB;",
             'fields' => "CREATE TABLE IF NOT EXISTS {prefix}x_fields (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 form_id BIGINT UNSIGNED NOT NULL,

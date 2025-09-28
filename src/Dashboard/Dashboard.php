@@ -5,7 +5,7 @@ class Dashboard {
     /**
      * نسخه فعلی داشبورد افزونه
      */
-    const VERSION = '2.6.0';
+    const VERSION = '2.7.0';
 
     /**
      * راه‌اندازی داشبورد اختصاصی افزونه
@@ -15,6 +15,8 @@ class Dashboard {
         add_action('admin_menu', [self::class, 'remove_wp_menus'], 999);
         // افزودن منوی اختصاصی افزونه
         add_action('admin_menu', [self::class, 'add_dashboard_menu']);
+        // افزودن زیرمنو در بخش کاربران: مدیریت گروه‌های کاربری
+        add_action('admin_menu', [self::class, 'add_users_submenu']);
     }
 
     /**
@@ -40,6 +42,38 @@ class Dashboard {
             'dashicons-admin-generic',
             2
         );
+    }
+
+    /**
+     * افزودن زیرمنوی «مدیریت گروه‌های کاربری» زیر منوی اصلی «کاربران» وردپرس
+     */
+    public static function add_users_submenu() {
+        add_users_page(
+            __('مدیریت گروه‌های کاربری', 'arshline'),
+            __('گروه‌های کاربری (عرشلاین)', 'arshline'),
+            'list_users',
+            'arshline-user-groups',
+            [self::class, 'render_user_groups']
+        );
+    }
+
+    /**
+     * صفحه placeholder برای مدیریت گروه‌ها تا UI کامل پیاده‌سازی شود.
+     */
+    public static function render_user_groups() {
+        echo '<div class="wrap" dir="rtl">';
+        echo '<h1>گروه‌های کاربری عرشلاین</h1>';
+        echo '<p>این بخش به‌زودی با مدیریت کامل گروه‌ها، اعضا و لینک‌های شخصی‌سازی شده تکمیل می‌شود.</p>';
+        echo '<p>فعلاً می‌توانید از REST API‌های زیر استفاده کنید:</p>';
+        echo '<ul style="line-height:1.9">';
+        echo '<li>GET /wp-json/arshline/v1/user-groups</li>';
+        echo '<li>POST /wp-json/arshline/v1/user-groups</li>';
+        echo '<li>PUT/DELETE /wp-json/arshline/v1/user-groups/{id}</li>';
+        echo '<li>GET/POST /wp-json/arshline/v1/user-groups/{id}/members</li>';
+        echo '<li>POST /wp-json/arshline/v1/user-groups/{gid}/members/{mid}/token</li>';
+        echo '<li>GET/PUT /wp-json/arshline/v1/forms/{fid}/access/groups</li>';
+        echo '</ul>';
+        echo '</div>';
     }
 
     /**

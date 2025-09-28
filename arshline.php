@@ -3,7 +3,7 @@
  * Plugin Name: فرم‌ساز و داشبورد عرشلاین (Arshline Starter)
  * Plugin URI: https://arshline.ir/
  * Description: افزونه فرم‌ساز، داشبورد و گزارشات فارسی عرشلاین برای وردپرس با پشتیبانی هوش مصنوعی و امنیت پیشرفته.
- * Version: 2.6.0
+ * Version: 2.7.0
  * Author: گروه توسعه عرشلاین
  * Author URI: https://arshline.ir/
  * License: GPL2
@@ -20,6 +20,7 @@ use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\FormsModule;
 use Arshline\Core\Api;
+use Arshline\Dashboard\SettingsPage;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -113,6 +114,7 @@ add_action('plugins_loaded', static function () {
     Dashboard::boot();
     FormsModule::boot();
     Api::boot();
+    SettingsPage::boot();
 });
 add_action('wp_enqueue_scripts', static function () {
     if (!arshline_is_dashboard_request()) {
@@ -184,6 +186,28 @@ add_action('wp_enqueue_scripts', static function () {
         'strings' => $strings,
         'publicBase' => esc_url_raw($public_base),
         'publicTokenBase' => esc_url_raw($public_token_base),
+    ]);
+
+    // Enqueue console capture module for dashboard only; gated by the option
+    $capture_enabled = (bool) get_option(SettingsPage::OPTION_CAPTURE, false);
+    wp_enqueue_script(
+        'arshline-console-capture',
+        plugins_url('assets/js/modules/console-capture.js', __FILE__),
+        [],
+        $version,
+        true
+    );
+    wp_localize_script('arshline-console-capture', 'ARSHLINE_CAPTURE', [
+        'enabled' => $capture_enabled,
+        'runTests' => isset($_GET['arsh_capture_test']) && current_user_can('manage_options'),
+        'strings' => [
+            'moduleEnabled' => __('ماژول ثبت رویداد فعال شد.', 'arshline'),
+            'moduleDisabled' => __('ماژول ثبت رویداد غیرفعال است.', 'arshline'),
+            'testStart' => __('آغاز تست واحد ماژول ثبت رویداد…', 'arshline'),
+            'testPass' => __('موفق', 'arshline'),
+            'testFail' => __('ناموفق', 'arshline'),
+            'testDone' => __('پایان تست‌ها', 'arshline'),
+        ],
     ]);
 });
 

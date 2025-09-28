@@ -32,4 +32,15 @@
         type: 'rating',
         defaults: { type:'rating', label:'امتیازدهی', question:'', required:false, numbered:true, show_description:false, description:'', max:5, icon:'star', media_upload:false }
     });
+
+    // Message blocks
+    ARSH.Tools.register({
+        type: 'welcome',
+        defaults: { type:'welcome', label:'پیام خوش‌آمد', heading:'خوش آمدید', message:'', image_url:'' }
+    });
+
+    ARSH.Tools.register({
+        type: 'thank_you',
+        defaults: { type:'thank_you', label:'پیام تشکر', heading:'با تشکر از شما', message:'', image_url:'' }
+    });
 })(window);

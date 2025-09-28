@@ -809,6 +809,15 @@
 
     function renderFormEditor(id, opts){
       dlog('renderFormEditor:start', { id: id, opts: opts });
+      // Skip if this navigation is stale (user navigated elsewhere quickly)
+      try {
+        if (opts && typeof opts.navToken !== 'undefined'){
+          if (typeof window._arNavToken === 'undefined' || window._arNavToken !== opts.navToken){
+            dlog('renderFormEditor:stale-navToken-skip', { expected: window._arNavToken, got: opts.navToken });
+            return;
+          }
+        }
+      } catch(_){ }
       try { if (!opts || !opts.creating) { var pend = (typeof window !== 'undefined') ? window._arPendingEditor : null; if (pend && pend.id === id) { opts = Object.assign({}, opts||{}, pend); try { window._arPendingEditor = null; } catch(_){ } dlog('renderFormEditor:merged-pending-opts', opts); } } } catch(_){ }
       if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); arRenderTab('forms'); return; }
       try { setSidebarClosed(true, false); } catch(_){ }
@@ -817,6 +826,7 @@
       var content = document.getElementById('arshlineDashboardContent');
       var hiddenCanvas = '<div id="arCanvas" style="display:none"><div class="ar-item" data-props="{}"></div></div>';
       var fieldIndex = (opts && typeof opts.index !== 'undefined') ? parseInt(opts.index) : -1;
+      // Neutral scaffold (avoid flashing short_text UI before actual tool editor renders)
       content.innerHTML = '<div id="arBuilder" class="card glass" data-form-id="'+id+'" data-field-index="'+fieldIndex+'" style="padding:1rem;max-width:980px;margin:0 auto;">\
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">\
           <div class="title" id="arEditorTitle">...</div>\
@@ -828,92 +838,20 @@
         <div style="display:flex;gap:1rem;align-items:flex-start;">\
           <div class="ar-settings" style="width:380px;flex:0 0 380px;">\
             <div class="title" style="margin-bottom:.6rem;">تنظیمات فیلد</div>\
-            <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
-              <label class="hint">سؤال</label>\
-              <div id="fQuestionToolbar" style="display:flex;gap:.35rem;align-items:center;">\
-                <button id="fQBold" class="ar-btn ar-btn--outline" type="button" title="پررنگ"><b>B</b></button>\
-                <button id="fQItalic" class="ar-btn ar-btn--outline" type="button" title="مورب"><i>I</i></button>\
-                <button id="fQUnder" class="ar-btn ar-btn--outline" type="button" title="زیرخط"><u>U</u></button>\
-                <input id="fQColor" type="color" title="رنگ" style="margin-inline-start:.25rem;width:36px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);" />\
-              </div>\
-              <div id="fQuestionRich" class="ar-input" contenteditable="true" style="min-height:60px;line-height:1.8;" placeholder="متن سؤال"></div>\
-            </div>\
-            <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
-              <label class="hint">نوع ورودی</label>\
-              <select id="fType" class="ar-select">\
-                <option value="free_text">متن آزاد</option>\
-                <option value="email">ایمیل</option>\
-                <option value="numeric">عدد</option>\
-                <option value="date_jalali">تاریخ شمسی</option>\
-                <option value="date_greg">تاریخ میلادی</option>\
-                <option value="time">زمان</option>\
-                <option value="mobile_ir">موبایل ایران</option>\
-                <option value="mobile_intl">موبایل بین‌المللی</option>\
-                <option value="national_id_ir">کد ملی ایران</option>\
-                <option value="postal_code_ir">کد پستی ایران</option>\
-                <option value="tel">تلفن</option>\
-                <option value="fa_letters">حروف فارسی</option>\
-                <option value="en_letters">حروف انگلیسی</option>\
-                <option value="ip">IP</option>\
-              </select>\
-            </div>\
-            <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">\
-              <span class="hint">اجباری</span>\
-              <label class="toggle-switch" title="اجباری" style="transform:scale(.9)">\
-                <input type="checkbox" id="fRequired">\
-                <span class="toggle-switch-background"></span>\
-                <span class="toggle-switch-handle"></span>\
-              </label>\
-            </div>\
-            <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">\
-              <span class="hint">شماره‌گذاری سؤال</span>\
-              <label class="toggle-switch" title="نمایش شماره سؤال" style="transform:scale(.9)">\
-                <input type="checkbox" id="fNumbered">\
-                <span class="toggle-switch-background"></span>\
-                <span class="toggle-switch-handle"></span>\
-              </label>\
-            </div>\
-            <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">\
-              <span class="hint">توضیحات</span>\
-              <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">\
-                <label class="vc-small-switch vc-rtl">\
-                  <input type="checkbox" id="fDescToggle" class="vc-switch-input"/>\
-                  <span class="vc-switch-label" data-on="بله" data-off="خیر"></span>\
-                  <span class="vc-switch-handle"></span>\
-                </label>\
-              </div>\
-            </div>\
-            <div class="field" id="fDescWrap" style="display:none">\
-              <textarea id="fDescText" class="ar-input" rows="2" placeholder="توضیح زیر سؤال"></textarea>\
-            </div>\
-            <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">\
-              <label class="hint">متن راهنما (placeholder)</label>\
-              <input id="fHelp" class="ar-input" placeholder="مثال: پاسخ را وارد کنید"/>\
-            </div>\
-            <div style="margin-top:12px">\
-              <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>\
-            </div>\
+            <div id="arSettingsInner"></div>\
           </div>\
           <div class="ar-preview" style="flex:1;">\
             <div class="title" style="margin-bottom:.6rem;">پیش‌نمایش</div>\
-            <div id="pvWrap">\
-              <div id="pvQuestion" class="hint" style="display:none;margin-bottom:.25rem"></div>\
-              <div id="pvDesc" class="hint" style="display:none;margin-bottom:.35rem"></div>\
-              <input id="pvInput" class="ar-input" style="width:100%" />\
-              <div id="pvHelp" class="hint" style="display:none"></div>\
-              <div id="pvErr" class="hint" style="color:#b91c1c;margin-top:.3rem"></div>\
-            </div>\
+            <div id="arPreviewInner"></div>\
           </div>\
         </div>\
       </div>' + hiddenCanvas;
-      document.getElementById('arEditorBack').onclick = function(){ dlog('arEditorBack:click'); renderFormBuilder(id); };
+  document.getElementById('arEditorBack').onclick = function(){ dlog('arEditorBack:click'); try { window._arNavToken = undefined; } catch(_){ } renderFormBuilder(id); };
       var prevBtnE = document.getElementById('arEditorPreview'); if (prevBtnE) prevBtnE.onclick = function(){ try { window._arBackTo = { view: 'editor', id: id, index: fieldIndex }; } catch(_){ } renderFormPreview(id); };
       content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
       var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
       var longTextDefaults = { type: 'long_text', label: 'پاسخ طولانی', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true, min_length: 0, max_length: 1000, media_upload: false };
-      fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-        .then(r=>r.json())
-        .then(function(data){
+      function processData(data){
           dlog('renderFormEditor:data-loaded', data && data.fields ? data.fields.length : 0);
           function setDirty(d){ try { window._arDirty = !!d; window.onbeforeunload = window._arDirty ? function(){ return 'تغییرات ذخیره‌نشده دارید.'; } : null; } catch(_){ } }
           var titleEl = document.getElementById('arEditorTitle'); var formTitle = (data && data.meta && data.meta.title) ? String(data.meta.title) : '';
@@ -939,9 +877,86 @@
               if (handled) return;
             } catch(_){ }
           }
-          // Fallback: short_text/long_text/welcome/thank_you editors are handled as in template
-          // For brevity, reuse defaults path by invoking the appropriate tool module if available; otherwise, proceed with short_text editor wiring as minimal viable behavior.
+          // Fallback editor: only inject short_text UI when no module handles the type
           // Minimal short_text editor wiring
+          try {
+            var sWrap = document.querySelector('.ar-settings');
+            var pWrap = document.querySelector('.ar-preview');
+            if (sWrap) sWrap.querySelector('#arSettingsInner').innerHTML = '\
+              <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
+                <label class="hint">سؤال</label>\
+                <div id="fQuestionToolbar" style="display:flex;gap:.35rem;align-items:center;">\
+                  <button id="fQBold" class="ar-btn ar-btn--outline" type="button" title="پررنگ"><b>B</b></button>\
+                  <button id="fQItalic" class="ar-btn ar-btn--outline" type="button" title="مورب"><i>I</i></button>\
+                  <button id="fQUnder" class="ar-btn ar-btn--outline" type="button" title="زیرخط"><u>U</u></button>\
+                  <input id="fQColor" type="color" title="رنگ" style="margin-inline-start:.25rem;width:36px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);" />\
+                </div>\
+                <div id="fQuestionRich" class="ar-input" contenteditable="true" style="min-height:60px;line-height:1.8;" placeholder="متن سؤال"></div>\
+              </div>\
+              <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">\
+                <label class="hint">نوع ورودی</label>\
+                <select id="fType" class="ar-select">\
+                  <option value="free_text">متن آزاد</option>\
+                  <option value="email">ایمیل</option>\
+                  <option value="numeric">عدد</option>\
+                  <option value="date_jalali">تاریخ شمسی</option>\
+                  <option value="date_greg">تاریخ میلادی</option>\
+                  <option value="time">زمان</option>\
+                  <option value="mobile_ir">موبایل ایران</option>\
+                  <option value="mobile_intl">موبایل بین‌المللی</option>\
+                  <option value="national_id_ir">کد ملی ایران</option>\
+                  <option value="postal_code_ir">کد پستی ایران</option>\
+                  <option value="tel">تلفن</option>\
+                  <option value="fa_letters">حروف فارسی</option>\
+                  <option value="en_letters">حروف انگلیسی</option>\
+                  <option value="ip">IP</option>\
+                </select>\
+              </div>\
+              <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">\
+                <span class="hint">اجباری</span>\
+                <label class="toggle-switch" title="اجباری" style="transform:scale(.9)">\
+                  <input type="checkbox" id="fRequired">\
+                  <span class="toggle-switch-background"></span>\
+                  <span class="toggle-switch-handle"></span>\
+                </label>\
+              </div>\
+              <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">\
+                <span class="hint">شماره‌گذاری سؤال</span>\
+                <label class="toggle-switch" title="نمایش شماره سؤال" style="transform:scale(.9)">\
+                  <input type="checkbox" id="fNumbered">\
+                  <span class="toggle-switch-background"></span>\
+                  <span class="toggle-switch-handle"></span>\
+                </label>\
+              </div>\
+              <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">\
+                <span class="hint">توضیحات</span>\
+                <div class="vc-toggle-container" style="--vc-width:50px;--vc-height:25px;--vc-on-color:#38cf5b;--vc-off-color:#d1d3d4;">\
+                  <label class="vc-small-switch vc-rtl">\
+                    <input type="checkbox" id="fDescToggle" class="vc-switch-input"/>\
+                    <span class="vc-switch-label" data-on="بله" data-off="خیر"></span>\
+                    <span class="vc-switch-handle"></span>\
+                  </label>\
+                </div>\
+              </div>\
+              <div class="field" id="fDescWrap" style="display:none">\
+                <textarea id="fDescText" class="ar-input" rows="2" placeholder="توضیح زیر سؤال"></textarea>\
+              </div>\
+              <div class="field" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">\
+                <label class="hint">متن راهنما (placeholder)</label>\
+                <input id="fHelp" class="ar-input" placeholder="مثال: پاسخ را وارد کنید"/>\
+              </div>\
+              <div style="margin-top:12px">\
+                <button id="arSaveFields" class="ar-btn" style="font-size:.9rem">ذخیره</button>\
+              </div>';
+            if (pWrap) pWrap.querySelector('#arPreviewInner').innerHTML = '\
+              <div id="pvWrap">\
+                <div id="pvQuestion" class="hint" style="display:none;margin-bottom:.25rem"></div>\
+                <div id="pvDesc" class="hint" style="display:none;margin-bottom:.35rem"></div>\
+                <input id="pvInput" class="ar-input" style="width:100%" />\
+                <div id="pvHelp" class="hint" style="display:none"></div>\
+                <div id="pvErr" class="hint" style="color:#b91c1c;margin-top:.3rem"></div>\
+              </div>';
+          } catch(_){ }
           var sel = document.getElementById('fType'); var req = document.getElementById('fRequired'); var dTg = document.getElementById('fDescToggle'); var dTx = document.getElementById('fDescText'); var dWrap = document.getElementById('fDescWrap'); var help = document.getElementById('fHelp'); var qEl = document.getElementById('fQuestionRich'); var qBold = document.getElementById('fQBold'); var qItalic = document.getElementById('fQItalic'); var qUnder = document.getElementById('fQUnder'); var qColor = document.getElementById('fQColor'); var numEl = document.getElementById('fNumbered');
           function updateHiddenProps(p){ var el = document.querySelector('#arCanvas .ar-item'); if (el) el.setAttribute('data-props', JSON.stringify(p)); }
           function applyPreviewFrom(p){ var fmt = p.format || 'free_text'; var attrs = inputAttrsByFormat(fmt); var inp = document.getElementById('pvInput'); if (!inp) return; if (inp.tagName === 'INPUT'){ inp.setAttribute('type', (attrs && attrs.type) ? attrs.type : 'text'); if (attrs && attrs.inputmode) inp.setAttribute('inputmode', attrs.inputmode); else inp.removeAttribute('inputmode'); if (attrs && attrs.pattern) inp.setAttribute('pattern', attrs.pattern); else inp.removeAttribute('pattern'); } var ph = (p.placeholder && p.placeholder.trim()) ? p.placeholder : (fmt==='free_text' ? 'پاسخ را وارد کنید' : suggestPlaceholder(fmt)); try { inp.setAttribute('placeholder', ph || ''); } catch(_){ } var qNode = document.getElementById('pvQuestion'); if (qNode){ var showQ = (p.question && String(p.question).trim()); qNode.style.display = showQ ? 'block' : 'none'; var numPrefix = (p.numbered ? ('1. ') : ''); var sanitized = sanitizeQuestionHtml(showQ || ''); qNode.innerHTML = showQ ? (numPrefix + sanitized) : ''; } var desc = document.getElementById('pvDesc'); if (desc){ desc.textContent = p.description || ''; desc.style.display = p.show_description && p.description ? 'block' : 'none'; } try { applyInputMask(inp, p); } catch(_){ } }
@@ -958,11 +973,30 @@
           if (numEl){ numEl.checked = field.numbered !== false; field.numbered = numEl.checked; numEl.addEventListener('change', function(){ field.numbered = !!numEl.checked; updateHiddenProps(field); applyPreviewFrom(field); setDirty(true); }); }
           applyPreviewFrom(field);
           var saveBtn = document.getElementById('arSaveFields'); if (saveBtn) saveBtn.onclick = async function(){ var ok = await saveFields(); if (ok){ setDirty(false); renderFormBuilder(id); } };
-        });
+      }
+      if (opts && opts.formData){
+        dlog('renderFormEditor:using-provided-formData');
+        try { processData(opts.formData); } catch(e){ cerror('renderFormEditor:processData failed with provided formData', e); }
+      } else {
+        dlog('renderFormEditor:fetching-form');
+        fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+          .then(r=>r.json())
+          .then(function(data){ processData(data); });
+      }
     }
 
     function addNewField(formId, fieldType){
       dlog('addNewField:start', { formId: formId, fieldType: fieldType });
+      // Prevent re-entrancy when clicking quickly
+      try {
+        if (window._arAddInFlight){ dlog('addNewField:busy-skip'); return; }
+        window._arAddInFlight = true;
+      } catch(_){ }
+      function setToolsDisabled(dis){ try { var btns = document.querySelectorAll('#arToolsSide .ar-toolbtn'); btns.forEach(function(b){ b.disabled = !!dis; b.classList.toggle('is-loading', !!dis); }); } catch(_){ } }
+      setToolsDisabled(true);
+      // Monotonic navigation token to discard stale renders
+      var navToken = Date.now();
+      try { window._arNavToken = navToken; } catch(_){ }
       var ft = fieldType || 'short_text';
       fetch(ARSHLINE_REST + 'forms/'+formId, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
         .then(async r=>{ if(!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
@@ -973,9 +1007,11 @@
           var insertAt = hasThank ? (arr.length - 1) : arr.length;
           if (insertAt < 0 || insertAt > arr.length) insertAt = arr.length;
           try { window._arPendingEditor = { id: formId, index: insertAt, creating: true, intendedInsert: insertAt, newType: ft, ts: Date.now() }; } catch(_){ }
-          renderFormEditor(formId, { index: insertAt, creating: true, intendedInsert: insertAt, newType: ft });
+          dlog('addNewField:passing-formData-to-editor');
+          renderFormEditor(formId, { index: insertAt, creating: true, intendedInsert: insertAt, newType: ft, formData: data, navToken: navToken });
         })
-        .catch(function(){ notify('افزودن فیلد ناموفق بود', 'error'); });
+        .catch(function(e){ cerror('addNewField:failed', e); notify('افزودن فیلد ناموفق بود', 'error'); })
+        .finally(function(){ try { window._arAddInFlight = false; } catch(_){ } setToolsDisabled(false); });
     }
 
     function renderFormBuilder(id){
@@ -1153,6 +1189,140 @@
           // Minimal delete/edit binding
           list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
           list.querySelectorAll('.arDeleteField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var card = a.closest('.card'); if (!card) return; var oid = parseInt(card.getAttribute('data-oid')||''); if (isNaN(oid)) return; var p = fields[oid] && (fields[oid].props || fields[oid]); var ty = p && (p.type || fields[oid].type); if (ty === 'welcome' || ty === 'thank_you') return; var ok = window.confirm('از حذف این سؤال مطمئن هستید؟'); if (!ok) return; var newFields = fields.slice(); newFields.splice(oid, 1); fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('سؤال حذف شد', 'success'); renderFormBuilder(id); }).catch(function(){ notify('حذف سؤال ناموفق بود', 'error'); }); }); });
+
+          // Delete for message blocks (welcome/thank_you)
+          list.querySelectorAll('.arDeleteMsg').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var card = a.closest('.card'); if (!card) return; var oid = parseInt(card.getAttribute('data-oid')||''); if (isNaN(oid)) return; var newFields = fields.slice(); newFields.splice(oid, 1); fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) }).then(function(r){ if(!r.ok){ if (r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('پیام حذف شد', 'success'); renderFormBuilder(id); }).catch(function(){ notify('حذف پیام ناموفق بود', 'error'); }); }); });
+
+          // Wire tool buttons (add new fields)
+          var btnShort = document.getElementById('arAddShortText'); if (btnShort) btnShort.addEventListener('click', function(){ addNewField(id, 'short_text'); });
+          var btnLong = document.getElementById('arAddLongText'); if (btnLong) btnLong.addEventListener('click', function(){ addNewField(id, 'long_text'); });
+          var btnMc = document.getElementById('arAddMultipleChoice'); if (btnMc) btnMc.addEventListener('click', function(){ addNewField(id, 'multiple_choice'); });
+          var btnDd = document.getElementById('arAddDropdown'); if (btnDd) btnDd.addEventListener('click', function(){ addNewField(id, 'dropdown'); });
+          var btnRating = document.getElementById('arAddRating'); if (btnRating) btnRating.addEventListener('click', function(){ addNewField(id, 'rating'); });
+          var btnWelcome = document.getElementById('arAddWelcome'); if (btnWelcome) btnWelcome.addEventListener('click', function(){ addNewField(id, 'welcome'); });
+          var btnThank = document.getElementById('arAddThank'); if (btnThank) btnThank.addEventListener('click', function(){ addNewField(id, 'thank_you'); });
+
+          // --- Drag & Drop for reorder and drop-to-create ---
+          (function initDnd(){
+            if (!list) return;
+            // Inject minimal styles once
+            try {
+              if (!document.getElementById('arDndStyles')){
+                var st = document.createElement('style'); st.id = 'arDndStyles';
+                st.textContent = '.ar-draggable.dragging{opacity:.5} .ar-drop-marker{min-height:48px;border:2px dashed var(--primary,#2563eb);border-radius:10px;background:color-mix(in oklab, var(--primary,#2563eb) 10%, transparent);margin:.3rem 0;transition:all .08s ease} .ar-toolbtn.is-loading{opacity:.6;pointer-events:none}';
+                document.head.appendChild(st);
+              }
+            } catch(_){ }
+            var state = { dragging: false, type: null, // 'existing' | 'tool'
+                          srcOid: -1, toolType: '', marker: null, overIndex: -1, navFormId: id,
+                          ghostEl: null };
+            function ensureMarker(){ if (!state.marker){ var m = document.createElement('div'); m.className='ar-drop-marker'; state.marker = m; } return state.marker; }
+            function removeMarker(){ if (state.marker && state.marker.parentNode){ try { state.marker.parentNode.removeChild(state.marker); } catch(_){ } } state.marker = null; state.overIndex = -1; }
+            function cards(){ return Array.from(list.children).filter(function(el){ return el.classList && el.classList.contains('card'); }); }
+            function computeInsertIndex(clientY){ var els = cards(); if (!els.length) return 0; for (var i=0;i<els.length;i++){ var r = els[i].getBoundingClientRect(); var mid = r.top + r.height/2; if (clientY < mid) return i; } return els.length; }
+            function placeMarkerAt(idx){
+              var els = cards(); var m = ensureMarker();
+              if (idx <= 0){ if (els[0]) list.insertBefore(m, els[0]); else list.appendChild(m); }
+              else if (idx >= els.length){ list.appendChild(m); }
+              else { list.insertBefore(m, els[idx]); }
+              // Match height with neighbor card to create a rectangular placeholder
+              try {
+                var ref = (idx < els.length ? els[idx] : els[els.length-1]);
+                var rh = ref ? Math.max(48, Math.round(ref.getBoundingClientRect().height)) : 48;
+                m.style.minHeight = rh + 'px';
+              } catch(_){ m.style.minHeight = '48px'; }
+              state.overIndex = idx;
+            }
+            function makeGhost(label){ try { var g=document.createElement('div'); g.style.cssText='position:fixed;top:-9999px;left:-9999px;padding:.3rem .5rem;background:rgba(0,0,0,.7);color:#fff;border-radius:6px;font-size:12px;z-index:99999;'; g.textContent=label; document.body.appendChild(g); state.ghostEl=g; return g; } catch(_){ return null; } }
+            function clearGhost(){ if (state.ghostEl){ try { state.ghostEl.remove(); } catch(_){ } state.ghostEl=null; } }
+
+            // Existing card drag
+            list.addEventListener('dragstart', function(ev){ var card = ev.target.closest('.ar-draggable'); if (!card) return; var oid = parseInt(card.getAttribute('data-oid')||'-1'); if (isNaN(oid)) return; state.dragging=true; state.type='existing'; state.srcOid=oid; try { card.classList.add('dragging'); } catch(_){ } try { ev.dataTransfer.effectAllowed='move'; ev.dataTransfer.setData('text/plain', 'reorder:'+oid); } catch(_){ }
+              var gh = makeGhost('جابجایی سؤال #'+(oid+1)); if (gh && ev.dataTransfer && ev.dataTransfer.setDragImage){ try { ev.dataTransfer.setDragImage(gh, 10, 10); } catch(_){ } }
+            });
+            list.addEventListener('dragenter', function(ev){
+              // Allow drop and show marker even if state was lost; detect via dataTransfer
+              var dt = ev.dataTransfer; var hint = '';
+              try { hint = (dt && dt.getData && dt.getData('text/plain')) || ''; } catch(_){ hint=''; }
+              if (!state.dragging && hint && (hint.indexOf('tool:')===0 || hint.indexOf('reorder:')===0)){
+                state.dragging = true; state.type = hint.indexOf('tool:')===0 ? 'tool' : 'existing';
+              }
+              ev.preventDefault(); var idx = computeInsertIndex(ev.clientY); placeMarkerAt(idx);
+            });
+            list.addEventListener('dragover', function(ev){
+              var dt = ev.dataTransfer; var hint = '';
+              try { hint = (dt && dt.getData && dt.getData('text/plain')) || ''; } catch(_){ hint=''; }
+              if (!state.dragging && hint && (hint.indexOf('tool:')===0 || hint.indexOf('reorder:')===0)){
+                state.dragging = true; state.type = hint.indexOf('tool:')===0 ? 'tool' : 'existing';
+              }
+              if (!state.dragging) return; ev.preventDefault(); var idx = computeInsertIndex(ev.clientY); placeMarkerAt(idx); try { ev.dataTransfer.dropEffect='move'; } catch(_){ }
+            });
+            list.addEventListener('dragleave', function(ev){ /* optional: if leaving entire list */ });
+            list.addEventListener('drop', function(ev){
+              // Support drops even if state was lost by checking dataTransfer
+              var dt = ev.dataTransfer; var hint = '';
+              try { hint = (dt && dt.getData && dt.getData('text/plain')) || ''; } catch(_){ hint=''; }
+              if (!state.dragging && hint){ if (hint.indexOf('tool:')===0){ state.dragging=true; state.type='tool'; state.toolType=hint.slice(5); } else if (hint.indexOf('reorder:')===0){ state.dragging=true; state.type='existing'; state.srcOid=parseInt(hint.slice(8)||'-1'); } }
+              if (!state.dragging) return; ev.preventDefault(); ev.stopPropagation(); var idx = state.overIndex; removeMarker(); clearGhost();
+              if (state.type === 'existing'){
+                if (idx < 0) return; // nothing
+                var src = state.srcOid; if (isNaN(src) || src<0) return;
+                // Build new order from current fields
+                var arr = (data && data.fields) ? data.fields.slice() : [];
+                // Resolve current DOM order to field indices
+                var domEls = cards(); var domOrder = domEls.map(function(el){ return parseInt(el.getAttribute('data-oid')||'-1'); });
+                // Compute target OID position in the sequence
+                var targetBeforeOid = (idx < domOrder.length) ? domOrder[idx] : -1; // -1 means append
+                // Remove src first from arr and domOrder
+                var moving = arr.splice(src,1)[0];
+                // Adjust domOrder since we removed src
+                var srcPos = domOrder.indexOf(src); if (srcPos>=0) domOrder.splice(srcPos,1);
+                // Determine insertion position in arr in terms of OID
+                var insertAt;
+                if (targetBeforeOid === -1){ insertAt = arr.length; }
+                else {
+                  // Insert before the field with OID targetBeforeOid
+                  insertAt = targetBeforeOid; // OID equals original index; but after removal, indices shifted when src < targetBeforeOid
+                  if (src < targetBeforeOid) insertAt = Math.max(0, insertAt - 1);
+                }
+                // Enforce thank_you last
+                try { var last = arr[arr.length-1]; var lp = last && (last.props||last); var isLastThank = lp && ((lp.type||last.type)==='thank_you'); if (isLastThank && insertAt > arr.length-1) insertAt = arr.length-1; var movingP = moving && (moving.props||moving); if ((movingP && (movingP.type||moving.type)==='thank_you')) insertAt = arr.length; } catch(_){ }
+                arr.splice(insertAt, 0, moving);
+                dlog('dnd:reorder', { from: src, to: insertAt });
+                fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
+                  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                  .then(function(){ notify('ترتیب ذخیره شد', 'success'); renderFormBuilder(id); })
+                  .catch(function(){ notify('ذخیره ترتیب ناموفق بود', 'error'); });
+              } else if (state.type === 'tool'){
+                var t = state.toolType || ''; if (!t) return; var insertIdx = (typeof idx==='number' && idx>=0) ? idx : cards().length; dlog('dnd:drop-tool', { type: t, insert: insertIdx });
+                // Use addNewFieldAt to respect drop index (in terms of visible DOM order)
+                addNewFieldAt(id, t, insertIdx);
+              }
+              state.dragging=false; state.type=null; state.srcOid=-1; state.toolType='';
+            });
+            list.addEventListener('dragend', function(){ removeMarker(); clearGhost(); state.dragging=false; state.type=null; try { list.querySelectorAll('.ar-draggable.dragging').forEach(function(el){ el.classList.remove('dragging'); }); } catch(_){ } });
+
+            // Tool buttons drag
+            function wireToolDrag(btn, toolType){ if (!btn) return; btn.setAttribute('draggable','true'); btn.addEventListener('dragstart', function(ev){ state.dragging=true; state.type='tool'; state.toolType=toolType; try { ev.dataTransfer.effectAllowed='copyMove'; ev.dataTransfer.setData('text/plain', 'tool:'+toolType); } catch(_){ } var gh = makeGhost('افزودن '+(btn.textContent||'ابزار')); if (gh && ev.dataTransfer && ev.dataTransfer.setDragImage){ try { ev.dataTransfer.setDragImage(gh, 10, 10); } catch(_){ } } }); btn.addEventListener('dragend', function(){ removeMarker(); clearGhost(); state.dragging=false; state.type=null; state.toolType=''; }); }
+            wireToolDrag(btnShort, 'short_text'); wireToolDrag(btnLong, 'long_text'); wireToolDrag(btnMc, 'multiple_choice'); wireToolDrag(btnDd, 'dropdown'); wireToolDrag(btnRating, 'rating'); wireToolDrag(btnWelcome, 'welcome'); wireToolDrag(btnThank, 'thank_you');
+
+            // Add helper: add new field at specific drop index (DOM index => field index)
+            function addNewFieldAt(formId, fieldType, domInsertIndex){
+              // Map domInsertIndex to array insert position considering last thank_you
+              var arr = (data && data.fields) ? data.fields.slice() : [];
+              // If dropping beyond last and last is thank_you, place before last
+              var insertAt = domInsertIndex;
+              if (insertAt > arr.length) insertAt = arr.length;
+              try { var last = arr[arr.length-1]; var lp = last && (last.props||last); if (lp && (lp.type||last.type)==='thank_you' && insertAt >= arr.length) insertAt = arr.length - 1; } catch(_){ }
+              // Persist intended insert into pending editor and open editor
+              try { window._arPendingEditor = { id: formId, index: insertAt, creating: true, intendedInsert: insertAt, newType: fieldType, ts: Date.now() }; } catch(_){ }
+              // Prepare a fresh nav token so editor render is not skipped
+              var navToken = Date.now();
+              try { window._arNavToken = navToken; } catch(_){ }
+              // Pass in current form data to avoid extra fetch
+              renderFormEditor(formId, { index: insertAt, creating: true, intendedInsert: insertAt, newType: fieldType, formData: { meta: data.meta, fields: arr, status: data.status }, navToken: navToken });
+            }
+          })();
         });
     }
 
@@ -1166,15 +1336,12 @@
       window.saveFields = saveFields;
       // Expose main tab renderer and initialize router once
       window.renderTab = renderTab;
-      // Now that renderTab/renderForm* are attached, initialize the central router (FULL mode)
-      try {
-        if (AR_FULL && window.ARSH_ROUTER && typeof window.ARSH_ROUTER.init === 'function') {
-          window.ARSH_ROUTER.init();
-        }
-      } catch(_){ }
+      // Now that renderTab/renderForm* are attached, initialize the central router (FULL mode) once
       if (window.ARSH_ROUTER){
         try { window.ARSH_ROUTER.arRenderTab = renderTab; } catch(_){ }
-        if (!window._arRouterBooted){ try { window._arRouterBooted = true; window.ARSH_ROUTER.init(); } catch(_){ } }
+        if (!window._arRouterBooted && typeof window.ARSH_ROUTER.init === 'function'){
+          try { window._arRouterBooted = true; window.ARSH_ROUTER.init(); dlog('router:init'); } catch(_){ }
+        } else { dlog('router:init-skipped'); }
       } else {
         // Fallback: simple initial render if router is not present
         try {
