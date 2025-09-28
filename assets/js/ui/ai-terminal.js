@@ -304,7 +304,8 @@
         appendOut(jj || (tt || ('HTTP '+rr.status)));
       } catch(e){ appendOut(String(e)); }
     });
-    if (cmdEl) cmdEl.addEventListener('keydown', function(e){ if (e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); runAgent(); }});
+  // Single-line command: run on Enter
+  if (cmdEl) cmdEl.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); runAgent(); }});
     try { if ((sessionStorage.getItem('arAiOpen')||'')==='1') setOpen(true); } catch(_){ }
 
     // Public API

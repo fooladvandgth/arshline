@@ -3335,7 +3335,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <button id="arAiClose" class="ar-ai-close" aria-label="بستن">✕</button>
         </div>
         <div class="ar-ai-body">
-            <textarea id="arAiCmd" placeholder="مثلاً: ایجاد فرم با عنوان فرم تست"></textarea>
+            <input id="arAiCmd" type="text" class="ar-input" placeholder="مثلاً: ایجاد فرم با عنوان فرم تست" />
             <div style="display:flex; gap:.5rem; align-items:center; justify-content:flex-start;">
                 <button id="arAiRun" class="ar-btn">اجرا</button>
                 <button id="arAiClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>
