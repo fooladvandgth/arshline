@@ -872,6 +872,8 @@
       window.renderFormBuilder = renderFormBuilder;
       window.addNewField = addNewField;
       window.saveFields = saveFields;
+      // Signal to template to skip inline controller block to avoid duplication
+      window.ARSH_CTRL_EXTERNAL = true;
       window.ARSH_CTRL_PARTIAL = true;
     } catch(_){ }
 
