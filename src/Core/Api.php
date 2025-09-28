@@ -561,6 +561,7 @@ class Api
                 'items' => [
                     [ 'id' => 'open_tab', 'label' => 'باز کردن تب‌ها', 'params' => ['tab' => 'dashboard|forms|reports|users|settings', 'section?' => 'security|ai|users'], 'confirm' => false, 'examples' => [ 'باز کردن تنظیمات', 'باز کردن فرم‌ها' ] ],
                     [ 'id' => 'open_builder', 'label' => 'باز کردن ویرایشگر فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'ویرایش فرم 12' ] ],
+                    [ 'id' => 'open_editor', 'label' => 'ویرایش یک پرسش خاص', 'params' => ['id' => 'number', 'index' => 'number (0-based)'], 'confirm' => false, 'examples' => [ 'ویرایش پرسش 1 فرم 12' ] ],
                     [ 'id' => 'public_link', 'label' => 'دریافت لینک عمومی فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'لینک عمومی فرم 7' ] ],
                 ],
             ],
@@ -581,6 +582,7 @@ class Api
                 'title' => 'تنظیمات',
                 'items' => [
                     [ 'id' => 'set_setting', 'label' => 'تغییر تنظیمات سراسری', 'params' => ['key' => 'ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model|ai_parser', 'value' => 'string|number|boolean'], 'confirm' => true, 'examples' => [ 'فعال کردن هوش مصنوعی', 'مدل را روی gpt-5-mini بگذار', 'تحلیل دستورات با اوپن‌ای‌آی', 'تحلیلگر را هیبرید کن' ] ],
+                    [ 'id' => 'ui', 'label' => 'اقدامات رابط کاربری', 'params' => ['target' => 'toggle_theme|undo|go_back|open_editor_index', 'index?' => 'number (0-based)'], 'confirm' => false, 'examples' => [ 'تم را تغییر بده', 'یک قدم برگرد', 'بازگردانی کن', 'پرسش 1 را باز کن' ] ],
                 ],
             ],
             'ui' => [
@@ -825,6 +827,31 @@ class Api
             if (preg_match('/^(باز\s*کردن|ویرایش)\s*فرم\s*(\d+)$/u', $cmd, $m)){
                 $fid = (int)$m[2];
                 return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$fid], 200);
+            }
+            // Open a specific question editor by index: "پرسش 1 را ویرایش کن" (optionally "در فرم 12")
+            if (preg_match('/^پرسش\s*(\d+)\s*(?:را|رو)?\s*(?:ویرایش|ادیت|edit)\s*(?:کن)?(?:\s*در\s*فرم\s*(\d+))?$/u', $cmd, $m)){
+                $qIndexHuman = (int)$m[1];
+                $fid = isset($m[2]) ? (int)$m[2] : 0;
+                $index = max(0, $qIndexHuman - 1); // convert to 0-based
+                if ($fid > 0){
+                    // We can go directly to editor if form id is specified
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_editor', 'id'=>$fid, 'index'=>$index], 200);
+                }
+                // Without form id, if currently in a builder context, UI can handle it; otherwise ask to clarify form
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'ui',
+                    'target'=>'open_editor_index',
+                    'index'=>$index,
+                    'message'=>'در صورتی که در صفحه ویرایش فرم هستید، ویرایشگر پرسش '+($index+1)+' باز می‌شود؛ در غیر اینصورت لطفاً شماره فرم را مشخص کنید (مثلا: پرسش '+($index+1)+' فرم 12).'
+                ], 200);
+            }
+            // Back/Undo: "برگرد" | "یک قدم برگرد" | "بازگردانی" | "آن‌دو" | "undo"
+            if (preg_match('/^(?:برگرد|یک\s*قدم\s*برگرد|بازگردانی|آن‌?دو|undo)$/iu', $cmd)){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'ui', 'target'=>'go_back'], 200);
+            }
+            if (preg_match('/^(?:بازگردانی\s*کن|undo\s*کن|بازگردانی)$/iu', $cmd)){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'ui', 'target'=>'undo'], 200);
             }
             // Open builder without id -> clarify
             if (preg_match('/^(باز\s*کردن|ویرایش)\s*فرم\s*$/u', $cmd)){
@@ -1254,7 +1281,7 @@ class Api
               . 'Your ONLY job is to convert Persian admin commands into a single strict JSON object. '
               . 'Do NOT chat, do NOT add explanations, do NOT ask follow-up questions. Output JSON ONLY. '
               . 'Schema: '
-              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title","title?":string,"id?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal","params?":object}. '
+              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_editor|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title","title?":string,"id?":number,"index?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal|undo|go_back","params?":object}. '
               . 'Examples: '
               . '"ایجاد فرم با عنوان فرم تست" => {"action":"create_form","title":"فرم تست"}. '
               . '"حذف فرم 12" => {"action":"delete_form","id":12}. '

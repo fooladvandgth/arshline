@@ -20,7 +20,7 @@ This document outlines the modular AI (Hoshyar) strategy for the Arshline plugin
 
 - Toggle theme (dark/light)
 - Open tabs: dashboard, forms, reports, users, settings
-- Open form builder/editor/preview/results by ID
+- Open form builder/editor/preview/results by ID or title (fuzzy)
 - Open/download URLs
 - Confirm/clarify prompts (two-step operations)
 
@@ -36,6 +36,31 @@ These actions are executed via REST with audit logging and return an `undo_token
    - Update title: example — «عنوان فرم 2 را به فرم مشتریان تغییر بده» → `PUT /forms/{id}/meta { meta: { title: "فرم مشتریان" } }`
 
 All four actions log an audit entry (`update_form_status` or `update_form_meta`) and include `undo_token` in the JSON response.
+
+## Parser modes and LLM constraints
+
+- Modes: `internal` | `llm` | `hybrid` (default)
+   - internal: deterministic regex/heuristics (fast, offline)
+   - llm: strict JSON-only responses; rejected if non-JSON
+   - hybrid: try internal first, then fallback to llm if configured
+- Typo tolerance and colloquial verbs for navigation are supported (e.g., «داشبودر»≈«داشبورد», «وا کن/واکن»≈«باز کن»).
+
+## Navigation and editor intents
+
+- Create and open builder: «یک فرم جدید باز کن» → creates a draft and opens builder immediately.
+- Open results by id/title: «نتایج فرم 12» یا «نتایج فرم مشتریان» (fuzzy match on title).
+- Open editor for a question:
+   - «پرسش 1 را ویرایش کن» → `{ action: "open_editor", index: 1 }` (current form context inferred when possible)
+   - «پرسش 1 فرم 24 را ادیت کن» → `{ action: "open_editor", id: 24, index: 1 }`
+   - «برو به ادیت پرسش 2» while in builder/24 → `{ action: "ui", target: "open_editor_index", index: 2 }`
+- UI commands:
+   - «undo» / «بازگردانی»: `{ action: "ui", target: "undo" }` (first UI stack, then server `undo_token` if available)
+   - «برگرد»: `{ action: "ui", target: "go_back" }` (UI stack pop or browser history)
+
+## Settings UX
+
+- Parser selection is surfaced in settings, defaulting to `hybrid`.
+- If the API key has been set previously, the UI prefills it from `/ai/config`.
 
 ## Clarify, Did‑you‑mean, and Confirmation
 

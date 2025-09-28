@@ -212,6 +212,52 @@
           } catch(_){ }
           return;
         }
+        if (j.action === 'open_editor' && j.id != null){
+          try {
+            var prevHash4 = location.hash; var idx = (j.index==null?0:parseInt(j.index));
+            var editorHash = 'editor/'+parseInt(j.id)+'/'+(isNaN(idx)?0:idx);
+            if (typeof window.setHash==='function') setHash(editorHash); else { try { location.hash = '#' + editorHash; } catch(_){ } }
+            // Trigger routing or call editor
+            try { if (window.ARSH_ROUTER && typeof window.ARSH_ROUTER.routeFromHash==='function') { window.ARSH_ROUTER.routeFromHash(); }
+              else if (typeof window.renderFormEditor==='function') { window.renderFormEditor(parseInt(j.id), { index: idx }); }
+              else if (typeof window.renderTab==='function') { window.renderTab('forms'); }
+            } catch(_){ if (typeof window.renderTab==='function') window.renderTab('forms'); }
+            uiStack.push({ type:'open_editor', payload:{ prevHash: prevHash4 }, undo:function(){ try { var prevTab4 = (prevHash4||'').replace(/^#/, '').split('/')[0] || 'dashboard'; if (typeof window.setHash==='function') setHash(prevTab4); else { try { location.hash = '#' + prevTab4; } catch(_){ } } if (typeof window.renderTab==='function') window.renderTab(prevTab4); } catch(_){ } } });
+            logConsole('UI action', { open_editor: { id: j.id, index: idx } });
+          } catch(_){ }
+          return;
+        }
+        if (j.action === 'ui' && j.target){
+          // Simple UI targets: undo last UI op or go back
+          try {
+            if (j.target === 'undo'){
+              // Reuse the existing undo button logic
+              if (undoBtn && typeof undoBtn.click==='function') { undoBtn.click(); } else { notify('بازگردانی در دسترس نیست', 'warn'); }
+              return;
+            }
+            if (j.target === 'go_back'){
+              // UI go back: pop UI stack or browser history
+              if (uiStack.length){ var item = uiStack.pop(); if (item && typeof item.undo==='function'){ item.undo(); notify('بازگشت انجام شد', 'success'); return; } }
+              try { history.back(); } catch(_){ }
+              return;
+            }
+            if (j.target === 'open_editor_index'){
+              var curr = (location.hash||'').replace('#','').split('/');
+              if (curr[0]==='builder' && curr[1]){
+                var idb = parseInt(curr[1]||'0'); var idx2 = (j.index==null?0:parseInt(j.index));
+                if (!isNaN(idb) && idb>0){
+                  var eh = 'editor/'+idb+'/'+(isNaN(idx2)?0:idx2);
+                  if (typeof window.setHash==='function') setHash(eh); else { try { location.hash = '#' + eh; } catch(_){ } }
+                  try { if (window.ARSH_ROUTER && typeof window.ARSH_ROUTER.routeFromHash==='function') window.ARSH_ROUTER.routeFromHash(); else if (typeof window.renderFormEditor==='function') window.renderFormEditor(idb, { index: idx2 }); } catch(_){ }
+                  return;
+                }
+              }
+              notify('برای باز کردن ویرایشگر پرسش، ابتدا وارد صفحه ویرایش فرم شوید', 'warn');
+              return;
+            }
+          } catch(_){ }
+          return;
+        }
         if ((j.action === 'download' || j.action === 'export') && j.url){ try { window.open(String(j.url), '_blank'); } catch(_){ } return; }
         if (j.url && !j.action){ try { window.open(String(j.url), '_blank'); } catch(_){ } return; }
       } catch(_){ }
