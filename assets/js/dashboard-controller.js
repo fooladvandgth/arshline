@@ -7,6 +7,9 @@
    Exports: attaches renderFormBuilder/renderFormEditor/renderFormPreview to window
    ========================================================================= */
 (function(){
+  // Signal as early as possible that external controller is present,
+  // so inline block (in template) can skip binding duplicate handlers.
+  try { window.ARSH_CTRL_EXTERNAL = true; } catch(_){ }
   // Tabs: render content per menu item
   document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
