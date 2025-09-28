@@ -52,10 +52,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tools-registry.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tool-defaults.js?ver=' . $version ); ?>"></script>
             <!-- Core router -->
-            <script>
-            // Enable FULL mode for external controller after router loads
-            try { window.ARSH_CTRL_FULL = true; console.debug('[ARSH] ARSH_CTRL_FULL = true'); } catch(_){}
-            </script>
+            <!-- Note: Do NOT enable FULL mode yet; external controller still relies on inline renderTab. -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/router.js?ver=' . $version ); ?>"></script>
             <!-- UI modules: notify, auth, input masks -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/notify.js?ver=' . $version ); ?>"></script>
@@ -82,9 +79,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
        Exports: none (DOM side-effects only)
        Future extraction: assets/js/dashboard-controller.js
        ========================================================================= */
-    // Guard: skip inline controller ONLY when external controller runs in FULL mode.
-    // In PARTIAL mode, we still need inline routing/renderTab for initial render.
-    if (window.ARSH_CTRL_EXTERNAL && window.ARSH_CTRL_FULL) { try { console.debug('ARSH: external FULL controller present; skipping inline dashboard-controller'); } catch(_){} } else {
+    // Guard: Skip inline ONLY when external controller is in FULL mode; otherwise allow inline to render tabs.
+    if (window.ARSH_CTRL_EXTERNAL && window.ARSH_CTRL_FULL) { try { console.debug('ARSH: external controller FULL; skipping inline dashboard-controller'); } catch(_){} } else {
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
