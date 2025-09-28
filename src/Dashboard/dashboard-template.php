@@ -60,86 +60,21 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <!-- UI modules: notifications, auth (401), input masks -->
+    <script src="<?php echo esc_url( plugins_url('assets/js/ui/notify.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/ui/auth.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/ui/input-masks.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <!-- Externalized controller (extracted from inline block) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script>
     /* =========================================================================
-       BLOCK: dashboard-controller
-       Purpose: Orchestrates dashboard behavior: sidebar routing/tabs, theme &
-                sidebar toggles, results list, form builder, and preview flows.
-       Dependencies: runtime-config, tools-registry, external tool modules,
-                     assets/js/dashboard.js
-       Exports: none (DOM side-effects only)
-       Future extraction: assets/js/dashboard-controller.js
-       ========================================================================= */
-    // Guard: if external controller is present, skip this inline block to avoid duplication
-    if (window.ARSH_CTRL_EXTERNAL) { try { console.debug('ARSH: external controller present; skipping inline dashboard-controller'); } catch(_){} } else {
-    // Tabs: render content per menu item
-    document.addEventListener('DOMContentLoaded', function() {
-    var content = document.getElementById('arshlineDashboardContent');
-        var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
-        var sidebar = document.querySelector('.arshline-sidebar');
-        var sidebarToggle = document.getElementById('arSidebarToggle');
-        // Debug helpers
-        // Allow enabling debug via URL: ?arshdbg=1 (or disable with ?arshdbg=0)
-        try {
-            var _dbgQS = new URLSearchParams(window.location.search).get('arshdbg');
-            if (_dbgQS === '1' || _dbgQS === 'true') { localStorage.setItem('arshDebug', '1'); }
-            else if (_dbgQS === '0' || _dbgQS === 'false') { localStorage.removeItem('arshDebug'); }
-        } catch(_){ }
-        var AR_DEBUG = false;
-        try { AR_DEBUG = (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
-    // Optional capture mode: set localStorage.arshDebugCapture = '1' to enable
-    try {
-        if (localStorage.getItem('arshDebugCapture') === '1') {
-            window._arConsoleLog = [];
-            (function(){
-                var methods = ['log','warn','error','info'];
-                methods.forEach(function(m){
-                    var orig = console[m] ? console[m].bind(console) : function(){};
-                    console[m] = function(){
-                        try {
-                            window._arConsoleLog.push({ level: m, args: Array.from(arguments), ts: Date.now() });
-                        } catch(_){ }
-                        try {
-                            orig.apply(console, arguments);
-                        } catch(_){ }
-                    };
-                });
-                // small overlay
-                var ov = document.createElement('div');
-                ov.id = 'arsh-console-capture';
-                ov.style.cssText = 'position:fixed;left:8px;bottom:8px;max-width:420px;max-height:220px;overflow:auto;background:rgba(0,0,0,.8);color:#fff;padding:8px;border-radius:8px;font-size:12px;z-index:99999;';
-                ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>';
-                ov.addEventListener('click', function(){
-                    try {
-                        ov.style.display = 'none';
-                    } catch(_){ }
-                });
-                document.body.appendChild(ov);
-                window._arLogDump = function(){
-                    try {
-                        if (!window._arConsoleLog) return;
-                        ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>' + window._arConsoleLog.slice(-200).map(function(r){
-                            return '<div style="margin-bottom:4px;color:' + (r.level === 'error' ? '#ff8080' : (r.level === 'warn' ? '#ffd080' : '#d0d0ff')) + '">[' + new Date(r.ts).toLocaleTimeString() + '] <b>' + r.level + '</b> ' + r.args.map(function(a){
-                                try {
-                                    return (typeof a === 'string') ? a : JSON.stringify(a);
-                                } catch(_){
-                                    return String(a);
-                                }
-                            }).join(' ') + '</div>';
-                        }).join('');
-                    } catch(_){ }
-                };
-            })();
-        }
-    } catch(_){ }
-    function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-    function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-    // Always print errors to console, regardless of AR_DEBUG
-    function cerror(){ if (typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-        try { window.arshSetDebug = function(v){ try { localStorage.setItem('arshDebug', v ? '1' : '0'); } catch(_){ } }; } catch(_){ }
-
+    <!-- Chart.js for charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Persian datepicker (optional) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
         function setSidebarClosed(closed, persist){
             if (!sidebar) return;
             sidebar.classList.toggle('closed', !!closed);
