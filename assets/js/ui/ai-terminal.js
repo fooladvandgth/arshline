@@ -265,6 +265,8 @@
 
     async function runAgent(cmdOverride){
       var cmd = (typeof cmdOverride === 'string' && cmdOverride.trim()) ? cmdOverride.trim() : ((cmdEl && cmdEl.value) ? String(cmdEl.value) : '');
+      // Clear input after capturing command
+      if (cmdEl) { try { cmdEl.value = ''; } catch(_){ } }
       if (!cmd){ notify('دستور خالی است', 'warn'); return; }
       appendOut('> '+cmd);
       try {
