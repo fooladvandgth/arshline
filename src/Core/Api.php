@@ -803,6 +803,7 @@ class Api
                 preg_match('/^(?:می\s*خوام|میخوام)\s*(?:یه|یک)?\s*فرم\s*جدید$/u', $cmd)
                 || preg_match('/^(?:یه|یک)?\s*فرم\s*جدید\s*(?:می\s*خوام|میخوام)$/u', $cmd)
                 || preg_match('/^(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید$/u', $cmd)
+                || preg_match('/^فرم\s*جدید$/u', $cmd)
             ){
                 $defTitle = apply_filters('arshline_ai_new_form_default_title', 'فرم جدید');
                 return new WP_REST_Response([
