@@ -3288,6 +3288,40 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 } catch(e){ appendOut(String(e)); notify('خطا در اجرای دستور', 'error'); }
             }
             if (runBtn) runBtn.addEventListener('click', runAgent);
+            // Undo icon button: list recent actions and provide one-click undo
+            try {
+                var undoBtn = document.getElementById('arAiUndoBtn');
+                if (undoBtn) undoBtn.addEventListener('click', async function(){
+                    try {
+                        appendOut('> فهرست بازگردانی‌های اخیر');
+                        var r = await fetch(ARSHLINE_REST + 'ai/audit?limit=10', { method:'GET', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} });
+                        var t = ''; try { t = await r.clone().text(); } catch(_){ }
+                        var j = null; try { j = t ? JSON.parse(t) : await r.json(); } catch(_){ }
+                        appendOut(j || (t || ('HTTP '+r.status)));
+                        if (j && j.items && Array.isArray(j.items) && j.items.length){
+                            var wrap = document.createElement('div'); wrap.style.marginTop='.5rem';
+                            j.items.forEach(function(it){
+                                if (it.undone) return;
+                                var lab = document.createElement('div'); lab.textContent = (it.action+': '+it.scope+' #'+(it.target_id||'')); lab.style.display='inline-block'; lab.style.marginInlineEnd='.5rem';
+                                var btn = document.createElement('button'); btn.className='ar-btn ar-btn--soft'; btn.textContent='بازگردانی'; btn.style.marginBottom='.25rem';
+                                btn.addEventListener('click', async function(){
+                                    try {
+                                        btn.disabled=true; btn.textContent='...';
+                                        var r2 = await fetch(ARSHLINE_REST + 'ai/undo', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: it.undo_token }) });
+                                        var t2 = ''; try { t2 = await r2.clone().text(); } catch(_){ }
+                                        var j2 = null; try { j2 = t2 ? JSON.parse(t2) : await r2.json(); } catch(_){ }
+                                        appendOut(j2 || (t2 || ('HTTP '+r2.status)));
+                                        if (r2.ok && j2 && j2.ok){ notify('بازگردانی انجام شد', 'success'); try { if (typeof window.renderTab==='function') window.renderTab('forms'); } catch(_){ } }
+                                        else { notify('ناموفق بود', 'error'); }
+                                    } catch(e){ appendOut(String(e)); } finally { btn.disabled=false; btn.textContent='بازگردانی'; }
+                                });
+                                var row = document.createElement('div'); row.appendChild(lab); row.appendChild(btn); wrap.appendChild(row);
+                            });
+                            outEl.appendChild(wrap);
+                        }
+                    } catch(e){ appendOut(String(e)); }
+                });
+            } catch(_){ }
             if (cmdEl) cmdEl.addEventListener('keydown', function(e){ if (e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); runAgent(); }});
             // restore open state
             try { if ((sessionStorage.getItem('arAiOpen')||'')==='1') setOpen(true); } catch(_){ }
@@ -3328,6 +3362,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <div id="arAiPanel" class="ar-ai-panel" aria-hidden="true">
         <div class="ar-ai-header">
             <div class="title">ترمینال هوشیار</div>
+            <button id="arAiUndoBtn" class="ar-ai-undo" aria-label="بازگردانی اخیر" title="بازگردانی اخیر" style="margin-inline-end:.4rem; font-size:14px; line-height:1; padding:.3rem .5rem;">↶</button>
             <button id="arAiClose" class="ar-ai-close" aria-label="بستن">✕</button>
         </div>
         <div class="ar-ai-body">

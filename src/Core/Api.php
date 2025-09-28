@@ -12,6 +12,7 @@ use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\Forms\FormValidator;
 use Arshline\Modules\Forms\FieldRepository;
 use Arshline\Core\Ai\Hoshyar;
+use Arshline\Support\Audit;
 
 class Api
 {
@@ -291,6 +292,19 @@ class Api
             'callback' => [self::class, 'ai_agent'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
+        // Audit log and undo endpoints (admin-only)
+        register_rest_route('arshline/v1', '/ai/audit', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'list_audit'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'args' => [ 'limit' => [ 'type' => 'integer', 'required' => false ] ],
+        ]);
+        register_rest_route('arshline/v1', '/ai/undo', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'undo_by_token'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'args' => [ 'token' => [ 'type' => 'string', 'required' => true ] ],
+        ]);
         // Get a specific submission (with values)
         register_rest_route('arshline/v1', '/submissions/(?P<submission_id>\\d+)', [
             'methods' => 'GET',
@@ -408,7 +422,9 @@ class Api
         $form = new Form($formData);
         $id = FormRepository::save($form);
         if ($id > 0) {
-            return new WP_REST_Response([ 'id' => $id, 'title' => $title, 'status' => 'draft' ], 201);
+            // Log audit entry with undo token
+            $undo = Audit::log('create_form', 'form', $id, [], [ 'form' => [ 'id'=>$id, 'title'=>$title, 'status'=>'draft' ] ]);
+            return new WP_REST_Response([ 'id' => $id, 'title' => $title, 'status' => 'draft', 'undo_token' => $undo ], 201);
         }
         global $wpdb;
         $err = $wpdb->last_error ?: 'unknown_db_error';
@@ -1428,8 +1444,63 @@ class Api
     {
         $id = (int)$request['form_id'];
         if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
+        // Take snapshot before destructive delete
+        $before = FormRepository::snapshot($id);
         $ok = FormRepository::delete($id);
-        return new WP_REST_Response(['ok' => (bool)$ok], $ok ? 200 : 404);
+        if ($ok) {
+            $undo = Audit::log('delete_form', 'form', $id, $before ?: [], []);
+            return new WP_REST_Response(['ok' => true, 'undo_token' => $undo], 200);
+        }
+        return new WP_REST_Response(['ok' => false], 404);
+    }
+
+    /**
+     * GET /ai/audit — list recent audit entries (admin-only)
+     */
+    public static function list_audit(WP_REST_Request $request)
+    {
+        $limit = (int)($request->get_param('limit') ?? 50);
+        $items = Audit::list(max(1, min(200, $limit)));
+        return new WP_REST_Response(['ok'=>true, 'items'=>$items], 200);
+    }
+
+    /**
+     * POST /ai/undo — undo a single action by token (idempotent)
+     */
+    public static function undo_by_token(WP_REST_Request $request)
+    {
+        $token = (string)($request->get_param('token') ?? '');
+        if ($token === '') return new WP_REST_Response(['ok'=>false,'error'=>'missing_token'], 400);
+        $row = Audit::findByToken($token);
+        if (!$row) return new WP_REST_Response(['ok'=>false,'error'=>'not_found'], 404);
+        if (!empty($row['undone'])) return new WP_REST_Response(['ok'=>false,'error'=>'already_undone'], 409);
+        $action = (string)$row['action'];
+        $scope = (string)$row['scope'];
+        $before = is_array($row['before'] ?? null) ? $row['before'] : [];
+        $after = is_array($row['after'] ?? null) ? $row['after'] : [];
+        try {
+            if ($scope === 'form'){
+                if ($action === 'delete_form'){
+                    // Restore full form snapshot
+                    $restored = FormRepository::restore($before);
+                    if ($restored > 0){ Audit::markUndone($token); return new WP_REST_Response(['ok'=>true, 'restored_id'=>$restored], 200); }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'restore_failed'], 500);
+                }
+                if ($action === 'create_form'){
+                    // Remove the created form
+                    $fid = 0;
+                    if (isset($after['form']) && is_array($after['form'])){ $fid = (int)($after['form']['id'] ?? 0); }
+                    if ($fid > 0){
+                        $ok = FormRepository::delete($fid);
+                        if ($ok){ Audit::markUndone($token); return new WP_REST_Response(['ok'=>true, 'deleted_id'=>$fid], 200); }
+                        return new WP_REST_Response(['ok'=>false,'error'=>'delete_failed'], 500);
+                    }
+                }
+            }
+            return new WP_REST_Response(['ok'=>false,'error'=>'unsupported_undo'], 400);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response(['ok'=>false,'error'=>'undo_error'], 500);
+        }
     }
 
     /**

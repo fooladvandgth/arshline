@@ -43,6 +43,23 @@ class Migrations
                 idx INT UNSIGNED DEFAULT 0,
                 FOREIGN KEY (submission_id) REFERENCES {prefix}x_submissions(id) ON DELETE CASCADE,
                 FOREIGN KEY (field_id) REFERENCES {prefix}x_fields(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB;",
+            'audit_log' => "CREATE TABLE IF NOT EXISTS {prefix}x_audit_log (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED NULL,
+                ip VARCHAR(45) NULL,
+                action VARCHAR(64) NOT NULL,
+                scope VARCHAR(32) NOT NULL,
+                target_id BIGINT UNSIGNED NULL,
+                before_state JSON NULL,
+                after_state JSON NULL,
+                undo_token VARCHAR(64) NOT NULL,
+                undone TINYINT(1) DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                undone_at DATETIME NULL,
+                KEY scope_action (scope, action),
+                KEY target (target_id),
+                UNIQUE KEY undo_token_unique (undo_token)
             ) ENGINE=InnoDB;"
         ];
     }

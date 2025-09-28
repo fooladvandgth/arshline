@@ -47,6 +47,28 @@
         outEl.scrollTop = outEl.scrollHeight;
       } catch(_){ }
     }
+    function attachUndoUI(token){
+      try {
+        if (!token || !outEl) return;
+        var wrap = document.createElement('div'); wrap.style.marginTop='.5rem';
+        var lab = document.createElement('span'); lab.textContent='قابل بازگشت'; lab.className='ar-badge'; lab.style.marginInlineEnd='.5rem';
+        var btn = document.createElement('button'); btn.className='ar-btn ar-btn--soft'; btn.textContent='بازگردانی';
+        btn.addEventListener('click', async function(){
+          try {
+            btn.disabled = true; btn.textContent='در حال بازگردانی…';
+            var r = await fetch(ARSHLINE_REST + 'ai/undo', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: String(token) }) });
+            var t = ''; try { t = await r.clone().text(); } catch(_){ }
+            var j = null; try { j = t ? JSON.parse(t) : await r.json(); } catch(_){ }
+            appendOut(j || (t || ('HTTP '+r.status)));
+            if (r.ok && j && j.ok){ notify('بازگردانی انجام شد', 'success'); try { if (typeof window.renderTab==='function') window.renderTab('forms'); } catch(_){ } }
+            else { notify('بازگردانی ناموفق بود', 'error'); }
+          } catch(e){ appendOut(String(e)); notify('خطا در بازگردانی', 'error'); }
+          finally { btn.disabled = false; btn.textContent='بازگردانی'; }
+        });
+        wrap.appendChild(lab); wrap.appendChild(btn);
+        outEl.appendChild(wrap);
+      } catch(_){ }
+    }
     function saveHist(cmd, res){ try { var h = []; try { h = JSON.parse(sessionStorage.getItem('arAiHist')||'[]'); } catch(_){ h = []; } h.push({ t: Date.now(), cmd: String(cmd||''), res: res }); h = h.slice(-20); sessionStorage.setItem('arAiHist', JSON.stringify(h)); } catch(_){ } }
     function loadHist(){ try { var h = JSON.parse(sessionStorage.getItem('arAiHist')||'[]'); if (Array.isArray(h) && h.length && outEl){ outEl.textContent = h.map(function(x){ return '> '+(x.cmd||'')+'\n'+JSON.stringify(x.res||{}, null, 2); }).join('\n\n'); } } catch(_){ } }
     loadHist();
@@ -67,6 +89,7 @@
                 var txt2 = ''; try { txt2 = await r2.clone().text(); } catch(_){ }
                 var j2 = null; try { j2 = txt2 ? JSON.parse(txt2) : await r2.json(); } catch(_){ }
                 appendOut(j2 || (txt2 || ('HTTP '+r2.status)));
+                if (j2 && j2.undo_token) { attachUndoUI(j2.undo_token); }
                 if (r2.ok && j2 && j2.ok !== false){ handleAgentAction(j2); notify('تایید شد', 'success'); }
                 else { notify('انجام نشد', 'error'); }
               } catch(e){ appendOut(String(e)); notify('خطا', 'error'); }
@@ -90,6 +113,7 @@
                   var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
                   var j3 = null; try { j3 = t3 ? JSON.parse(t3) : await r3.json(); } catch(_){ }
                   appendOut(j3 || (t3 || ('HTTP '+r3.status)));
+                  if (j3 && j3.undo_token) { attachUndoUI(j3.undo_token); }
                   if (r3.ok && j3 && j3.ok !== false){ handleAgentAction(j3); notify('انجام شد', 'success'); } else { notify('انجام نشد', 'error'); }
                 }
               });
@@ -120,6 +144,7 @@
         saveHist(cmd, j || txt || {});
         if (r.ok && j && j.ok !== false){ handleAgentAction(j); notify('انجام شد', 'success'); }
         else { notify('اجرا ناموفق بود', 'error'); }
+        if (j && j.undo_token){ attachUndoUI(j.undo_token); }
       } catch(e){ appendOut(String(e)); notify('خطا در اجرای دستور', 'error'); }
     }
 
@@ -131,7 +156,8 @@
     try {
       var api = {
         open: function(){ setOpen(true); },
-        run: function(cmd){ if (cmdEl) { cmdEl.value = String(cmd||''); } runAgent(); }
+        run: function(cmd){ if (cmdEl) { cmdEl.value = String(cmd||''); } runAgent(); },
+        undo: function(token){ attachUndoUI(String(token||'')); }
       };
       // Backward-compat and new modular alias
       window.ARSH_AI = api;
