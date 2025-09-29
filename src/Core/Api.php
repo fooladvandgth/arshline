@@ -1783,6 +1783,34 @@ class Api
                     ], 200);
                 }
             }
+            // 3b) Rename group by name (no id): "نام گروه فروش را به مشتریان تغییر بده"
+            if (preg_match('/^نام\s*گروه\s+(.+?)\s*(?:را|رو)?\s*(?:به|به\s*نام)\s*(.+)\s*(?:تغییر\s*بده|تغییر\s*ده|بگذار|بذار|قرار\s*ده|کن)$/iu', $cmd, $mGRenameByName)){
+                $gname = trim((string)$mGRenameByName[1]); $newName = trim((string)$mGRenameByName[2]);
+                if ($gname !== '' && $newName !== ''){
+                    $cands = $find_group_candidates($gname, 5);
+                    if (count($cands) === 1 && ($cands[0]['score'] ?? 0) >= 0.65){
+                        $gid = (int)$cands[0]['id'];
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'نام گروه '.$gid.' («'.($cands[0]['name']??'').'») به «'.$newName.'» تغییر داده شود؟',
+                            'confirm_action'=> [ 'action'=>'ug_update_group', 'params'=>['id'=>$gid,'name'=>$newName] ]
+                        ], 200);
+                    }
+                    if (!empty($cands)){
+                        $opts = array_map(function($r){ return [ 'label'=> ((int)$r['id']).' - '.((string)$r['name']).' ('.round((float)$r['score']*100).'%)', 'value'=> (int)$r['id'] ]; }, $cands);
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'clarify',
+                            'kind'=>'options',
+                            'message'=>'نام کدام گروه را تغییر بدهم؟',
+                            'param_key'=>'id',
+                            'options'=>$opts,
+                            'clarify_action'=> [ 'action'=>'ug_update_group', 'params'=> ['name'=>$newName] ]
+                        ], 200);
+                    }
+                }
+            }
             // 4) Ensure tokens for a group id
             if (preg_match('/^(?:تولید|ایجاد|بساز)\s*(?:توکن|token)(?:\s*برای)?\s*اعضا(?:ی)?\s*گروه\s*(\d+)$/iu', $cmd, $mTok)){
                 $gid = (int)$mTok[1];
@@ -1795,6 +1823,34 @@ class Api
                     ], 200);
                 }
             }
+            // 4b) Ensure tokens by group name
+            if (preg_match('/^(?:تولید|ایجاد|بساز)\s*(?:توکن|token)\s*(?:برای)?\s*اعضا(?:ی)?\s*گروه\s+(.+)$/iu', $cmd, $mTokName)){
+                $gname = trim((string)$mTokName[1]);
+                if ($gname !== ''){
+                    $cands = $find_group_candidates($gname, 5);
+                    if (count($cands) === 1 && ($cands[0]['score'] ?? 0) >= 0.65){
+                        $gid = (int)$cands[0]['id'];
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'توکن اعضای گروه '.$gid.' («'.($cands[0]['name']??'').'») تولید شود؟',
+                            'confirm_action'=> [ 'action'=>'ug_ensure_tokens', 'params'=>['group_id'=>$gid] ]
+                        ], 200);
+                    }
+                    if (!empty($cands)){
+                        $opts = array_map(function($r){ return [ 'label'=> ((int)$r['id']).' - '.((string)$r['name']).' ('.round((float)$r['score']*100).'%)', 'value'=> (int)$r['id'] ]; }, $cands);
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'clarify',
+                            'kind'=>'options',
+                            'message'=>'برای کدام گروه توکن بسازم؟',
+                            'param_key'=>'group_id',
+                            'options'=>$opts,
+                            'clarify_action'=> [ 'action'=>'ug_ensure_tokens' ]
+                        ], 200);
+                    }
+                }
+            }
             // 5) Download members template for group id
             if (preg_match('/^(?:دانلود|بگیر)\s*(?:فایل|نمونه|تمپلیت)\s*اعضا(?:ی)?\s*گروه\s*(\d+)$/iu', $cmd, $mTpl)){
                 $gid = (int)$mTpl[1];
@@ -1805,6 +1861,29 @@ class Api
                 $gid = isset($mExp[1]) ? (int)$mExp[1] : 0; $fid = isset($mExp[2]) ? (int)$mExp[2] : 0;
                 if ($gid > 0){ return new WP_REST_Response(['ok'=>true,'action'=>'ug_export_links','group_id'=>$gid], 200); }
                 if ($fid > 0){ return new WP_REST_Response(['ok'=>true,'action'=>'ug_export_links','form_id'=>$fid], 200); }
+            }
+            // 6b) Export links by group name
+            if (preg_match('/^(?:خروجی|دانلود)\s*(?:لینک(?:\s*های)?|پیوند(?:\s*ها)?)\s*اعضا(?:ی)?\s*گروه\s+(.+)$/iu', $cmd, $mExpName)){
+                $gname = trim((string)$mExpName[1]);
+                if ($gname !== ''){
+                    $cands = $find_group_candidates($gname, 5);
+                    if (count($cands) === 1 && ($cands[0]['score'] ?? 0) >= 0.65){
+                        $gid = (int)$cands[0]['id'];
+                        return new WP_REST_Response(['ok'=>true,'action'=>'ug_export_links','group_id'=>$gid], 200);
+                    }
+                    if (!empty($cands)){
+                        $opts = array_map(function($r){ return [ 'label'=> ((int)$r['id']).' - '.((string)$r['name']).' ('.round((float)$r['score']*100).'%)', 'value'=> (int)$r['id'] ]; }, $cands);
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'clarify',
+                            'kind'=>'options',
+                            'message'=>'خروجی لینک‌های اعضای کدام گروه؟',
+                            'param_key'=>'group_id',
+                            'options'=>$opts,
+                            'clarify_action'=> [ 'action'=>'ug_export_links' ]
+                        ], 200);
+                    }
+                }
             }
             // 7) Set form access groups by numeric ids: "برای فرم 5 گروه‌های 2،3 را مجاز کن"
             if (preg_match('/^برای\s*فرم\s*(\d+)\s*گروه(?:‌|\s|-)*های\s*([\d\s,،و]+)\s*(?:را)?\s*(?:مجاز|فعال)\s*کن$/iu', $cmd, $mMap)){
