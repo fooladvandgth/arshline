@@ -1901,6 +1901,42 @@ class Api
                     ], 200);
                 }
             }
+            // 7b) Set form access groups by NAMES: "برای فرم 5 گروه‌های فروش، مشتریان را مجاز کن"
+            if (preg_match('/^برای\s*فرم\s*(\d+)\s*گروه(?:‌|\s|-)*های\s+(.+?)\s*(?:را)?\s*(?:مجاز|فعال)\s*کن$/iu', $cmd, $mMapNames)){
+                $fid = (int)$mMapNames[1]; $namesStr = trim((string)$mMapNames[2]);
+                if ($fid > 0 && $namesStr !== ''){
+                    // Split by Persian/English commas and "و"
+                    $parts = preg_split('/\s*(?:,|،|\s+و\s+)\s*/u', $namesStr);
+                    $parts = array_values(array_filter(array_map('trim', is_array($parts)?$parts:[]))); // clean
+                    $resolved = []; $unresolved = [];
+                    foreach ($parts as $nm){
+                        $cands = $find_group_candidates($nm, 5);
+                        if (count($cands) === 1 && ($cands[0]['score'] ?? 0) >= 0.7){ $resolved[] = (int)$cands[0]['id']; continue; }
+                        if (!empty($cands)){
+                            // Return clarify for the first unresolved name; UI will loop with remaining later if needed
+                            $opts = array_map(function($r){ return [ 'label'=> ((int)$r['id']).' - '.((string)$r['name']).' ('.round((float)$r['score']*100).'%)', 'value'=> (int)$r['id'] ]; }, $cands);
+                            return new WP_REST_Response([
+                                'ok'=>true,
+                                'action'=>'clarify',
+                                'kind'=>'options',
+                                'message'=>'کدام گروه منظور است؟ «'.$nm.'»',
+                                'param_key'=>'group_id',
+                                'options'=>$opts,
+                                'clarify_action'=> [ 'action'=>'ug_set_form_access', 'params'=> ['form_id'=>$fid, 'group_ids'=>$resolved] ]
+                            ], 200);
+                        }
+                        $unresolved[] = $nm;
+                    }
+                    if (!empty($resolved)){
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'دسترسی فرم '.$fid.' برای گروه‌ها ['.implode(', ', $resolved).'] تنظیم شود؟',
+                            'confirm_action'=> [ 'action'=>'ug_set_form_access', 'params'=>['form_id'=>$fid, 'group_ids'=>$resolved] ]
+                        ], 200);
+                    }
+                }
+            }
             // New Form (natural phrases): e.g., "فرم جدید می خوام", "یک فرم جدید میخوام", "میخوام یک فرم جدید"
             // We treat these as a request to create a new form with a sensible default title.
             if (
@@ -2551,6 +2587,57 @@ class Api
         $action = (string)($payload['action'] ?? '');
         $params = is_array($payload['params'] ?? null) ? $payload['params'] : [];
         try {
+            // UG: create group
+            if ($action === 'ug_create_group' && !empty($params['name'])){
+                $req = new WP_REST_Request('POST', '/arshline/v1/user-groups');
+                $body = ['name'=>(string)$params['name']]; if (isset($params['parent_id'])) $body['parent_id'] = (int)$params['parent_id'];
+                $req->set_body_params($body);
+                $res = self::ug_create_group($req);
+                $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $gid = (int)($data['id'] ?? 0);
+                return new WP_REST_Response(['ok'=> ($gid>0), 'action'=>'open_ug', 'tab'=>'groups', 'group_id'=>$gid, 'undo_token'=>($data['undo_token'] ?? null)], 200);
+            }
+            // UG: update group
+            if ($action === 'ug_update_group' && !empty($params['id'])){
+                $gid = (int)$params['id'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/user-groups/'.$gid);
+                $req->set_url_params(['group_id'=>$gid]);
+                $req->set_body_params(array_diff_key($params, ['id'=>true]));
+                $res = self::ug_update_group($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true, 'action'=>'open_ug', 'tab'=>'groups', 'group_id'=>$gid], 200);
+            }
+            // UG: ensure tokens
+            if ($action === 'ug_ensure_tokens' && !empty($params['group_id'])){
+                $gid = (int)$params['group_id'];
+                $req = new WP_REST_Request('POST', '/arshline/v1/user-groups/'.$gid.'/members/ensure-tokens');
+                $req->set_url_params(['group_id'=>$gid]);
+                $res = self::ug_bulk_ensure_tokens($req);
+                $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                return new WP_REST_Response(['ok'=> $res instanceof WP_REST_Response, 'action'=>'open_ug', 'tab'=>'members', 'group_id'=>$gid, 'generated'=>(int)($data['generated'] ?? 0)], 200);
+            }
+            // UG: set form access
+            if ($action === 'ug_set_form_access' && !empty($params['form_id']) && is_array($params['group_ids'] ?? null)){
+                $fid = (int)$params['form_id']; $gids = array_values(array_map('intval', (array)$params['group_ids']));
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid.'/access/groups');
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['group_ids'=>$gids]);
+                $res = self::set_form_access_groups($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            // UG: export links (download URL)
+            if ($action === 'ug_export_links' && (!empty($params['group_id']) || !empty($params['form_id']))){
+                $gid = isset($params['group_id']) ? (int)$params['group_id'] : 0;
+                $fid = isset($params['form_id']) ? (int)$params['form_id'] : 0;
+                $params2 = []; if ($gid>0) $params2['group_id']=$gid; if ($fid>0) $params2['form_id']=$fid;
+                $url = add_query_arg(array_merge(['action'=>'arshline_export_group_links', '_wpnonce'=>wp_create_nonce('arshline_export_group_links')], $params2), admin_url('admin-post.php'));
+                return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+            }
+            // UG: download members template
+            if ($action === 'ug_download_members_template' && !empty($params['group_id'])){
+                $gid = (int)$params['group_id'];
+                $url = add_query_arg(['action'=>'arshline_download_members_template', '_wpnonce'=>wp_create_nonce('arshline_download_members_template'), 'group_id'=>$gid], admin_url('admin-post.php'));
+                return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+            }
             if ($action === 'add_field' && !empty($params['id'])){
                 $fid = (int)$params['id'];
                 $type = isset($params['type']) ? (string)$params['type'] : 'short_text';
