@@ -1,0 +1,5 @@
+{"prompt":"یک فرم جدید بساز و دو سوال پاسخ کوتاه اضافه کن، اسم فرم را چکاپ سه بگذار","completion":"{\"version\":1,\"steps\":[{\"action\":\"create_form\",\"params\":{\"title\":\"چکاپ سه\"}},{\"action\":\"add_field\",\"params\":{\"type\":\"short_text\"}},{\"action\":\"add_field\",\"params\":{\"type\":\"short_text\"}}]}"}
+{"prompt":"یک فرم با عنوان دریافت بازخورد بساز و یک سوال امتیازدهی اضافه کن","completion":"{\"version\":1,\"steps\":[{\"action\":\"create_form\",\"params\":{\"title\":\"دریافت بازخورد\"}},{\"action\":\"add_field\",\"params\":{\"type\":\"rating\"}}]}"}
+{"prompt":"عنوان فرم 3 را به فرم مشتریان تغییر بده","completion":"{\"version\":1,\"steps\":[{\"action\":\"update_form_title\",\"params\":{\"id\":3,\"title\":\"فرم مشتریان\"}}]}"}
+{"prompt":"سه سوال بلند به همین فرم اضافه کن","completion":"{\"version\":1,\"steps\":[{\"action\":\"add_field\",\"params\":{\"type\":\"long_text\"}},{\"action\":\"add_field\",\"params\":{\"type\":\"long_text\"}},{\"action\":\"add_field\",\"params\":{\"type\":\"long_text\"}}]}"}
+{"prompt":"نتایج فرم 5 را باز کن","completion":"{\"none\":true}"}
