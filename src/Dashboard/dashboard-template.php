@@ -1998,6 +1998,23 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             // When entering Share panel, ensure input shows the latest URL
                             if (which === 'share'){
                                 try {
+                                    // If published but token not yet present, ensure token and refetch form, then update UI
+                                    var isPubNow = String(data.status||'') === 'published';
+                                    var hasTokNow = !!(data && data.token);
+                                    if (isPubNow && !hasTokNow){
+                                        fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                            .catch(function(){ /* ignore */ })
+                                            .finally(function(){
+                                                fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                                    .then(function(rr){ return rr.ok ? rr.json() : Promise.reject(new Error('HTTP '+rr.status)); })
+                                                    .then(function(d2){ try { data.token = (d2 && d2.token) ? String(d2.token) : (data.token||''); } catch(_){ }
+                                                        try { updateShareUI(); } catch(_){ }
+                                                    })
+                                                    .catch(function(){ try { updateShareUI(); } catch(_){ } });
+                                            });
+                                    } else {
+                                        try { updateShareUI(); } catch(_){ }
+                                    }
                                     var sl = document.getElementById('arShareLink');
                                     if (sl && typeof publicUrl === 'string' && publicUrl){ sl.value = publicUrl; sl.setAttribute('value', publicUrl); }
                                 } catch(_){ }
