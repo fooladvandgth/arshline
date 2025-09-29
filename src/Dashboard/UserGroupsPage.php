@@ -353,12 +353,14 @@ class UserGroupsPage
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="'.$filename.'"');
         $out = fopen('php://output', 'w');
-        // Header row
-        fputs($out, implode(',', array_map([static::class,'csvSafe'], $headers))."\n");
+        // Prepend UTF-8 BOM so Excel detects encoding properly
+        fputs($out, "\xEF\xBB\xBF");
+        // Header row (CRLF for better Excel compatibility)
+        fputs($out, implode(',', array_map([static::class,'csvSafe'], $headers))."\r\n");
         // Provide one sample row with placeholders
         $row = ['مثال نام','09123456789'];
         foreach ($fields as $f) { $row[] = ''; }
-        fputs($out, implode(',', array_map([static::class,'csvSafe'], $row))."\n");
+        fputs($out, implode(',', array_map([static::class,'csvSafe'], $row))."\r\n");
         fclose($out); exit;
     }
 }
