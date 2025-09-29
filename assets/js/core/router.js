@@ -29,18 +29,20 @@
     var raw = (location.hash||'').replace('#','').trim();
     if (!raw){ arRenderTab('dashboard'); return; }
     var parts = raw.split('/');
+    // Normalize first segment to ignore query (e.g., "messaging?tab=sms" -> "messaging")
+    var seg0 = (parts[0]||'').split('?')[0];
     // Support nested route: users/ug (query params allowed like ?tab=...)
     var seg1 = (parts[1]||'').split('?')[0];
-    if (parts[0]==='users' && seg1==='ug'){
+    if (seg0==='users' && seg1==='ug'){
       try { if (typeof window.renderUsersUG === 'function') { window.renderUsersUG(); return; } } catch(_){}
       arRenderTab('users'); return;
     }
-    if (parts[0]==='submissions'){ arRenderTab('forms'); return; }
-  if (['dashboard','forms','reports','users','settings','messaging'].includes(parts[0])){ arRenderTab(parts[0]); return; }
-    if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { try { window.renderFormBuilder && window.renderFormBuilder(id); } catch(_){ } return; } }
-    if (parts[0]==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); if (id2) { try { window.renderFormEditor && window.renderFormEditor(id2, { index: isNaN(idx)?0:idx }); } catch(_){ } return; } }
-    if (parts[0]==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { try { window.renderFormPreview && window.renderFormPreview(id3); } catch(_){ } return; } }
-    if (parts[0]==='results' && parts[1]){ var id4 = parseInt(parts[1]||'0'); if (id4) { try { window.renderFormResults && window.renderFormResults(id4); } catch(_){ } return; } }
+    if (seg0==='submissions'){ arRenderTab('forms'); return; }
+    if (['dashboard','forms','reports','users','settings','messaging'].includes(seg0)){ arRenderTab(seg0); return; }
+    if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { try { window.renderFormBuilder && window.renderFormBuilder(id); } catch(_){ } return; } }
+    if (seg0==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); if (id2) { try { window.renderFormEditor && window.renderFormEditor(id2, { index: isNaN(idx)?0:idx }); } catch(_){ } return; } }
+    if (seg0==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { try { window.renderFormPreview && window.renderFormPreview(id3); } catch(_){ } return; } }
+    if (seg0==='results' && parts[1]){ var id4 = parseInt(parts[1]||'0'); if (id4) { try { window.renderFormResults && window.renderFormResults(id4); } catch(_){ } return; } }
     arRenderTab('dashboard');
   }
   function setActive(tab){

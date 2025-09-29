@@ -145,16 +145,18 @@
     function routeFromHash(){
       var raw = (location.hash||'').replace('#','').trim();
       if (!raw){ arRenderTab('dashboard'); return; }
-      var parts = raw.split('/');
+    var parts = raw.split('/');
+    // Normalize first segment (drop query) for matches like "messaging?tab=sms"
+    var seg0 = (parts[0]||'').split('?')[0];
       if (parts[0]==='submissions'){ arRenderTab('forms'); return; }
       // Nested route: users/ug => گروه‌های کاربری
   var seg1 = (parts[1]||'').split('?')[0];
   if (parts[0]==='users' && seg1==='ug'){ renderUsersUG(); return; }
-  if (['dashboard','forms','reports','users','settings','messaging'].includes(parts[0])){ arRenderTab(parts[0]); return; }
-      if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
-      if (parts[0]==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id2, idx:idx, parts:parts }); if (id2) { renderFormEditor(id2, { index: isNaN(idx)?0:idx }); return; } }
-      if (parts[0]==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { renderFormPreview(id3); return; } }
-      if (parts[0]==='results' && parts[1]){ var id4 = parseInt(parts[1]||'0'); if (id4) { renderFormResults(id4); return; } }
+  if (['dashboard','forms','reports','users','settings','messaging'].includes(seg0)){ arRenderTab(seg0); return; }
+  if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
+  if (seg0==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id2, idx:idx, parts:parts }); if (id2) { renderFormEditor(id2, { index: isNaN(idx)?0:idx }); return; } }
+  if (seg0==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { renderFormPreview(id3); return; } }
+  if (seg0==='results' && parts[1]){ var id4 = parseInt(parts[1]||'0'); if (id4) { renderFormResults(id4); return; } }
       arRenderTab('dashboard');
     }
     var AR_FULL = !!(window && window.ARSH_CTRL_FULL);

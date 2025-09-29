@@ -340,13 +340,14 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var raw = (location.hash||'').replace('#','').trim();
             if (!raw){ renderTab('dashboard'); return; }
             var parts = raw.split('/');
+            var seg0 = (parts[0]||'').split('?')[0];
             // Backward-compat: if someone navigates to old #submissions, redirect to forms
-            if (parts[0]==='submissions'){ renderTab('forms'); return; }
-            if (['dashboard','forms','reports','users','settings','messaging'].includes(parts[0])){ renderTab(parts[0]); return; }
-            if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
-            if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
-            if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
-            if (parts[0]==='results' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormResults(id); return; } }
+            if (seg0==='submissions'){ renderTab('forms'); return; }
+            if (['dashboard','forms','reports','users','settings','messaging'].includes(seg0)){ renderTab(seg0); return; }
+            if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
+            if (seg0==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
+            if (seg0==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
+            if (seg0==='results' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormResults(id); return; } }
             renderTab('dashboard');
         }
         window.addEventListener('hashchange', function(){ if (_arNavSilence>0) return; routeFromHash(); });
