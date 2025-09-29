@@ -199,7 +199,18 @@ class Api
                 $repl[(string)$k] = (string)$v;
             }
         }
-        return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k, $repl) ? (string)$repl[$k] : $m[0]; }, $tpl);
+        $msg = preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k, $repl) ? (string)$repl[$k] : $m[0]; }, $tpl);
+        return self::ensure_sms_suffix($msg);
+    }
+
+    /** Ensure required SMS suffix (opt-out phrase) is appended once. */
+    protected static function ensure_sms_suffix(string $msg): string
+    {
+        $suffix = ' لغو11';
+        $m = rtrim($msg);
+        // Avoid double-adding: if message already ends with suffix (allowing whitespace), skip
+        if (preg_match('/'.preg_quote($suffix, '/').'\s*$/u', $m)) return $m;
+        return $m.$suffix;
     }
 
     /** Build personal link for form + member if requested. */
@@ -248,6 +259,7 @@ class Api
         $cfg = self::get_sms_settings_store();
         $phone = trim((string)($r->get_param('phone') ?? ''));
         $msg = trim((string)($r->get_param('message') ?? 'آزمایش ارتباط پیامک عرشلاین'));
+        $msg = self::ensure_sms_suffix($msg);
         if ($phone !== ''){
             $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $phone, $msg, null);
             return new \WP_REST_Response(['ok' => $ok], $ok ? 200 : 500);
@@ -286,7 +298,7 @@ class Api
         foreach ($recipients as $m){
             $link = $includeLink ? self::build_member_form_link($formId, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ]) : '';
             $msg = self::compose_sms_template($template, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ], $link);
-            $payload[] = [ 'phone'=>$m['phone'], 'message'=>$msg ];
+            $payload[] = [ 'phone'=>$m['phone'], 'message'=> self::ensure_sms_suffix($msg) ];
         }
 
         // Schedule or send now
