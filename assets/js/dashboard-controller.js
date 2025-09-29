@@ -508,7 +508,7 @@
           + '    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">'
           + '      <label class="ar-field"><span class="ar-label">زمان‌بندی (اختیاری)</span><input id="smsSchedule" class="ar-input" placeholder="YYYY-MM-DD HH:MM" /></label>'
           + '      <button id="smsSend" class="ar-btn">ارسال</button>'
-          + '      <span class="hint">متغیرها: #name، #phone، #link و فیلدهای سفارشی گروه</span>'
+          + '      <span id="smsVarsHint" class="hint">متغیرها: #name، #phone، #link و فیلدهای سفارشی گروه</span>'
           + '    </div>'
           + '  </div>'
           + '  <div id="arMsg_Settings" class="m-panel" style="display:none">'
@@ -553,9 +553,11 @@
           .catch(function(){ /* ignore */ });
 
         // Local state for SMS UI filtering
-        var _smsAllForms = [];
+  var _smsAllForms = [];
         var _smsFormAccessCache = Object.create(null); // formId -> [groupIds]
         var _smsFormAccessInFlight = Object.create(null); // formId -> Promise
+  var _smsGroupFieldsCache = Object.create(null); // groupId -> [{name,label}]
+  var _smsGroupFieldsInFlight = Object.create(null); // groupId -> Promise
 
         function smsGetFormAllowedGroups(fid){
           fid = parseInt(fid, 10) || 0; if (!fid) return Promise.resolve([]);
@@ -596,15 +598,49 @@
             .catch(function(){ /* ignore filter errors, keep base option */ });
         }
 
+        function smsGetGroupFields(gid){
+          gid = parseInt(gid,10)||0; if (!gid) return Promise.resolve([]);
+          if (_smsGroupFieldsCache[gid]) return Promise.resolve(_smsGroupFieldsCache[gid]);
+          if (_smsGroupFieldsInFlight[gid]) return _smsGroupFieldsInFlight[gid];
+          var p = fetch(ARSHLINE_REST + 'user-groups/' + gid + '/fields', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+            .then(function(r){ return r.json(); })
+            .then(function(arr){ var out = Array.isArray(arr)? arr.map(function(f){ return { name: String(f.name||'').trim(), label: String(f.label||'').trim()||String(f.name||'') }; }).filter(function(f){ return !!f.name; }) : []; _smsGroupFieldsCache[gid] = out; return out; })
+            .finally(function(){ delete _smsGroupFieldsInFlight[gid]; });
+          _smsGroupFieldsInFlight[gid] = p; return p;
+        }
+
+        function updateSmsVariablesHint(){
+          var hintEl = document.getElementById('smsVarsHint'); if (!hintEl) return;
+          var base = ['#name', '#phone', '#link'];
+          var grpEl = document.getElementById('smsGroups'); var sel = [];
+          try { sel = Array.from((grpEl && grpEl.selectedOptions) ? grpEl.selectedOptions : []).map(function(o){ return parseInt(o.value,10)||0; }).filter(Boolean); } catch(_){ sel = []; }
+          if (!sel.length){ hintEl.textContent = 'متغیرها: ' + base.join('، ') + ' و فیلدهای سفارشی گروه'; return; }
+          // Load fields for all selected groups and compute intersection by name
+          Promise.all(sel.map(function(gid){ return smsGetGroupFields(gid); }))
+            .then(function(all){
+              // Build a set intersection of field names across groups
+              var nameSets = all.map(function(list){ return new Set(list.map(function(f){ return f.name; })); });
+              var commonNames = [];
+              if (nameSets.length){
+                nameSets[0].forEach(function(n){ var inAll = nameSets.every(function(s){ return s.has(n); }); if (inAll) commonNames.push(n); });
+              }
+              // Render as #fieldName placeholders
+              var custom = commonNames.map(function(n){ return '#' + n; });
+              var out = base.concat(custom);
+              hintEl.textContent = 'متغیرها: ' + out.join('، ');
+            })
+            .catch(function(){ hintEl.textContent = 'متغیرها: ' + base.join('، ') + ' و فیلدهای سفارشی گروه'; });
+        }
+
         // Load groups (for sms tab)
         fetch(ARSHLINE_REST + 'user-groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-          .then(function(gs){ var el = document.getElementById('smsGroups'); if (!el) return; el.innerHTML = (gs||[]).map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); try { el.addEventListener('change', updateSmsFormsOptions); } catch(_){ } })
+          .then(function(gs){ var el = document.getElementById('smsGroups'); if (!el) return; el.innerHTML = (gs||[]).map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); try { el.addEventListener('change', function(){ updateSmsFormsOptions(); updateSmsVariablesHint(); }); } catch(_){ } })
           .catch(function(){ notify('بارگذاری گروه‌ها ناموفق بود', 'error'); });
         // Load forms (for link)
         fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ return r.json(); })
-          .then(function(fs){ _smsAllForms = Array.isArray(fs) ? fs : []; updateSmsFormsOptions(); })
+          .then(function(fs){ _smsAllForms = Array.isArray(fs) ? fs : []; updateSmsFormsOptions(); updateSmsVariablesHint(); })
           .catch(function(){ /* ignore */ });
 
         // Save settings
