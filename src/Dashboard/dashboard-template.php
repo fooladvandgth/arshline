@@ -1916,6 +1916,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '    <button id="arCopyLink" class="ar-btn">کپی لینک</button>'
                 + '    <span id="arShareWarn" class="hint" style="color:#b91c1c;display:none;">برای اشتراک‌گذاری، فرم باید «منتشر شده» باشد.</span>'
                 + '  </div>'
+                + '  <div class="card" style="padding:.8rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-top:.6rem">'
+                + '    <span class="hint">دریافت فایل پیوند اختصاصی اعضا برای این فرم (تمام گروه‌های متصل):</span>'
+                + '    <a id="arExportMemberLinks" class="ar-btn ar-btn--outline" target="_blank">دانلود CSV لینک‌های اعضا</a>'
+                + '  </div>'
                 + '</div>'
                 + '<div id="arReportsPanel" style="display:none;">'
                 + '  <div class="card" style="padding:.8rem;">'
@@ -2138,6 +2142,18 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             publicUrl = '';
                         }
                         var shareLink = document.getElementById('arShareLink'); if (shareLink){ shareLink.value = publicUrl; shareLink.setAttribute('value', publicUrl); }
+                        // Wire export member links button
+                        try {
+                            var adminPost = (window.ARSHLINE_ADMIN && ARSHLINE_ADMIN.adminPostUrl) ? ARSHLINE_ADMIN.adminPostUrl : (window.location.origin + '/wp-admin/admin-post.php');
+                            var btn = document.getElementById('arExportMemberLinks');
+                            if (btn){
+                                var u = new URL(adminPost, window.location.origin);
+                                u.searchParams.set('action', 'arshline_export_group_links');
+                                u.searchParams.set('form_id', String(id));
+                                u.searchParams.set('_wpnonce', (window.ARSHLINE_ADMIN && ARSHLINE_ADMIN.nonces && ARSHLINE_ADMIN.nonces.export) ? ARSHLINE_ADMIN.nonces.export : '');
+                                btn.href = u.toString();
+                            }
+                        } catch(_){ }
                         function copyText(text){
                             if (navigator.clipboard && navigator.clipboard.writeText){
                                 return navigator.clipboard.writeText(text);

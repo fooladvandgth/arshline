@@ -520,6 +520,16 @@
           });
           t += '</ul>';
           t += '<button id="ugSaveMap" class="button button-primary">'+esc(STR.save_mapping||'ذخیره اتصال')+'</button>';
+          // Export member links for this form across all connected groups
+          try {
+            var adminPostUrl = (ADMIN_POST && ADMIN_POST.replace('admin-ajax.php','admin-post.php')) || (function(){ try { return window.location.origin + '/wp-admin/admin-post.php'; } catch(_){ return '/wp-admin/admin-post.php'; } })();
+            var exp = new URL(adminPostUrl, window.location.origin);
+            exp.searchParams.set('action','arshline_export_group_links');
+            exp.searchParams.set('form_id', String(fid));
+            exp.searchParams.set('_wpnonce', (NONCES&&NONCES.export)||'');
+            var disabled = (!Array.isArray(selected) || selected.length===0) ? ' aria-disabled="true" style="pointer-events:none;opacity:.6"' : '';
+            t += '<a id="ugMapExportLinks" class="button" target="_blank" href="'+exp.toString()+'"'+disabled+'>خروجی لینک‌های اعضا برای این فرم</a>';
+          } catch(_){ }
           t += '</div>';
           $('#ugMapBox').html(t);
         }).catch(function(err){ var msg='خطا در بارگذاری اتصال فرم/گروه'; if (err&&err.status) msg += ' ('+err.status+')'; $('#ugMapBox').html('<div class="notice notice-error">'+esc(msg)+'</div>'); try { if (window.notify) notify('خطا در بارگذاری اتصال', 'error'); } catch(_){ } });
@@ -540,7 +550,7 @@
       $m.on('click', '#ugSaveMap', function(){
         var ids = []; $('#ugMapBox .mapG:checked').each(function(){ ids.push(parseInt(this.value,10)); });
         api('forms/'+fid+'/access/groups', { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ group_ids: ids }) })
-          .then(function(){ if (window.notify) notify('اتصال فرم/گروه ذخیره شد', 'success'); })
+          .then(function(){ if (window.notify) notify('اتصال فرم/گروه ذخیره شد', 'success'); try { var a = document.getElementById('ugMapExportLinks'); if (a){ if (ids.length===0){ a.setAttribute('aria-disabled','true'); a.style.pointerEvents='none'; a.style.opacity='0.6'; } else { a.removeAttribute('aria-disabled'); a.style.pointerEvents=''; a.style.opacity=''; } } } catch(_){ } })
           .catch(function(){ if (window.notify) notify('ذخیره اتصال ناموفق بود', 'error'); });
       });
     }).catch(function(err){ var msg='خطا در بارگذاری داده‌ها'; if (err && err.status) msg += ' ('+err.status+')'; $m.html('<div class="notice notice-error">'+esc(msg)+'</div>'); try { if (window.notify) notify('خطا در بارگذاری داده‌ها', 'error'); } catch(_){ } });

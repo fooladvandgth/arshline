@@ -177,25 +177,39 @@ class UserGroupsPage
     }
 
     /**
-     * خروجی CSV لینک‌های شخصی برای یک گروه
-     * ستون‌ها: نام، شماره همراه، توکن، لینک
-     * UTF-8 بدون BOM و با ضدعفونی جهت جلوگیری از CSV Injection
+     * خروجی CSV لینک‌های شخصی
+     * حالت‌ها:
+     *  - اگر group_id داده شود: خروجیِ اعضای همان گروه (ستون‌ها: نام، شماره همراه، توکن، لینک + فیلدهای سفارشی گروه)
+     *  - اگر فقط form_id داده شود: خروجیِ همه اعضای گروه‌های متصل به آن فرم (ستون‌ها: نام، شماره همراه، گروه، توکن، لینک)
+     * نکات:
+     *  - خروجی با UTF-8 BOM و CRLF برای سازگاری بهتر با Excel
+     *  - ضدعفونی سلول‌ها جهت جلوگیری از CSV Injection
      */
     public static function handleExportGroupLinks(): void
     {
         if (!current_user_can('manage_options')) { wp_die(esc_html__('دسترسی مجاز نیست.', 'arshline')); }
         check_admin_referer('arshline_export_group_links');
-    $gid = isset($_GET['group_id']) ? intval($_GET['group_id']) : 0;
-    // form_id اختیاری است؛ لینک عمومی فقط بر اساس توکن ساخته می‌شود
-    $fid = isset($_GET['form_id']) ? intval($_GET['form_id']) : 0;
-    if ($gid <= 0) { wp_die(esc_html__('شناسه نامعتبر است.', 'arshline')); }
+        $gid = isset($_GET['group_id']) ? intval($_GET['group_id']) : 0;
+        $fid = isset($_GET['form_id']) ? intval($_GET['form_id']) : 0;
+        if ($gid <= 0 && $fid <= 0) { wp_die(esc_html__('شناسه نامعتبر است.', 'arshline')); }
 
-        // بارگذاری اعضا از REST یا مستقیم DB — در این صفحه فقط لینک می‌سازیم، REST قبلاً امن شده
-        // برای سادگی از REST استفاده نمی‌کنیم تا خروجی سریع باشد
-        $members = \Arshline\Modules\UserGroups\MemberRepository::list($gid, 50000);
+        // آماده‌سازی داده‌ها
+        $membersByGroup = [];
+        $groupNames = [];
+        if ($gid > 0) {
+            // حالت گروهی: فقط اعضای همان گروه
+            $membersByGroup[$gid] = \Arshline\Modules\UserGroups\MemberRepository::list($gid, 50000);
+            try { $g = \Arshline\Modules\UserGroups\GroupRepository::find($gid); if ($g) { $groupNames[$gid] = (string)$g->name; } } catch (\Throwable $e) { }
+        } else {
+            // حالت فرم: جمع‌آوری همه گروه‌های متصل
+            $gids = \Arshline\Modules\UserGroups\FormGroupAccessRepository::getGroupIds($fid);
+            foreach ($gids as $g2) {
+                $membersByGroup[$g2] = \Arshline\Modules\UserGroups\MemberRepository::list($g2, 50000);
+                try { $gx = \Arshline\Modules\UserGroups\GroupRepository::find($g2); if ($gx) { $groupNames[$g2] = (string)$gx->name; } } catch (\Throwable $e) { }
+            }
+        }
 
         // لینک عمومی فرم: اگر form_id داده شده باشد و فرم منتشر باشد، از توکن عمومی فرم استفاده می‌کنیم
-        $fid = isset($_GET['form_id']) ? intval($_GET['form_id']) : 0;
         $formToken = '';
         if ($fid > 0) {
             try {
@@ -210,33 +224,46 @@ class UserGroupsPage
         $base = $formToken !== '' ? add_query_arg('arshline', rawurlencode($formToken), home_url('/')) : add_query_arg('arshline', '%TOKEN%', home_url('/'));
 
         // هدرهای دانلود
-        $filename = 'arshline_group_'.$gid.'_links.csv';
+        $filename = $gid > 0 ? ('arshline_group_'.$gid.'_links.csv') : ('arshline_form_'.$fid.'_member_links.csv');
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="'.$filename.'"');
-        // بدون BOM جهت خواسته؛ با این حال Excel ویندوز معمولاً با UTF-8 ok است
         $out = fopen('php://output', 'w');
-        // عنوان ستون‌ها: افزوده شدن فیلدهای سفارشی گروه به‌صورت پویا
-        $customHeaders = [];
-        try {
-            $fields = \Arshline\Modules\UserGroups\FieldRepository::listByGroup($gid);
-            foreach ($fields as $f){ $customHeaders[] = is_string($f->label) && $f->label !== '' ? $f->label : $f->name; }
-        } catch (\Throwable $e) { $customHeaders = []; }
-        $headers = array_merge(['نام','شماره همراه','توکن','لینک'], $customHeaders);
-        // اطمینان از UTF-8
-        fputs($out, implode(',', array_map([static::class,'csvSafe'], $headers))."\n");
-        foreach ($members as $m) {
-            $tok = $m->token ?: \Arshline\Modules\UserGroups\MemberRepository::ensureToken($m->id);
-            // اگر لینک پایه شامل توکن فرم باشد، member_token را به‌عنوان پارامتر اضافه می‌کنیم
-            if ($formToken !== '') {
-                $link = add_query_arg('member_token', rawurlencode((string)$tok), $base);
-            } else {
-                $link = str_replace('%TOKEN%', rawurlencode((string)$tok), $base);
+        // BOM برای Excel
+        fputs($out, "\xEF\xBB\xBF");
+
+        if ($gid > 0) {
+            // حالت گروه: هدر + فیلدهای سفارشی گروه
+            $customHeaders = [];
+            try {
+                $fields = \Arshline\Modules\UserGroups\FieldRepository::listByGroup($gid);
+                foreach ($fields as $f){ $customHeaders[] = is_string($f->label) && $f->label !== '' ? $f->label : $f->name; }
+            } catch (\Throwable $e) { $customHeaders = []; $fields = []; }
+            $headers = array_merge(['نام','شماره همراه','توکن','لینک'], $customHeaders);
+            fputs($out, implode(',', array_map([static::class,'csvSafe'], $headers))."\r\n");
+            $members = $membersByGroup[$gid] ?? [];
+            foreach ($members as $m) {
+                $tok = $m->token ?: \Arshline\Modules\UserGroups\MemberRepository::ensureToken($m->id);
+                $link = ($formToken !== '') ? add_query_arg('member_token', rawurlencode((string)$tok), $base)
+                                            : str_replace('%TOKEN%', rawurlencode((string)$tok), $base);
+                $row = [ $m->name, $m->phone, (string)$tok, $link ];
+                $dataArr = is_array($m->data) ? $m->data : (json_decode($m->data ?? '[]', true) ?: []);
+                foreach ($fields ?? [] as $f){ $key = $f->name; $row[] = isset($dataArr[$key]) && is_scalar($dataArr[$key]) ? (string)$dataArr[$key] : ''; }
+                fputs($out, implode(',', array_map([static::class,'csvSafe'], $row))."\r\n");
             }
-            $row = [ $m->name, $m->phone, (string)$tok, $link ];
-            // Map custom fields per order
-            $dataArr = is_array($m->data) ? $m->data : (json_decode($m->data ?? '[]', true) ?: []);
-            foreach ($fields ?? [] as $f){ $key = $f->name; $row[] = isset($dataArr[$key]) && is_scalar($dataArr[$key]) ? (string)$dataArr[$key] : ''; }
-            fputs($out, implode(',', array_map([static::class,'csvSafe'], $row))."\n");
+        } else {
+            // حالت فرم: هدر ثابت با نام گروه
+            $headers = ['نام','شماره همراه','گروه','توکن','لینک'];
+            fputs($out, implode(',', array_map([static::class,'csvSafe'], $headers))."\r\n");
+            foreach ($membersByGroup as $gId => $arr) {
+                $gname = $groupNames[$gId] ?? ('#'.$gId);
+                foreach ($arr as $m) {
+                    $tok = $m->token ?: \Arshline\Modules\UserGroups\MemberRepository::ensureToken($m->id);
+                    $link = ($formToken !== '') ? add_query_arg('member_token', rawurlencode((string)$tok), $base)
+                                                : str_replace('%TOKEN%', rawurlencode((string)$tok), $base);
+                    $row = [ $m->name, $m->phone, $gname, (string)$tok, $link ];
+                    fputs($out, implode(',', array_map([static::class,'csvSafe'], $row))."\r\n");
+                }
+            }
         }
         fclose($out); exit;
     }
