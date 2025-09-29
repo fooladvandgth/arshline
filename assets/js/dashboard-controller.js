@@ -531,17 +531,19 @@
           + '  </div>'
           + '</div>';
 
-        // Tab handlers
+        // Tab handlers (explicit ID mapping to avoid case mismatches)
         (function(){
-          function showMain(which){ ['sms','settings'].forEach(function(k){ var el = document.getElementById('arMsg_'+k.toUpperCase()); if (el) el.style.display = (which===k)?'block':'none'; });
+          var MAIN = { sms: 'arMsg_SMS', settings: 'arMsg_Settings' };
+          var SUBS = { 'sms-settings': 'arMsgS_SmsSettings' };
+          function showMain(which){ ['sms','settings'].forEach(function(k){ var id = MAIN[k]; var el = id && document.getElementById(id); if (el) el.style.display = (which===k)?'block':'none'; });
             var btns = content.querySelectorAll('[data-m-tab]'); btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-m-tab')===which); }); }
-          function showSettings(sub){ var panels = { 'sms-settings': 'arMsgS_SmsSettings' }; Object.keys(panels).forEach(function(k){ var el = document.getElementById(panels[k]); if (el) el.style.display = (k===sub)?'block':'none'; });
+          function showSettings(sub){ Object.keys(SUBS).forEach(function(k){ var id = SUBS[k]; var el = id && document.getElementById(id); if (el) el.style.display = (k===sub)?'block':'none'; });
             var sbtns = content.querySelectorAll('[data-ms-tab]'); sbtns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-ms-tab')===sub); }); }
-          var mBtns = content.querySelectorAll('[data-m-tab]'); mBtns.forEach(function(b){ b.addEventListener('click', function(){ mtab = b.getAttribute('data-m-tab')||'sms'; setMsgHash(mtab, mtab==='settings'? msub : ''); showMain(mtab); }); });
+          var mBtns = content.querySelectorAll('[data-m-tab]'); mBtns.forEach(function(b){ b.addEventListener('click', function(){ mtab = b.getAttribute('data-m-tab')||'sms'; setMsgHash(mtab, mtab==='settings'? msub : ''); showMain(mtab); if (mtab==='settings'){ showSettings(msub||'sms-settings'); } }); });
           var sBtns = content.querySelectorAll('[data-ms-tab]'); sBtns.forEach(function(b){ b.addEventListener('click', function(){ msub = b.getAttribute('data-ms-tab')||'sms-settings'; setMsgHash('settings', msub); showSettings(msub); }); });
           // init
           showMain(mtab);
-          if (mtab==='settings'){ showSettings(msub); }
+          if (mtab==='settings'){ showSettings(msub||'sms-settings'); }
         })();
 
         // Load settings (for settings tab)
