@@ -565,7 +565,14 @@
           if (_smsFormAccessInFlight[fid]) return _smsFormAccessInFlight[fid];
           var p = fetch(ARSHLINE_REST + 'forms/' + fid + '/access/groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
             .then(function(r){ return r.json(); })
-            .then(function(arr){ var ids = Array.isArray(arr) ? arr.map(function(x){ return parseInt(x,10)||0; }).filter(Boolean) : []; _smsFormAccessCache[fid] = ids; return ids; })
+            .then(function(obj){
+              // Accept both legacy [id,...] and current { group_ids: [id,...] }
+              var raw = obj;
+              if (obj && obj.group_ids && Array.isArray(obj.group_ids)) { raw = obj.group_ids; }
+              var ids = Array.isArray(raw) ? raw.map(function(x){ return parseInt(x,10)||0; }).filter(Boolean) : [];
+              _smsFormAccessCache[fid] = ids;
+              return ids;
+            })
             .finally(function(){ delete _smsFormAccessInFlight[fid]; });
           _smsFormAccessInFlight[fid] = p; return p;
         }
