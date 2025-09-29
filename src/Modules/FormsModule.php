@@ -103,5 +103,33 @@ class FormsModule
                 }
             }
         }
+
+        // Lightweight schema upgrade for user_groups: ensure parent_id exists
+        try {
+            $ug = Helpers::tableName('user_groups');
+            $col = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$ug} LIKE %s", 'parent_id'));
+            if (!$col){
+                // Try dbDelta with latest DDL
+                $sql = Migrations::up()['user_groups'] ?? '';
+                if ($sql) {
+                    $sql = str_replace('{prefix}', $wpdb->prefix, $sql);
+                    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+                    dbDelta($sql);
+                }
+                // Fallback: ALTER TABLE add column, index, and FK (if supported)
+                $col2 = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$ug} LIKE %s", 'parent_id'));
+                if (!$col2){
+                    $safe = preg_replace('/[^A-Za-z0-9_]/', '', (string)$ug);
+                    if ($safe && $safe === $ug){
+                        $wpdb->query("ALTER TABLE `{$safe}` ADD `parent_id` BIGINT UNSIGNED NULL AFTER `name`");
+                        // index
+                        $idx = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM `{$safe}` WHERE Key_name = %s", 'parent_idx'));
+                        if (!$idx) { $wpdb->query("ALTER TABLE `{$safe}` ADD KEY `parent_idx` (`parent_id`)"); }
+                        // best-effort FK (may fail silently on some MySQL modes)
+                        try { $wpdb->query("ALTER TABLE `{$safe}` ADD CONSTRAINT `fk_user_groups_parent` FOREIGN KEY (`parent_id`) REFERENCES `{$safe}`(`id`) ON DELETE SET NULL"); } catch (\Throwable $e) { /* ignore */ }
+                    }
+                }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
     }
 }

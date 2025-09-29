@@ -30,7 +30,7 @@ class GroupRepository
             $where = 'WHERE name LIKE %s';
             $params[] = $like;
         }
-        $sql = "SELECT * FROM {$t} {$where} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+    $sql = "SELECT * FROM {$t} {$where} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
         $params[] = $per_page; $params[] = $offset;
         $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A) ?: [];
         return array_map(fn($r) => new Group($r), $rows);
@@ -40,7 +40,7 @@ class GroupRepository
     {
         global $wpdb;
         $t = Helpers::tableName('user_groups');
-        $rows = $wpdb->get_results("SELECT * FROM {$t} ORDER BY id DESC LIMIT 200", ARRAY_A) ?: [];
+    $rows = $wpdb->get_results("SELECT * FROM {$t} ORDER BY id DESC LIMIT 200", ARRAY_A) ?: [];
         return array_map(fn($r) => new Group($r), $rows);
     }
 
@@ -56,7 +56,7 @@ class GroupRepository
     {
         global $wpdb;
         $t = Helpers::tableName('user_groups');
-        $data = [ 'name' => $g->name, 'meta' => json_encode($g->meta, JSON_UNESCAPED_UNICODE) ];
+    $data = [ 'name' => $g->name, 'parent_id' => $g->parent_id, 'meta' => json_encode($g->meta, JSON_UNESCAPED_UNICODE) ];
         if ($g->id > 0) { $wpdb->update($t, $data, ['id' => $g->id]); return $g->id; }
         $wpdb->insert($t, $data); return (int)$wpdb->insert_id;
     }

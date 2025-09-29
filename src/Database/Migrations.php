@@ -21,10 +21,13 @@ class Migrations
             'user_groups' => "CREATE TABLE IF NOT EXISTS {prefix}x_user_groups (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 name VARCHAR(190) NOT NULL,
+                parent_id BIGINT UNSIGNED NULL,
                 meta JSON NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY group_name_unique (name)
+                UNIQUE KEY group_name_unique (name),
+                KEY parent_idx (parent_id),
+                CONSTRAINT fk_user_groups_parent FOREIGN KEY (parent_id) REFERENCES {prefix}x_user_groups(id) ON DELETE SET NULL
             ) ENGINE=InnoDB;",
             // User Group Fields: فیلدهای سفارشی هر گروه (متغیرها)
             'user_group_fields' => "CREATE TABLE IF NOT EXISTS {prefix}x_user_group_fields (

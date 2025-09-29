@@ -447,6 +447,7 @@ class Api
         $out = array_map(function($g) use ($counts){ return [
             'id' => $g->id,
             'name' => $g->name,
+            'parent_id' => $g->parent_id,
             'meta' => $g->meta,
             'member_count' => isset($counts[$g->id]) ? (int)$counts[$g->id] : 0,
             'created_at' => $g->created_at,
@@ -459,7 +460,10 @@ class Api
         $name = trim((string)$r->get_param('name'));
         if ($name === '') return new WP_REST_Response(['message' => 'نام گروه الزامی است.'], 422);
         $meta = $r->get_param('meta'); if (!is_array($meta)) $meta = [];
-        $g = new \Arshline\Modules\UserGroups\Group(['name' => $name, 'meta' => $meta]);
+        $parent_id = $r->get_param('parent_id');
+        $pid = is_numeric($parent_id) ? (int)$parent_id : null; if ($pid === 0) { $pid = null; }
+        if ($pid !== null) { if (!GroupRepository::find($pid)) { return new WP_REST_Response(['message' => 'گروه مادر نامعتبر است.'], 422); } }
+        $g = new \Arshline\Modules\UserGroups\Group(['name' => $name, 'parent_id' => $pid, 'meta' => $meta]);
         $id = GroupRepository::save($g);
         return new WP_REST_Response(['id' => $id], 201);
     }
@@ -469,6 +473,14 @@ class Api
         $g = GroupRepository::find($id);
         if (!$g) return new WP_REST_Response(['message' => 'گروه یافت نشد.'], 404);
         $name = $r->get_param('name'); if (is_string($name)) $g->name = trim($name);
+        if ($r->offsetExists('parent_id')){
+            $parent_id = $r->get_param('parent_id');
+            $pid = (is_numeric($parent_id) ? (int)$parent_id : null);
+            if ($pid === 0) $pid = null;
+            if ($pid === $g->id) { return new WP_REST_Response(['message' => 'نمی‌توانید گروه را مادر خودش قرار دهید.'], 422); }
+            if ($pid !== null && !GroupRepository::find($pid)) { return new WP_REST_Response(['message' => 'گروه مادر نامعتبر است.'], 422); }
+            $g->parent_id = $pid;
+        }
         $meta = $r->get_param('meta'); if (is_array($meta)) $g->meta = $meta;
         GroupRepository::save($g);
         return new WP_REST_Response(['ok' => true], 200);

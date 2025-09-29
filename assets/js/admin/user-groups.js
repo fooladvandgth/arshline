@@ -41,20 +41,27 @@
   html += '    <button id="ugAddToggle" type="button" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
         html += '  </div>';
         // Hidden add box (appears within the same card, not above the table visually)
-        html += '  <div id="ugAddBox" style="display:none;margin-bottom:.6rem;padding:.5rem;border:1px dashed var(--border, #d1d5db);border-radius:.5rem;background:var(--surface, #fff)">';
+  html += '  <div id="ugAddBox" style="display:none;margin-bottom:.6rem;padding:.5rem;border:1px dashed var(--border, #d1d5db);border-radius:.5rem;background:var(--surface, #fff)">';
         html += '    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">';
         html += '      <input id="ugNewName" class="regular-text" placeholder="'+esc(STR.name||'نام')+'"/>';
+  // parent select for add
+  html += '      <label>'+esc(STR.parent||'مادر')+': <select id="ugNewParent"><option value="">—</option>';
+  (groups||[]).forEach(function(gg){ html += '<option value="'+gg.id+'">'+esc(gg.name)+'</option>'; });
+  html += '</select></label>';
   html += '      <button id="ugAddConfirm" type="button" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
   html += '      <button id="ugAddCancel" type="button" class="button">'+esc(STR.cancel||'انصراف')+'</button>';
         html += '    </div>';
         html += '  </div>';
         // Table
         html += '  <div class="table-wrap">';
-        html += '    <table class="widefat striped" style="width:100%"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>تعداد اعضا</th><th></th></tr></thead><tbody>';
+        html += '    <table class="widefat striped" style="width:100%"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>'+esc(STR.parent||'مادر')+'</th><th>تعداد اعضا</th><th></th></tr></thead><tbody>';
         (groups||[]).forEach(function(g){
           html += '<tr data-id="'+g.id+'">';
           html += '<td>'+g.id+'</td>';
           html += '<td><span class="ugNameText">'+esc(g.name)+'</span></td>';
+          var parentName = '';
+          if (g.parent_id){ var pg = (groups||[]).find(function(x){ return x.id===g.parent_id; }); parentName = pg ? pg.name : ('#'+g.parent_id); }
+          html += '<td><span class="ugParentText">'+esc(parentName||'—')+'</span></td>';
           html += '<td>'+(g.member_count||0)+'</td>';
           html += '<td>';
           html += '<button class="button ugEdit">'+esc(STR.edit||'ویرایش')+'</button> ';
@@ -77,7 +84,8 @@
         // Confirm add (avoid duplicate bind)
         $m.off('click', '#ugAddConfirm').on('click', '#ugAddConfirm', function(){
           var name = $('#ugNewName').val().trim(); if(!name){ try{ document.getElementById('ugNewName').focus(); }catch(_){ } return; }
-          api('user-groups', { credentials:'same-origin', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name }) })
+          var pidStr = $('#ugNewParent').val(); var pid = pidStr?parseInt(pidStr,10):null;
+          api('user-groups', { credentials:'same-origin', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name, parent_id: pid }) })
             .then(function(){ if (window.notify) notify('گروه ایجاد شد', 'success'); $('#ugNewName').val(''); try { $('#ugAddBox').slideUp(120); } catch(_){ $('#ugAddBox').hide(); } renderGroups($m); })
             .catch(function(){ if (window.notify) notify('ایجاد گروه ناموفق بود', 'error'); });
         });
@@ -92,18 +100,27 @@
           var current = $nameCell.find('.ugNameText').text();
           $nameCell.data('orig', current);
           $nameCell.html('<input class="ugName" type="text" value="'+esc(current)+'"/>' );
+          // parent select
+          var $parentCell = $tr.find('td').eq(2);
+          var curPid = null; try { var txt = $parentCell.find('.ugParentText').text(); var found = (groups||[]).find(function(x){ return x.name===txt; }); curPid = found ? found.id : null; } catch(_){ curPid = null; }
+          var sel = '<select class="ugParent"><option value="">—</option>';
+          (groups||[]).forEach(function(gg){ if (gg.id===id) return; sel += '<option value="'+gg.id+'"'+(gg.id===curPid?' selected':'')+'>'+esc(gg.name)+'</option>'; });
+          sel += '</select>';
+          $parentCell.data('orig', $parentCell.html()); $parentCell.html(sel);
           var gid = id;
           var $btnCell = $tr.find('td').eq(3);
+          // shift because of added parent column: actions are now at index 4
+          $btnCell = $tr.find('td').eq(4);
           $btnCell.html('<button class="button ugSave">'+esc(STR.save||'ذخیره')+'</button> <button class="button ugCancel">'+esc(STR.cancel||'انصراف')+'</button> <a class="button" href="#users/ug?tab=custom_fields&group_id='+gid+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>');
           try { $tr.find('.ugName').focus(); } catch(_){ }
         });
         // Cancel edit
-        $m.on('click', '.ugCancel', function(){ var $tr=$(this).closest('tr'); var $nameCell = $tr.find('td').eq(1); var orig = $nameCell.data('orig')||$nameCell.text(); $nameCell.html('<span class="ugNameText">'+esc(orig)+'</span>'); var gid=+$tr.data('id'); var $btnCell=$tr.find('td').eq(3); $btnCell.html('<button class="button ugEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete ugDel">'+esc(STR.delete||'حذف')+'</button> <a class="button" href="#users/ug?tab=custom_fields&group_id='+gid+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>'); });
+  $m.on('click', '.ugCancel', function(){ var $tr=$(this).closest('tr'); var $nameCell = $tr.find('td').eq(1); var orig = $nameCell.data('orig')||$nameCell.text(); $nameCell.html('<span class="ugNameText">'+esc(orig)+'</span>'); var $parentCell=$tr.find('td').eq(2); var porig = $parentCell.data('orig'); if (porig){ $parentCell.html(porig); } var gid=+$tr.data('id'); var $btnCell=$tr.find('td').eq(4); $btnCell.html('<button class="button ugEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete ugDel">'+esc(STR.delete||'حذف')+'</button> <a class="button" href="#users/ug?tab=custom_fields&group_id='+gid+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>'); });
         // Save edit
         function finishRowView($tr, newName){ var $nameCell = $tr.find('td').eq(1); $nameCell.html('<span class="ugNameText">'+esc(newName)+'</span>'); var gid=+$tr.data('id'); var $btnCell=$tr.find('td').eq(3); $btnCell.html('<button class="button ugEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete ugDel">'+esc(STR.delete||'حذف')+'</button> <a class="button" href="#users/ug?tab=custom_fields&group_id='+gid+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>'); }
         $m.on('keydown', 'input.ugName', function(e){ if (e.key==='Enter'){ e.preventDefault(); $(this).closest('tr').find('.ugSave').trigger('click'); } });
-        $m.on('click', '.ugSave', function(){ var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.ugName').val(); api('user-groups/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name }) })
-          .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); finishRowView($tr, name); })
+        $m.on('click', '.ugSave', function(){ var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.ugName').val(); var pidStr = $tr.find('.ugParent').val(); var pid = pidStr?parseInt(pidStr,10):null; if (pid===id){ if (window.notify) notify('گروه نمی‌تواند مادر خودش باشد', 'warn'); return; } api('user-groups/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, parent_id: pid }) })
+          .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); finishRowView($tr, name); renderGroups($m); })
           .catch(function(){ if (window.notify) notify('ذخیره گروه ناموفق بود', 'error'); }); });
         $m.on('click', '.ugDel', function(){ if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+id, { credentials:'same-origin', method:'DELETE' })
           .then(function(){ if (window.notify) notify('گروه حذف شد', 'success'); renderGroups($m); })
