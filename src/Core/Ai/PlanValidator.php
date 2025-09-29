@@ -37,6 +37,7 @@ class PlanValidator
         $maxSteps = apply_filters('arshline_ai_plan_max_steps', 12);
         if (count($steps) > max(1, (int)$maxSteps)) return new WP_Error('too_many_steps', 'Plan has too many steps');
         $out = [ 'version' => 1, 'steps' => [] ];
+        $hasCreateBefore = false;
         foreach ($steps as $i => $s){
             if (!is_array($s)) return new WP_Error('invalid_step', 'Step must be an object at index '.$i);
             $action = isset($s['action']) ? (string)$s['action'] : '';
@@ -47,6 +48,7 @@ class PlanValidator
                     $title = trim((string)($params['title'] ?? ''));
                     if ($title === '') $title = apply_filters('arshline_ai_new_form_default_title', 'فرم جدید');
                     $out['steps'][] = [ 'action'=>'create_form', 'params'=>['title'=>$title] ];
+                    $hasCreateBefore = true;
                     break;
                 case 'add_field':
                     $id = (int)($params['id'] ?? 0);
@@ -55,9 +57,11 @@ class PlanValidator
                     $question = isset($params['question']) ? (string)$params['question'] : '';
                     $required = !empty($params['required']);
                     $allowedTypes = ['short_text','long_text','multiple_choice','dropdown','rating'];
-                    if ($id <= 0) return new WP_Error('missing_id', 'add_field requires id');
+                    // Allow missing id only if preceded by create_form in this plan
+                    if ($id <= 0 && !$hasCreateBefore) return new WP_Error('missing_id', 'add_field requires id');
                     if (!in_array($type, $allowedTypes, true)) $type = 'short_text';
                     $step = [ 'action'=>'add_field', 'params'=>['id'=>$id,'type'=>$type,'required'=>$required] ];
+                    if ($id <= 0) { unset($step['params']['id']); }
                     if (is_int($idx) && $idx >= 0) $step['params']['index'] = $idx;
                     if ($question !== '') $step['params']['question'] = mb_substr($question, 0, 200);
                     $out['steps'][] = $step;

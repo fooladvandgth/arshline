@@ -35,7 +35,7 @@ class PlanExecutor
                 if (!empty($data['undo_token'])) $undoTokens[] = $data['undo_token'];
             }
             elseif ($a === 'add_field'){
-                $fid = (int)($p['id'] ?? ($lastFormId ?: 0));
+                $fid = isset($p['id']) ? (int)$p['id'] : ($lastFormId ?: 0);
                 if ($fid <= 0){ $results[] = [ 'ok'=>false, 'error'=>'missing_form_id_for_add_field' ]; continue; }
                 $before = FieldRepository::listByForm($fid);
                 $fields = $before;

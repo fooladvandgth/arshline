@@ -120,6 +120,10 @@
           return 'خطایی رخ داد.';
         }
         if (j && j.action){
+          if (j.action === 'preview' && j.plan && Array.isArray(j.plan.steps)){
+            var steps = j.plan.steps.map(function(s, i){ try { return (i+1)+'. '+String(s.action||'')+' '+JSON.stringify(s.params||{}); } catch(_){ return (i+1)+'. '+String(s.action||''); } }).join('\n');
+            return 'پیش‌نمایش طرح:\n'+steps;
+          }
           if (j.action === 'confirm') return String(j.message || 'تایید می‌کنید؟');
           if (j.action === 'clarify') return String(j.message || 'مبهم است. لطفاً مشخص‌تر بفرمایید.');
           if (j.action === 'open_tab') return 'در حال باز کردن '+humanizeTab(j.tab)+'…';
@@ -183,6 +187,31 @@
     function handleAgentAction(j){
       try {
         if (!j) return;
+        // Plan preview with Execute button
+        if (j.action === 'preview' && j.plan && Array.isArray(j.plan.steps)){
+          appendOut(humanizeResponse(j, '', true));
+          try {
+            var wrapP = document.createElement('div'); wrapP.style.marginTop='.5rem';
+            var execBtn = document.createElement('button'); execBtn.className='ar-btn'; execBtn.textContent='اجرای طرح';
+            var cancelBtn = document.createElement('button'); cancelBtn.className='ar-btn ar-btn--outline'; cancelBtn.textContent='لغو'; cancelBtn.style.marginInlineStart='.5rem';
+            execBtn.addEventListener('click', async function(){
+              try {
+                var rX = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ plan: j.plan, confirm: true }, getUiContext())) });
+                var tX = ''; try { tX = await rX.clone().text(); } catch(_){ }
+                var jX = null; try { jX = tX ? JSON.parse(tX) : await rX.json(); } catch(_){ }
+                var friendlyX = humanizeResponse(jX, tX, rX.ok);
+                appendOut(friendlyX);
+                if (jX && jX.undo_token) { attachUndoUI(jX.undo_token); }
+                if (rX.ok && jX && jX.ok !== false){ handleAgentAction(jX); notify('طرح اجرا شد', 'success'); }
+                else { notify('اجرای طرح ناموفق بود', 'error'); }
+              } catch(e){ appendOut(String(e)); notify('خطا', 'error'); }
+            });
+            cancelBtn.addEventListener('click', function(){ notify('لغو شد', 'warn'); });
+            wrapP.appendChild(execBtn); wrapP.appendChild(cancelBtn);
+            if (outEl) outEl.appendChild(wrapP);
+          } catch(_){ }
+          return;
+        }
         if (j.action === 'confirm' && j.confirm_action){
           var msg = String(j.message||'تایید می‌کنید؟');
           appendOut(msg);
@@ -192,7 +221,6 @@
             var no = document.createElement('button'); no.className='ar-btn ar-btn--outline'; no.textContent='انصراف'; no.style.marginInlineStart='.5rem';
             yes.addEventListener('click', async function(){
               try {
-                var r2 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: j.confirm_action }) });
                 var r2 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ confirm_action: j.confirm_action }, getUiContext())) });
                 var txt2 = ''; try { txt2 = await r2.clone().text(); } catch(_){ }
                 var j2 = null; try { j2 = txt2 ? JSON.parse(txt2) : await r2.json(); } catch(_){ }
@@ -218,9 +246,7 @@
               b.addEventListener('click', async function(){
                 if (j.clarify_action){
                   var ca = j.clarify_action; var pa = {}; pa[j.param_key] = opt.value;
-                  var r3 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: { action: ca.action, params: pa } }) });
                   var r3 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ confirm_action: { action: ca.action, params: pa } }, getUiContext())) });
-  var r = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ command: cmd }, getUiContext())) });
                   var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
                   var j3 = null; try { j3 = t3 ? JSON.parse(t3) : await r3.json(); } catch(_){ }
                   appendOut(humanizeResponse(j3, t3, r3.ok));
@@ -389,8 +415,17 @@
           }
         }
       } catch(_){ }
+      // If user typed a JSON plan, send as preview; support optional confirm flag
+      var payload = null;
       try {
-        var r = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) });
+        var parsed = JSON.parse(cmd);
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.steps)){
+          payload = { plan: parsed, confirm: !!parsed.confirm };
+        }
+      } catch(_){ }
+      var bodyObj = Object.assign(payload || { command: cmd }, getUiContext());
+      try {
+        var r = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(bodyObj) });
         var txt = ''; try { txt = await r.clone().text(); } catch(_){ }
         var j = null; try { j = txt ? JSON.parse(txt) : await r.json(); } catch(_){ }
         try { console.debug(LOG_MARK+'[ARSH][AI] response', { status:r.status, body:j||txt }); } catch(_){ }

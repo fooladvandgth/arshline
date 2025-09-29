@@ -1576,6 +1576,22 @@ class Api
         }
     if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
         try {
+            // 0) Prefer LLM plan parsing when configured — this enables multi-step flows
+            $s0 = self::get_ai_settings();
+            $parserMode0 = $s0['parser'] ?? 'hybrid';
+            $llmReady0 = ($s0['enabled'] && !empty($s0['base_url']) && !empty($s0['api_key']));
+            if ($llmReady0 && in_array($parserMode0, ['hybrid','llm'], true)){
+                $plan0 = self::llm_parse_plan($cmd, $s0, [ 'ui_tab' => $ui_tab, 'ui_route' => $ui_route, 'kb' => $kb ]);
+                if (is_array($plan0) && !empty($plan0['steps'])){
+                    // Validate/preview via Hoshyar (will refuse invalid/unknown actions)
+                    try {
+                        $out0 = Hoshyar::agent([ 'plan' => $plan0, 'confirm' => false ]);
+                        if (is_array($out0) && !empty($out0['ok'])){
+                            return new \WP_REST_Response($out0, 200);
+                        }
+                    } catch (\Throwable $e) { /* fall through to other parsers */ }
+                }
+            }
             // Parser routing based on AI mode
             $s = self::get_ai_settings();
             $parserMode = $s['parser'] ?? 'hybrid';
@@ -2550,6 +2566,111 @@ class Api
             if (!is_string($content) || $content === '') return null;
             $parsed = json_decode($content, true);
             return is_array($parsed) ? $parsed : null;
+        } catch (\Throwable $e) { return null; }
+    }
+
+    /**
+     * Use an OpenAI-compatible endpoint to convert a natural-language command into a multi-step plan.
+     * Returns array { version:1, steps:[{action,params}] } or null when not a clear multi-step.
+     * Only emits actions supported by PlanValidator. Steps that require an id must include a numeric id
+     * extracted from the user's command; if an id can't be determined, do NOT generate a plan for that step.
+     * For add_field immediately after create_form, omit the id to refer to the last created form.
+     */
+    protected static function llm_parse_plan(string $cmd, array $s, array $ctx = [])
+    {
+        try {
+            $base = rtrim((string)$s['base_url'], '/');
+            $model = (string)($s['model'] ?? 'gpt-4o-mini');
+            $url = $base . '/v1/chat/completions';
+            $sys = 'You are a deterministic planner for Arshline admin. Output ONLY a strict JSON object with no prose. '
+                . 'When the user request implies multiple sequential actions, produce a plan JSON of the form: '
+                . '{"version":1,"steps":[{"action":"create_form|add_field|update_form_title|open_builder|open_editor|open_results|publish_form|draft_form","params":{...}}, ...]}. '
+                . 'Rules: '
+                . '1) Allowed actions: create_form, add_field, update_form_title, open_builder, open_editor, open_results, publish_form, draft_form. '
+                . '2) For create_form: params: {"title": string (default to "فرم جدید" if missing)}. '
+                . '3) For add_field: params: {"id"?: number, "type": "short_text|long_text|multiple_choice|dropdown|rating", "question"?: string, "required"?: boolean, "index"?: number}. '
+                . '   If add_field immediately follows create_form, omit id to refer to the last created form. Otherwise include id only if a numeric id is explicitly present in the user command. Do NOT guess ids. '
+                . '4) For open_builder/open_results: include numeric "id" ONLY if explicitly provided in the command; otherwise do not produce a plan. '
+                . '5) For open_editor: include numeric "id" and 0-based "index" only if explicitly provided; otherwise do not produce a plan. '
+                . '6) For publish_form/draft_form/update_form_title: include numeric "id" only if explicitly provided in the command. '
+                . '7) If the request is single-step or unclear to produce a valid multi-step plan, reply {"none":true} instead. '
+                . '8) Never include unknown keys, never include title references for existing forms except for create_form title or update_form_title title. '
+                . 'Context: UI Tab: ' . (!empty($ctx['ui_tab']) ? $ctx['ui_tab'] : 'unknown') . '; UI Route: ' . (!empty($ctx['ui_route']) ? $ctx['ui_route'] : '') . '.';
+            $examples = [
+                // Persian examples to guide the planner
+                '"یک فرم جدید بساز و دو سوال پاسخ کوتاه اضافه کن" => {"version":1,"steps":[{"action":"create_form","params":{"title":"فرم جدید"}},{"action":"add_field","params":{"type":"short_text"}},{"action":"add_field","params":{"type":"short_text"}}]}',
+                '"یک فرم با عنوان دریافت بازخورد بساز و یک سوال امتیازدهی اضافه کن" => {"version":1,"steps":[{"action":"create_form","params":{"title":"دریافت بازخورد"}},{"action":"add_field","params":{"type":"rating"}}]}',
+                '"عنوان فرم 3 را به فرم مشتریان تغییر بده" => {"version":1,"steps":[{"action":"update_form_title","params":{"id":3,"title":"فرم مشتریان"}}]}',
+                '"نتایج فرم 5 را باز کن" => {"none":true}',
+            ];
+            $sys .= ' Examples: ' . implode(' ', $examples) . ' If not multi-step or id is missing for required steps, output {"none":true}.';
+            $body = [
+                'model' => $model,
+                'messages' => [
+                    [ 'role' => 'system', 'content' => $sys ],
+                    [ 'role' => 'user', 'content' => $cmd ],
+                ],
+                'temperature' => 0,
+                'response_format' => [ 'type' => 'json_object' ],
+            ];
+            $resp = wp_remote_post($url, [
+                'timeout' => 10,
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'Authorization' => 'Bearer ' . (string)$s['api_key'],
+                ],
+                'body' => wp_json_encode($body),
+            ]);
+            if (is_wp_error($resp)) return null;
+            $code = (int)wp_remote_retrieve_response_code($resp);
+            if ($code < 200 || $code >= 300) return null;
+            $json = json_decode(wp_remote_retrieve_body($resp), true);
+            $content = $json['choices'][0]['message']['content'] ?? '';
+            if (!is_string($content) || $content === '') return null;
+            $parsed = json_decode($content, true);
+            if (!is_array($parsed)) return null;
+            if (!empty($parsed['none'])) return null;
+            // Minimal normalization
+            $ver = isset($parsed['version']) ? (int)$parsed['version'] : 0;
+            $steps = is_array($parsed['steps'] ?? null) ? $parsed['steps'] : [];
+            if ($ver !== 1 || empty($steps)) return null;
+            // Strip any unknown keys in steps params defensively
+            $allowedActions = ['create_form','add_field','update_form_title','open_builder','open_editor','open_results','publish_form','draft_form'];
+            $outSteps = [];
+            foreach ($steps as $s1){
+                if (!is_array($s1)) continue;
+                $a = isset($s1['action']) ? (string)$s1['action'] : '';
+                if (!in_array($a, $allowedActions, true)) continue;
+                $p = is_array($s1['params'] ?? null) ? $s1['params'] : [];
+                // keep only known params per action
+                if ($a === 'create_form'){
+                    $title = isset($p['title']) && is_scalar($p['title']) ? (string)$p['title'] : '';
+                    $outSteps[] = [ 'action'=>'create_form', 'params'=> [ 'title' => $title !== '' ? $title : apply_filters('arshline_ai_new_form_default_title', 'فرم جدید') ] ];
+                } elseif ($a === 'add_field'){
+                    $params = [];
+                    if (isset($p['id']) && is_numeric($p['id'])){ $params['id'] = (int)$p['id']; }
+                    $type = isset($p['type']) && is_scalar($p['type']) ? (string)$p['type'] : 'short_text';
+                    $params['type'] = $type;
+                    if (isset($p['question']) && is_scalar($p['question'])){ $params['question'] = (string)$p['question']; }
+                    if (isset($p['required'])){ $params['required'] = (bool)$p['required']; }
+                    if (isset($p['index']) && is_numeric($p['index'])){ $params['index'] = (int)$p['index']; }
+                    $outSteps[] = [ 'action'=>'add_field', 'params'=>$params ];
+                } elseif ($a === 'update_form_title'){
+                    if (isset($p['id']) && is_numeric($p['id']) && isset($p['title']) && is_scalar($p['title'])){
+                        $outSteps[] = [ 'action'=>'update_form_title', 'params'=> [ 'id'=>(int)$p['id'], 'title'=>(string)$p['title'] ] ];
+                    }
+                } elseif ($a === 'open_builder' || $a === 'open_results'){
+                    if (isset($p['id']) && is_numeric($p['id'])){ $outSteps[] = [ 'action'=>$a, 'params'=> [ 'id'=>(int)$p['id'] ] ]; }
+                } elseif ($a === 'open_editor'){
+                    if (isset($p['id']) && is_numeric($p['id']) && isset($p['index']) && is_numeric($p['index'])){
+                        $outSteps[] = [ 'action'=>'open_editor', 'params'=> [ 'id'=>(int)$p['id'], 'index'=>(int)$p['index'] ] ];
+                    }
+                } elseif ($a === 'publish_form' || $a === 'draft_form'){
+                    if (isset($p['id']) && is_numeric($p['id'])){ $outSteps[] = [ 'action'=>$a, 'params'=> [ 'id'=>(int)$p['id'] ] ]; }
+                }
+            }
+            if (empty($outSteps)) return null;
+            return [ 'version' => 1, 'steps' => $outSteps ];
         } catch (\Throwable $e) { return null; }
     }
 
