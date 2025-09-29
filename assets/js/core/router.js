@@ -55,8 +55,8 @@
     // default tab
     if (location.hash){ routeFromHash(); }
     else {
-  var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
-  if (![ 'dashboard','forms','reports','users','settings','messaging' ].includes(initial)) initial = 'dashboard';
+      var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
+      if (![ 'dashboard','forms','reports','users','settings','messaging' ].includes(initial)) initial = 'dashboard';
       setHash(initial);
       arRenderTab(initial);
     }

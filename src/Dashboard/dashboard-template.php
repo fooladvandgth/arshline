@@ -2697,7 +2697,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-            try { if (['dashboard','forms','reports','users','settings','messaging'].includes(tab)) setHash(tab); } catch(_){ }
+            try {
+                if (['dashboard','forms','reports','users','settings','messaging'].includes(tab)){
+                    var _h = (location.hash||'').replace('#','');
+                    var _seg0 = (_h.split('/')[0]||'').split('?')[0];
+                    if (_seg0 !== tab) setHash(tab); // keep existing query if first segment matches
+                }
+            } catch(_){ }
             try { setSidebarClosed(false, false); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
