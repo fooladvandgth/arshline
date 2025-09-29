@@ -599,6 +599,15 @@
                 notify('فرم انتخابی باید «فعال/منتشر» باشد تا لینک اختصاصی ساخته شود.', 'warn');
                 return;
               }
+              // Preflight mapping: ensure selected groups are allowed for this form
+              try {
+                var mapRes = await fetch(ARSHLINE_REST + 'forms/' + fid + '/access/groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} });
+                var mapJson = await mapRes.json().catch(function(){ return {}; });
+                var allowed = (mapJson && Array.isArray(mapJson.group_ids)) ? mapJson.group_ids.map(function(x){ return parseInt(x); }) : [];
+                if (!allowed.length){ notify('این فرم هنوز به هیچ گروهی متصل نشده است. ابتدا در «کاربران → گروه‌ها → اتصال فرم‌ها» گروه‌ها را تنظیم کنید.', 'warn'); return; }
+                var allAllowed = gids.every(function(g){ return allowed.indexOf(g) >= 0; });
+                if (!allAllowed){ notify('برخی از گروه‌های انتخاب‌شده به این فرم متصل نیستند. اتصال را بررسی کنید.', 'warn'); return; }
+              } catch(_){ }
               // Ensure public token exists (server auto-generates for published forms, but we ensure explicitly if needed)
               if (!fJson.token){
                 try { await fetch(ARSHLINE_REST + 'forms/' + fid + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }); } catch(_){ }
@@ -625,6 +634,8 @@
               else if (code === 'no_recipients') errMsg = 'هیچ مخاطبی با شماره معتبر در گروه‌های انتخابی یافت نشد.';
               else if (code === 'link_placeholder_without_form') errMsg = 'در متن از #لینک استفاده شده ولی فرمی انتخاب نشده است.';
               else if (code === 'link_build_failed') errMsg = 'ساخت لینک اختصاصی برای یکی از اعضا ناموفق بود' + (body && body.member_id ? ' (عضو #'+body.member_id+')' : '') + '. مطمئن شوید فرم فعال است و توکن عمومی دارد.';
+              else if (code === 'form_not_mapped') errMsg = 'فرم انتخابی به هیچ گروهی متصل نشده است. ابتدا در «اتصال فرم‌ها» گروه(ها) را برای این فرم تنظیم کنید.';
+              else if (code === 'form_not_allowed_for_groups') errMsg = 'فرم انتخابی به برخی از گروه‌های انتخابی متصل نیست. لطفاً اتصال فرم‌ها را بررسی کنید.';
               notify(errMsg, 'error');
             }
           } catch(e){

@@ -291,6 +291,23 @@ class Api
             return new \WP_REST_Response(['error'=>'link_placeholder_without_form','message'=>'در متن از #لینک استفاده شده ولی فرمی انتخاب نشده است.'], 422);
         }
 
+        // If a form link is requested, enforce that the form is mapped to the selected groups
+        if ($includeLink){
+            $allowedGroups = FormGroupAccessRepository::getGroupIds($formId);
+            // Require explicit mapping to avoid sending links to groups without access
+            if (empty($allowedGroups)){
+                return new \WP_REST_Response(['error'=>'form_not_mapped','message'=>'فرم انتخابی به هیچ گروهی متصل نشده است. ابتدا در «اتصال فرم‌ها» گروه(ها) را برای این فرم تنظیم کنید.'], 422);
+            }
+            $invalid = array_values(array_diff($groupIds, $allowedGroups));
+            if (!empty($invalid)){
+                return new \WP_REST_Response([
+                    'error' => 'form_not_allowed_for_groups',
+                    'message' => 'فرم انتخابی به برخی از گروه‌های انتخابی متصل نیست.',
+                    'invalid_group_ids' => $invalid,
+                ], 422);
+            }
+        }
+
         // Resolve recipients from DB
         global $wpdb; $t = \Arshline\Support\Helpers::tableName('user_group_members');
         $in = implode(',', array_map('intval', $groupIds));
@@ -607,6 +624,12 @@ class Api
             'callback' => [self::class, 'ug_ensure_member_token'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
+        // Bulk ensure tokens for a group's members
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/ensure-tokens', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'ug_bulk_ensure_tokens'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
 
         // Group custom fields
         register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/fields', [
@@ -794,6 +817,7 @@ class Api
         if (is_array($data)) $fields['data'] = $data;
         if (empty($fields)) return new WP_REST_Response(['ok'=>false,'message'=>'no_fields'], 422);
         $ok = MemberRepository::update($gid, $mid, $fields);
+        if ($ok) { try { MemberRepository::ensureToken($mid); } catch (\Throwable $e) { /* noop */ } }
         return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
     }
     public static function ug_ensure_member_token(WP_REST_Request $r)
@@ -802,6 +826,17 @@ class Api
         $tok = MemberRepository::ensureToken($mid);
         if (!$tok) return new WP_REST_Response(['message' => 'عضو یافت نشد.'], 404);
         return new WP_REST_Response(['token' => $tok], 200);
+    }
+
+    public static function ug_bulk_ensure_tokens(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $count = 0;
+        try {
+            $members = MemberRepository::list($gid, 50000);
+            foreach ($members as $m){ $tok = $m->token; if (!$tok){ $tok2 = MemberRepository::ensureToken((int)$m->id); if ($tok2) $count++; } }
+        } catch (\Throwable $e) { /* noop */ }
+        return new WP_REST_Response(['ok'=>true, 'generated' => $count], 200);
     }
 
     // ========== Group custom fields ==========
