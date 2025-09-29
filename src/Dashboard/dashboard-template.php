@@ -3505,6 +3505,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         return;
                     }
                     if (j.action === 'open_tab' && j.tab){ renderTab(String(j.tab)); }
+                    else if (j.action === 'open_ug'){
+                        try {
+                            var t = String(j.tab||'groups');
+                            // Navigate to nested UG route and render
+                            if (typeof setHash === 'function') { setHash('users/ug?tab='+t); }
+                            renderUsersUG();
+                            // If a specific group_id is provided, allow the bundle to focus it on render
+                            if (j.group_id && window.ARSH_UG_render) { try { window.ARSH_UG_render(t, { group_id: parseInt(j.group_id) }); } catch(_){ } }
+                        } catch(_){ }
+                    }
                     else if (j.action === 'open_builder' && j.id){ try { setHash('builder/'+parseInt(j.id)); } catch(_){ } renderTab('forms'); }
                     else if ((j.action === 'download' || j.action === 'export') && j.url){ try { window.open(String(j.url), '_blank'); } catch(_){ } }
                     else if (j.url && !j.action){ try { window.open(String(j.url), '_blank'); } catch(_){ } }

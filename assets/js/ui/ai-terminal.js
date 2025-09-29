@@ -313,7 +313,7 @@
           } catch(_){ }
           return;
         }
-        if (j.action === 'open_tab' && j.tab){
+  if (j.action === 'open_tab' && j.tab){
           try {
             var prevHash = location.hash;
             var nextTab = String(j.tab);
@@ -322,6 +322,21 @@
             uiStack.push({ type:'open_tab', payload:{ prevHash: prevHash }, undo:function(){ try { var prevTab = (prevHash||'').replace(/^#/, '').split('/')[0] || 'dashboard'; if (typeof window.setHash==='function') setHash(prevTab); else { try { location.hash = '#' + prevTab; } catch(_){ } } if (typeof window.renderTab==='function') window.renderTab(prevTab); } catch(_){ } } });
             logConsole('UI action', { open_tab: j.tab });
             appendOut('باز شد: '+humanizeTab(j.tab));
+          } catch(_){ }
+          return;
+        }
+        if (j.action === 'open_ug'){
+          try {
+            var t = String(j.tab||'groups');
+            var prevHashUG = location.hash;
+            var next = 'users/ug?tab='+t;
+            if (typeof window.setHash==='function') { setHash(next); } else { try { location.hash = '#'+next; } catch(_){ } }
+            // Render UG panel (lazy loader supported)
+            if (typeof window.renderTab==='function') window.renderTab('users');
+            if (typeof window.ARSH_UG_render==='function') { try { window.ARSH_UG_render(t, { group_id: (j.group_id? parseInt(j.group_id): undefined) }); } catch(_){ } }
+            uiStack.push({ type:'open_ug', payload:{ prevHash: prevHashUG }, undo:function(){ try { var prevTab = (prevHashUG||'').replace(/^#/, '').split('/')[0] || 'dashboard'; if (typeof window.setHash==='function') setHash(prevTab); else { try { location.hash = '#' + prevTab; } catch(_){ } } if (typeof window.renderTab==='function') window.renderTab(prevTab); } catch(_){ } } });
+            appendOut('باز شد: گروه‌های کاربری');
+            logConsole('UI action', { open_ug: t });
           } catch(_){ }
           return;
         }

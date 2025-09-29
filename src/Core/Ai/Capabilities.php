@@ -26,6 +26,14 @@ class Capabilities
             [ 'id' => 'draft_form', 'label' => 'بازگردانی به پیش‌نویس', 'intent' => 'draft_form', 'params' => ['id' => 'number'], 'kind' => 'forms', 'mutating' => true ],
             [ 'id' => 'update_form_title', 'label' => 'تغییر عنوان فرم', 'intent' => 'update_form_title', 'params' => ['id' => 'number', 'title' => 'string'], 'kind' => 'forms', 'mutating' => true ],
             [ 'id' => 'add_field_short_text', 'label' => 'افزودن سوال پاسخ کوتاه', 'intent' => 'add_field', 'params' => ['id' => 'number', 'type' => 'short_text'], 'kind' => 'builder', 'mutating' => true ],
+            // User Groups (UG) capabilities
+            [ 'id' => 'open_ug', 'label' => 'باز کردن «گروه‌های کاربری»', 'intent' => 'open_ug', 'params' => ['tab' => 'groups|members|fields'], 'kind' => 'users', 'mutating' => false ],
+            [ 'id' => 'ug_create_group', 'label' => 'ایجاد گروه کاربری', 'intent' => 'ug_create_group', 'params' => ['name' => 'string', 'parent_id' => 'number?'], 'kind' => 'users', 'mutating' => true ],
+            [ 'id' => 'ug_update_group', 'label' => 'ویرایش گروه کاربری', 'intent' => 'ug_update_group', 'params' => ['id' => 'number', 'name' => 'string?', 'parent_id' => 'number?'], 'kind' => 'users', 'mutating' => true ],
+            [ 'id' => 'ug_set_form_access', 'label' => 'تعیین دسترسی گروه‌ها به فرم', 'intent' => 'ug_set_form_access', 'params' => ['form_id' => 'number', 'group_ids' => 'number[]'], 'kind' => 'users', 'mutating' => true ],
+            [ 'id' => 'ug_ensure_tokens', 'label' => 'تولید توکن برای اعضای گروه', 'intent' => 'ug_ensure_tokens', 'params' => ['group_id' => 'number'], 'kind' => 'users', 'mutating' => true ],
+            [ 'id' => 'ug_export_links', 'label' => 'خروجی لینک‌های اختصاصی', 'intent' => 'ug_export_links', 'params' => ['group_id' => 'number?', 'form_id' => 'number?'], 'kind' => 'users', 'mutating' => false ],
+            [ 'id' => 'ug_download_members_template', 'label' => 'دانلود فایل نمونه اعضا (CSV)', 'intent' => 'ug_download_members_template', 'params' => ['group_id' => 'number'], 'kind' => 'users', 'mutating' => false ],
         ];
     }
 }
