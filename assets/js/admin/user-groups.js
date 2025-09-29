@@ -274,6 +274,14 @@
       html += '  </div>';
 
       var adminPostUrl = (ADMIN_POST && ADMIN_POST.replace('admin-ajax.php','admin-post.php')) || (function(){ try { return window.location.origin + '/wp-admin/admin-post.php'; } catch(_){ return '/wp-admin/admin-post.php'; } })();
+      // Prefer https when site is https or localhost to avoid mixed-content warnings
+      try {
+        var u0 = new URL(adminPostUrl, window.location.origin);
+        if ((window.location.protocol === 'https:' && u0.protocol !== 'https:') || /^(localhost|127\.0\.0\.1)$/i.test(u0.hostname)){
+          u0.protocol = 'https:';
+          adminPostUrl = u0.toString();
+        }
+      } catch(_){ }
       html += '<form method="post" action="'+esc(adminPostUrl)+'" enctype="multipart/form-data" style="margin:10px 0">';
       html += '<input type="hidden" name="action" value="arshline_import_members"/>';
       html += '<input type="hidden" name="group_id" value="'+gid+'"/>';
@@ -458,16 +466,18 @@
         .catch(function(){ if (window.notify) notify('حذف عضو ناموفق بود', 'error'); }); });
 
       // خروجی لینک‌ها (CSV)
-      var exportUrl = new URL(adminPostUrl, window.location.origin);
-      exportUrl.searchParams.set('action', 'arshline_export_group_links');
-      exportUrl.searchParams.set('group_id', String(gid));
-      exportUrl.searchParams.set('form_id', String( (window.ARSHLINE_FORM_ID_FOR_LINKS||0) ));
-      exportUrl.searchParams.set('_wpnonce', (NONCES.export||''));
+  var exportUrl = new URL(adminPostUrl, window.location.origin);
+  exportUrl.searchParams.set('action', 'arshline_export_group_links');
+  exportUrl.searchParams.set('group_id', String(gid));
+  exportUrl.searchParams.set('form_id', String( (window.ARSHLINE_FORM_ID_FOR_LINKS||0) ));
+  exportUrl.searchParams.set('_wpnonce', (NONCES.export||''));
+  try { if (window.location.protocol === 'https:' && exportUrl.protocol !== 'https:') exportUrl.protocol = 'https:'; } catch(_){ }
   var tplUrl = new URL(adminPostUrl, window.location.origin);
   tplUrl.searchParams.set('action', 'arshline_download_members_template');
   tplUrl.searchParams.set('group_id', String(gid));
   tplUrl.searchParams.set('_wpnonce', (NONCES.template||''));
-  var $btns = $('<p style="margin-top:.6rem"><a id="ugExportLinks" class="button" href="'+exportUrl.toString()+'">'+esc(STR.export||'خروجی لینک‌ها')+'</a> <a id="mSampleTpl" class="button" href="'+tplUrl.toString()+'">'+esc('دانلود فایل نمونه CSV')+'</a></p>');
+  // Hide the export links entry in Members section as requested
+  var $btns = $('<p style="margin-top:.6rem"><a id="mSampleTpl" class="button" href="'+tplUrl.toString()+'">'+esc('دانلود فایل نمونه CSV')+'</a></p>');
   $('#ugMembersList').after($btns);
 
       // Add toggle and confirm/cancel
@@ -527,6 +537,7 @@
             exp.searchParams.set('action','arshline_export_group_links');
             exp.searchParams.set('form_id', String(fid));
             exp.searchParams.set('_wpnonce', (NONCES&&NONCES.export)||'');
+            try { if (window.location.protocol === 'https:' && exp.protocol !== 'https:') exp.protocol = 'https:'; } catch(_){ }
             var disabled = (!Array.isArray(selected) || selected.length===0) ? ' aria-disabled="true" style="pointer-events:none;opacity:.6"' : '';
             t += '<a id="ugMapExportLinks" class="button" target="_blank" href="'+exp.toString()+'"'+disabled+'>خروجی لینک‌های اعضا برای این فرم</a>';
           } catch(_){ }

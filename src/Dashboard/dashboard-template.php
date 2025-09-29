@@ -342,7 +342,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var parts = raw.split('/');
             // Backward-compat: if someone navigates to old #submissions, redirect to forms
             if (parts[0]==='submissions'){ renderTab('forms'); return; }
-            if (['dashboard','forms','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
+            if (['dashboard','forms','reports','users','settings','messaging'].includes(parts[0])){ renderTab(parts[0]); return; }
             if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
             if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
             if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
@@ -2696,7 +2696,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-            try { if (['dashboard','forms','reports','users','settings'].includes(tab)) setHash(tab); } catch(_){ }
+            try { if (['dashboard','forms','reports','users','settings','messaging'].includes(tab)) setHash(tab); } catch(_){ }
             try { setSidebarClosed(false, false); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
@@ -2890,6 +2890,88 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         } catch(_){ } }); }
                     } catch(_){ }
                 })();
+            } else if (tab === 'messaging') {
+                // Messaging: SMS settings + send to user groups
+                content.innerHTML = ''+
+                    '<div class="card glass" style="padding:1rem; margin-bottom:1rem">'
+                    + '  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+                    + '    <span class="title">پیامک (SMS.IR)</span>'
+                    + '    <span class="hint">پیکربندی اتصال</span>'
+                    + '  </div>'
+                    + '  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem;margin-top:.6rem">'
+                    + '    <label class="ar-field"><span class="ar-label">فعال</span><input id="smsEnabled" type="checkbox" class="ar-input" /></label>'
+                    + '    <label class="ar-field"><span class="ar-label">کلید API</span><input id="smsApiKey" class="ar-input" placeholder="API Key" /></label>'
+                    + '    <label class="ar-field"><span class="ar-label">شماره خط</span><input id="smsLine" class="ar-input" placeholder="3000..." /></label>'
+                    + '  </div>'
+                    + '  <div style="display:flex;gap:.5rem;margin-top:.6rem">'
+                    + '    <button id="smsSave" class="ar-btn">ذخیره</button>'
+                    + '    <button id="smsTest" class="ar-btn ar-btn--soft">تست</button>'
+                    + '    <input id="smsTestPhone" class="ar-input" placeholder="شماره تست (اختیاری)" style="max-width:220px" />'
+                    + '  </div>'
+                    + '</div>'
+                    + '<div class="card glass" style="padding:1rem">'
+                    + '  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+                    + '    <span class="title">ارسال به گروه‌های کاربری</span>'
+                    + '  </div>'
+                    + '  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem;margin-top:.6rem">'
+                    + '    <label class="ar-field"><span class="ar-label">گروه‌ها</span><select id="smsGroups" class="ar-select" multiple size="6"></select></label>'
+                    + '    <label class="ar-field"><span class="ar-label">فرم (اختیاری برای لینک شخصی)</span><select id="smsForm" class="ar-select"><option value="">— بدون لینک —</option></select></label>'
+                    + '  </div>'
+                    + '  <label class="ar-field" style="margin-top:.6rem"><span class="ar-label">متن پیام</span><textarea id="smsMessage" class="ar-input" rows="4" placeholder="مثال: سلام #name، لطفاً فرم زیر را تکمیل کنید: #link"></textarea></label>'
+                    + '  <div style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem;flex-wrap:wrap">'
+                    + '    <label class="ar-field"><span class="ar-label">زمان‌بندی (اختیاری)</span><input id="smsSchedule" class="ar-input" placeholder="YYYY-MM-DD HH:MM" /></label>'
+                    + '    <button id="smsSend" class="ar-btn">ارسال</button>'
+                    + '    <span class="hint">متغیرها: #name، #phone، #link و فیلدهای سفارشی گروه</span>'
+                    + '  </div>'
+                    + '</div>';
+
+                // Load settings
+                fetch(ARSHLINE_REST + 'sms/settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                    .then(function(r){ return r.json(); })
+                    .then(function(s){ try { document.getElementById('smsEnabled').checked = !!s.enabled; document.getElementById('smsApiKey').value = s.api_key||''; document.getElementById('smsLine').value = s.line_number||''; } catch(_){ } })
+                    .catch(function(){ /* ignore */ });
+
+                // Load groups
+                fetch(ARSHLINE_REST + 'user-groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                    .then(function(gs){ var el = document.getElementById('smsGroups'); if (!el) return; el.innerHTML = (gs||[]).map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); })
+                    .catch(function(){ notify('بارگذاری گروه‌ها ناموفق بود', 'error'); });
+                // Load forms (for link)
+                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                    .then(function(r){ return r.json(); })
+                    .then(function(fs){ var el = document.getElementById('smsForm'); if (!el) return; (fs||[]).forEach(function(f){ el.insertAdjacentHTML('beforeend', '<option value="'+f.id+'">#'+f.id+' - '+escapeHtml(String(f.title||''))+'</option>'); }); })
+                    .catch(function(){ /* ignore */ });
+
+                // Save settings
+                var btnSave = document.getElementById('smsSave'); if (btnSave) btnSave.addEventListener('click', function(){
+                    var payload = { enabled: !!document.getElementById('smsEnabled').checked, api_key: String(document.getElementById('smsApiKey').value||''), line_number: String(document.getElementById('smsLine').value||'') };
+                    fetch(ARSHLINE_REST + 'sms/settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
+                        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                        .then(function(){ notify('تنظیمات پیامک ذخیره شد', 'success'); })
+                        .catch(function(){ notify('ذخیره تنظیمات پیامک ناموفق بود', 'error'); });
+                });
+                // Test send
+                var btnTest = document.getElementById('smsTest'); if (btnTest) btnTest.addEventListener('click', function(){
+                    var ph = String(document.getElementById('smsTestPhone').value||'').trim();
+                    fetch(ARSHLINE_REST + 'sms/test', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ phone: ph }) })
+                        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                        .then(function(){ notify('تست موفق بود', 'success'); })
+                        .catch(function(){ notify('تست ناموفق بود', 'error'); });
+                });
+                // Send to groups
+                var btnSend = document.getElementById('smsSend'); if (btnSend) btnSend.addEventListener('click', function(){
+                    var groupsSel = document.getElementById('smsGroups'); var formSel = document.getElementById('smsForm'); var msgEl = document.getElementById('smsMessage'); var schEl = document.getElementById('smsSchedule');
+                    var gids = []; try { gids = Array.from(groupsSel.selectedOptions||[]).map(function(o){ return parseInt(o.value||'0'); }).filter(function(x){ return x>0; }); } catch(_){ }
+                    var fid = parseInt((formSel && formSel.value)||'0')||0; var includeLink = fid>0;
+                    var message = (msgEl && msgEl.value)||''; var schedule_at = (schEl && schEl.value)||'';
+                    if (!gids.length){ notify('حداقل یک گروه را انتخاب کنید', 'warn'); return; }
+                    if (!message.trim()){ notify('متن پیام خالی است', 'warn'); return; }
+                    var payload = { group_ids: gids, message: message, include_link: includeLink, form_id: includeLink? fid: undefined, schedule_at: schedule_at||undefined };
+                    fetch(ARSHLINE_REST + 'sms/send', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
+                        .then(function(r){ return r.json().then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); })
+                        .then(function(res){ if (res.ok){ if (res.body && res.body.job_id){ notify('در صف ارسال قرار گرفت (#'+res.body.job_id+')', 'success'); } else { notify('ارسال انجام شد: '+(res.body && res.body.sent || 0), 'success'); } } else { notify('ارسال ناموفق بود', 'error'); } })
+                        .catch(function(){ notify('خطا در ارسال پیامک', 'error'); });
+                });
             } else if (tab === 'forms') {
                 // header button already rendered globally
                                 content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
@@ -3408,6 +3490,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 <a href="#reports" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
                 <a href="#users" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
                 <a href="#users/ug?tab=groups"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">گروه‌های کاربری</span></a>
+                <a href="#messaging" data-tab="messaging"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span><span class="label">پیام‌رسانی</span></a>
                 <a href="#settings" data-tab="settings"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 7.8 7.8 0 0 1-2.6.9 1 1 0 0 0-.8.9V21a2 2 0 0 1-4 0v-.1a1 1 0 0 0-.8-.9 7.8 7.8 0 0 1-2.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1A7.8 7.8 0 0 1 3 12a7.8 7.8 0 0 1 .9-2.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 7.8 7.8 0 0 1 2.6-.9 1 1 0 0 0 .8-.9V3a2 2 0 0 1 4 0v.1a1 1 0 0 0 .8.9 7.8 7.8 0 0 1 2.6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 7.8 7.8 0 0 1 .9 2.6Z" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">تنظیمات</span></a>
             </nav>
         </aside>

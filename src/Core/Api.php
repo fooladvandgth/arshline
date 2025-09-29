@@ -141,6 +141,194 @@ class Api
         $san = self::sanitize_settings_input($arr);
         return array_merge($defaults, $san);
     }
+    /** Get SMS settings (separate option to keep credentials isolated). */
+    protected static function get_sms_settings_store(): array
+    {
+        $raw = get_option('arshline_sms_settings', []);
+        $arr = is_array($raw) ? $raw : [];
+        $out = [
+            'enabled' => !empty($arr['enabled']),
+            'provider' => ($arr['provider'] ?? 'sms_ir') === 'sms_ir' ? 'sms_ir' : 'sms_ir',
+            'api_key' => is_string($arr['api_key'] ?? '') ? (string)$arr['api_key'] : '',
+            'line_number' => is_string($arr['line_number'] ?? '') ? (string)$arr['line_number'] : '',
+        ];
+        // sanitize
+        $out['api_key'] = substr(preg_replace('/[^A-Za-z0-9_\-\.]/', '', $out['api_key']), 0, 200);
+        $out['line_number'] = substr(preg_replace('/[^0-9]/', '', $out['line_number']), 0, 20);
+        return $out;
+    }
+    protected static function put_sms_settings_store(array $in): array
+    {
+        $cur = self::get_sms_settings_store();
+        $next = [
+            'enabled' => array_key_exists('enabled', $in) ? (bool)$in['enabled'] : $cur['enabled'],
+            'provider' => 'sms_ir',
+            'api_key' => array_key_exists('api_key', $in) ? (string)$in['api_key'] : $cur['api_key'],
+            'line_number' => array_key_exists('line_number', $in) ? (string)$in['line_number'] : $cur['line_number'],
+        ];
+        // Sanitize
+        $next['api_key'] = substr(preg_replace('/[^A-Za-z0-9_\-\.]/', '', $next['api_key']), 0, 200);
+        $next['line_number'] = substr(preg_replace('/[^0-9]/', '', $next['line_number']), 0, 20);
+        update_option('arshline_sms_settings', $next, false);
+        return $next;
+    }
+
+    public static function get_sms_settings(\WP_REST_Request $r)
+    {
+        return new \WP_REST_Response(self::get_sms_settings_store(), 200);
+    }
+    public static function update_sms_settings(\WP_REST_Request $r)
+    {
+        $p = $r->get_json_params(); if (!is_array($p)) $p = $r->get_params();
+        $saved = self::put_sms_settings_store($p);
+        return new \WP_REST_Response($saved, 200);
+    }
+
+    /** Compose message from template and member data. Supports #name, #phone and #link placeholders. */
+    protected static function compose_sms_template(string $tpl, array $member, string $link = ''): string
+    {
+        $repl = [
+            'name' => (string)($member['name'] ?? ''),
+            'phone' => (string)($member['phone'] ?? ''),
+            'link' => (string)$link,
+        ];
+        // include custom fields from member[data]
+        $data = is_array($member['data'] ?? null) ? $member['data'] : [];
+        foreach ($data as $k=>$v){
+            if (is_scalar($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)){
+                $repl[(string)$k] = (string)$v;
+            }
+        }
+        return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k, $repl) ? (string)$repl[$k] : $m[0]; }, $tpl);
+    }
+
+    /** Build personal link for form + member if requested. */
+    protected static function build_member_form_link(int $formId, array $member): string
+    {
+        $form = FormRepository::find($formId);
+        if (!$form || $form->status !== 'published' || empty($form->public_token)) return '';
+        $formToken = (string)$form->public_token;
+        // Ensure member token
+        $tok = MemberRepository::ensureToken((int)($member['id'] ?? 0));
+        if (!$tok) return '';
+        $base = add_query_arg('arshline', rawurlencode($formToken), home_url('/'));
+        $url = add_query_arg('member_token', rawurlencode((string)$tok), $base);
+        return esc_url_raw($url);
+    }
+
+    /** Send SMS via SMS.IR for a single recipient (simple bulk endpoint with single mobile). */
+    protected static function smsir_send_single(string $apiKey, string $lineNumber, string $mobile, string $message, ?string $sendDateTime): bool
+    {
+        $apiKey = trim($apiKey); $lineNumber = trim($lineNumber); $mobile = preg_replace('/[^0-9]/', '', (string)$mobile);
+        if ($apiKey === '' || $lineNumber === '' || $mobile === '' || $message === '') return false;
+        $url = 'https://api.sms.ir/v1/send/bulk';
+        $body = [
+            'lineNumber' => $lineNumber,
+            'messageText' => $message,
+            'mobiles' => [$mobile],
+        ];
+        if ($sendDateTime){ $body['sendDateTime'] = $sendDateTime; }
+        $args = [
+            'headers' => [ 'x-api-key' => $apiKey, 'Content-Type' => 'application/json' ],
+            'body' => wp_json_encode($body),
+            'timeout' => 20,
+        ];
+        $resp = wp_remote_post($url, $args);
+        if (is_wp_error($resp)) return false;
+        $code = wp_remote_retrieve_response_code($resp);
+        if ($code >= 200 && $code < 300) return true;
+        $json = json_decode(wp_remote_retrieve_body($resp), true);
+        if (is_array($json) && isset($json['status']) && (int)$json['status'] === 1) return true;
+        return false;
+    }
+
+    /** Basic SMS.IR test: if phone provided, attempt to send; else, just validate config presence. */
+    public static function test_sms_connect(\WP_REST_Request $r)
+    {
+        $cfg = self::get_sms_settings_store();
+        $phone = trim((string)($r->get_param('phone') ?? ''));
+        $msg = trim((string)($r->get_param('message') ?? 'آزمایش ارتباط پیامک عرشلاین'));
+        if ($phone !== ''){
+            $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $phone, $msg, null);
+            return new \WP_REST_Response(['ok' => $ok], $ok ? 200 : 500);
+        }
+        $ok = ($cfg['api_key'] !== '' && $cfg['line_number'] !== '');
+        return new \WP_REST_Response(['ok' => $ok], $ok ? 200 : 422);
+    }
+
+    /** POST /sms/send — create a job or send immediately. */
+    public static function sms_send(\WP_REST_Request $r)
+    {
+        $cfg = self::get_sms_settings_store();
+        if (!$cfg['enabled']) return new \WP_REST_Response(['error'=>'sms_disabled'], 422);
+        if ($cfg['api_key'] === '' || $cfg['line_number'] === '') return new \WP_REST_Response(['error'=>'missing_config'], 422);
+
+        $formId = (int)($r->get_param('form_id') ?? 0);
+        $includeLink = !empty($r->get_param('include_link')) && $formId > 0;
+        $groupIds = $r->get_param('group_ids'); if (!is_array($groupIds)) $groupIds = [];
+        $groupIds = array_values(array_unique(array_map('intval', $groupIds)));
+        $template = trim((string)($r->get_param('message') ?? ''));
+        if (empty($groupIds)) return new \WP_REST_Response(['error'=>'no_groups'], 422);
+        if ($template === '') return new \WP_REST_Response(['error'=>'empty_message'], 422);
+
+        // Resolve recipients from DB
+        global $wpdb; $t = \Arshline\Support\Helpers::tableName('user_group_members');
+        $in = implode(',', array_map('intval', $groupIds));
+        $rows = $wpdb->get_results("SELECT id, group_id, name, phone, data FROM {$t} WHERE group_id IN ($in) AND phone IS NOT NULL AND phone <> ''", ARRAY_A) ?: [];
+        // Deduplicate by phone
+        $byPhone = [];
+        foreach ($rows as $row){ $ph = preg_replace('/[^0-9]/', '', (string)$row['phone']); if ($ph==='') continue; $row['phone'] = $ph; $row['data'] = json_decode($row['data'] ?: '[]', true) ?: []; $byPhone[$ph] = $row; }
+        $recipients = array_values($byPhone);
+        if (empty($recipients)) return new \WP_REST_Response(['error'=>'no_recipients'], 422);
+
+        // Build messages with optional personal link
+        $payload = [];
+        foreach ($recipients as $m){
+            $link = $includeLink ? self::build_member_form_link($formId, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ]) : '';
+            $msg = self::compose_sms_template($template, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ], $link);
+            $payload[] = [ 'phone'=>$m['phone'], 'message'=>$msg ];
+        }
+
+        // Schedule or send now
+        $scheduleAt = $r->get_param('schedule_at');
+        $ts = null;
+        if (is_numeric($scheduleAt)) { $ts = (int)$scheduleAt; }
+        else if (is_string($scheduleAt) && $scheduleAt !== '') { $ts = strtotime($scheduleAt); }
+        $now = time(); if ($ts !== null && $ts < ($now+60)) { $ts = $now + 60; }
+
+        $maxImmediate = 50; // limit to avoid timeouts
+        if ($ts === null && count($payload) <= $maxImmediate){
+            $okCount = 0; $failCount = 0;
+            foreach ($payload as $i=>$it){ $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $it['phone'], $it['message'], null); if ($ok) $okCount++; else $failCount++; }
+            return new \WP_REST_Response(['ok'=>true, 'sent'=>$okCount, 'failed'=>$failCount], 200);
+        }
+        // Create job in options and schedule cron
+        $seq = (int)get_option('arsh_sms_job_seq', 0) + 1; update_option('arsh_sms_job_seq', $seq, false);
+        $jobId = $seq;
+        $job = [ 'id'=>$jobId, 'provider'=>'sms_ir', 'created_at'=>current_time('timestamp'), 'schedule_at'=> ($ts ?? ($now+5)), 'config'=>[ 'api_key'=>$cfg['api_key'], 'line_number'=>$cfg['line_number'] ], 'payload'=>$payload, 'cursor'=>0 ];
+        update_option('arsh_sms_job_'.$jobId, $job, false);
+        wp_schedule_single_event($job['schedule_at'], 'arshline_process_sms_job', [ $jobId ]);
+        return new \WP_REST_Response(['ok'=>true, 'job_id'=>$jobId, 'schedule_at'=>$job['schedule_at'], 'recipients'=>count($payload)], 200);
+    }
+
+    /** Cron handler to process a queued SMS job in batches. */
+    public static function process_sms_job($jobId)
+    {
+        $key = 'arsh_sms_job_'.(int)$jobId; $job = get_option($key, null);
+        if (!$job || !is_array($job)) return;
+        $cfg = $job['config'] ?? ['api_key'=>'','line_number'=>''];
+        $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+        $cursor = (int)($job['cursor'] ?? 0);
+        $batch = array_slice($payload, $cursor, 40);
+        foreach ($batch as $i=>$it){ self::smsir_send_single((string)$cfg['api_key'], (string)$cfg['line_number'], (string)$it['phone'], (string)$it['message'], null); }
+        $cursor += count($batch);
+        if ($cursor >= count($payload)){
+            delete_option($key);
+        } else {
+            $job['cursor'] = $cursor; update_option($key, $job, false);
+            wp_schedule_single_event(time()+30, 'arshline_process_sms_job', [ (int)$jobId ]);
+        }
+    }
     protected static function flag(array $meta, string $key, bool $default=false): bool
     {
         if (!array_key_exists($key, $meta)) return $default;
@@ -151,6 +339,8 @@ class Api
         add_action('rest_api_init', [self::class, 'register_routes']);
         // Serve raw HTML for HTMX routes (avoid JSON-encoding the HTML fragment)
         add_filter('rest_pre_serve_request', [self::class, 'serve_htmx_html'], 10, 4);
+        // Background SMS job processor (runs via WP-Cron)
+        add_action('arshline_process_sms_job', [self::class, 'process_sms_job'], 10, 1);
     }
 
     public static function user_can_manage_forms(): bool
@@ -425,6 +615,29 @@ class Api
                 'permission_callback' => [self::class, 'user_can_manage_forms'],
                 'args' => [ 'group_ids' => [ 'required' => true ] ],
             ],
+        ]);
+        // Messaging (SMS)
+        register_rest_route('arshline/v1', '/sms/settings', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_sms_settings'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_sms_settings'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/sms/test', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'test_sms_connect'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        register_rest_route('arshline/v1', '/sms/send', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'sms_send'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
     }
 

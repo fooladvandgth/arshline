@@ -36,7 +36,7 @@
       arRenderTab('users'); return;
     }
     if (parts[0]==='submissions'){ arRenderTab('forms'); return; }
-    if (['dashboard','forms','reports','users','settings'].includes(parts[0])){ arRenderTab(parts[0]); return; }
+  if (['dashboard','forms','reports','users','settings','messaging'].includes(parts[0])){ arRenderTab(parts[0]); return; }
     if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { try { window.renderFormBuilder && window.renderFormBuilder(id); } catch(_){ } return; } }
     if (parts[0]==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); if (id2) { try { window.renderFormEditor && window.renderFormEditor(id2, { index: isNaN(idx)?0:idx }); } catch(_){ } return; } }
     if (parts[0]==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { try { window.renderFormPreview && window.renderFormPreview(id3); } catch(_){ } return; } }
@@ -53,8 +53,8 @@
     // default tab
     if (location.hash){ routeFromHash(); }
     else {
-      var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
-      if (![ 'dashboard','forms','reports','users','settings' ].includes(initial)) initial = 'dashboard';
+  var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
+  if (![ 'dashboard','forms','reports','users','settings','messaging' ].includes(initial)) initial = 'dashboard';
       setHash(initial);
       arRenderTab(initial);
     }

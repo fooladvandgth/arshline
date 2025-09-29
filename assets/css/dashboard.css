@@ -86,8 +86,9 @@
         /* add extra breathing room from the right edge when collapsed (RTL) */
         [dir='rtl'] .arshline-sidebar.closed nav { padding-inline-end: 12px; }
         [dir='ltr'] .arshline-sidebar.closed nav { padding-inline-start: 12px; }
-    [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 50px; }
-    [dir='ltr'] .arshline-sidebar.closed nav a .ic { margin-left: 50px; }
+    /* When collapsed, center icons without extra margin */
+    [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 0; }
+    [dir='ltr'] .arshline-sidebar.closed nav a .ic { margin-left: 0; }
         .arshline-sidebar nav a .label { white-space: nowrap; transition: opacity .18s ease, transform .18s ease; }
         .arshline-sidebar.closed nav a { justify-content: center; }
         .arshline-sidebar.closed nav a .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
@@ -125,6 +126,8 @@
     .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
     .ar-input::placeholder { color: var(--muted); opacity: .85; }
     .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    /* Ensure toolbar controls sit side-by-side (don’t stretch 100%) */
+    #arFormSearch, #arFormStatusFilter { width: auto; flex: 0 0 auto; }
     .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
     .ar-dnd-ghost { opacity:.6; transform: scale(.98); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
     .ar-dnd-over { outline: none; background: transparent; }

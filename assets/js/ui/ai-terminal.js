@@ -343,20 +343,50 @@
         // examples: "برو به گروه های کاربری" , "گروه‌های کاربری" , "کاربران/گروه‌ها"
         var reUG = /(برو\s*به\s*)?(گروه[\u200c\u200d\s-]*های\s*کاربری|گروه\s*های\s*کاربری|گروه‌های\s*کاربری|گروه ها?ی کاربری|کاربران\s*\/\s*گروه‌ها?)/i;
         if (reUG.test(c)){
-          // Show progressive feedback
+          // Show progressive feedback and navigate
           appendOut('در حال باز کردن کاربران…');
-          // Navigate to users/ug in our hash router
           try {
             var next = 'users/ug';
-            if (typeof window.setHash === 'function') { setHash(next); } else { location.hash = '#'+next; }
-            if (typeof window.renderTab === 'function') { window.renderTab('users'); }
+            if (typeof window.setHash === 'function') { setHash(next); } else { try { location.hash = '#'+next; } catch(_){ } }
+            if (typeof window.renderTab === 'function') { try { window.renderTab('users'); } catch(_){ } }
             // If lazy UG loader is used, ask it to render current tab
             if (typeof window.ARSH_UG_render === 'function') { try { window.ARSH_UG_render('groups'); } catch(_){ } }
             appendOut('باز شد: کاربران');
             saveHist(cmd, 'در حال باز کردن کاربران…\nباز شد: کاربران');
             notify('باز شد', 'success');
-            return;
           } catch(_){ }
+          return;
+        }
+        // Quick add field intents
+        // Map Persian commands to field types
+        var mapAdd = [
+          { re: /(افزودن|اضافه کن|یک)\s*(سوال|پرسش)\s*(کوتاه|پاسخ کوتاه)/i, type:'short_text' },
+          { re: /(افزودن|اضافه کن|یک)\s*(سوال|پرسش)\s*(طولانی|پاسخ طولانی)/i, type:'long_text' },
+          { re: /(افزودن|اضافه کن|یک)\s*(سوال|پرسش)\s*(چند\s*گزینه|چندگزینه)/i, type:'multiple_choice' },
+          { re: /(افزودن|اضافه کن|یک)\s*(سوال|پرسش)\s*(لیست|کشویی|لیست کشویی)/i, type:'dropdown' },
+          { re: /(افزودن|اضافه کن|یک)\s*(امتیاز|رتبه|ستاره)/i, type:'rating' },
+          { re: /(افزودن|اضافه کن|یک)\s*(پیام)\s*(خوش\s*آمد|خوشامد|خوش آمد)/i, type:'welcome' },
+          { re: /(افزودن|اضافه کن|یک)\s*(پیام)\s*(تشکر|سپاس)/i, type:'thank_you' }
+        ];
+        for (var k=0; k<mapAdd.length; k++){
+          if (mapAdd[k].re.test(c)){
+            // Must be on builder page with a form id in hash
+            var hh = (location.hash||'').replace('#','').split('/');
+            if (hh[0] === 'builder' && hh[1]){
+              var fid = parseInt(hh[1]||'0');
+              if (!isNaN(fid) && fid>0 && typeof window.addNewField === 'function'){
+                window.addNewField(fid, mapAdd[k].type);
+                appendOut('در حال افزودن '+mapAdd[k].type+'…');
+                saveHist(cmd, 'در حال افزودن فیلد');
+                notify('افزوده شد', 'success');
+                return;
+              }
+            }
+            // If not on builder, try to open last opened form builder
+            appendOut('ابتدا وارد صفحه ویرایش فرم شوید، سپس دوباره تلاش کنید.');
+            notify('ابتدا صفحه ویرایش فرم را باز کنید', 'warn');
+            return;
+          }
         }
       } catch(_){ }
       try {

@@ -150,7 +150,7 @@
       // Nested route: users/ug => گروه‌های کاربری
   var seg1 = (parts[1]||'').split('?')[0];
   if (parts[0]==='users' && seg1==='ug'){ renderUsersUG(); return; }
-      if (['dashboard','forms','reports','users'].includes(parts[0])){ arRenderTab(parts[0]); return; }
+  if (['dashboard','forms','reports','users','settings','messaging'].includes(parts[0])){ arRenderTab(parts[0]); return; }
       if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
       if (parts[0]==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id2, idx:idx, parts:parts }); if (id2) { renderFormEditor(id2, { index: isNaN(idx)?0:idx }); return; } }
       if (parts[0]==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { renderFormPreview(id3); return; } }
@@ -196,7 +196,21 @@
       sidebarToggle.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); tgl(); }});
     }
 
-    function setActive(tab){ links.forEach(function(a){ if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active'); }); }
+    function setActive(tab){
+      links.forEach(function(a){
+        var isActive = a.getAttribute('data-tab') === tab || (
+          // Treat nested routes like users/ug as users
+          (tab && tab.indexOf('users') === 0 && a.getAttribute('data-tab') === 'users')
+        );
+        if (isActive){
+          a.classList.add('active');
+          try { a.setAttribute('aria-current', 'page'); } catch(_){ }
+        } else {
+          a.classList.remove('active');
+          try { a.removeAttribute('aria-current'); } catch(_){ }
+        }
+      });
+    }
     function getTypeIcon(type){ switch(type){ case 'short_text': return 'create-outline'; case 'long_text': return 'newspaper-outline'; case 'multiple_choice': case 'multiple-choice': return 'list-outline'; case 'dropdown': return 'chevron-down-outline'; case 'welcome': return 'happy-outline'; case 'thank_you': return 'checkmark-done-outline'; default: return 'help-circle-outline'; } }
     function getTypeLabel(type){ switch(type){ case 'short_text': return 'پاسخ کوتاه'; case 'long_text': return 'پاسخ طولانی'; case 'multiple_choice': case 'multiple-choice': return 'چندگزینه‌ای'; case 'dropdown': return 'لیست کشویی'; case 'welcome': return 'پیام خوش‌آمد'; case 'thank_you': return 'پیام تشکر'; default: return 'نامشخص'; } }
     function card(title, subtitle, icon){ var ic = icon ? ('<span style="font-size:22px;margin-inline-start:.4rem;opacity:.85">'+icon+'</span>') : ''; return '<div class="card glass" style="display:flex;align-items:center;gap:.6rem;">'+ic+'<div><div class="title">'+title+'</div><div class="hint">'+(subtitle||'')+'</div></div></div>'; }
@@ -269,7 +283,7 @@
     // Centralized tab renderer (ported from template)
     function renderTab(tab){
       try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-      try { if (['dashboard','forms','reports','users','settings'].includes(tab)) setHash(tab); } catch(_){ }
+      try { if (['dashboard','forms','reports','users','settings','messaging'].includes(tab)) setHash(tab); } catch(_){ }
       try { setSidebarClosed(false, false); } catch(_){ }
       setActive(tab);
       var content = document.getElementById('arshlineDashboardContent');
@@ -458,6 +472,117 @@
           load(30);
           try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = (chart && chart.config && chart.config.data && chart.config.data.labels) || []; var v = (chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data) || []; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
         })();
+      } else if (tab === 'messaging'){
+        // Messaging: split into sub-sections (tabs):
+        // - sms: sending UI
+        // - settings: nested tabs, starting with "تنظیمات پیامک"
+        var qs = new URLSearchParams((location.hash.split('?')[1]||''));
+        var mtab = qs.get('tab') || 'sms'; // sms | settings
+        var msub = qs.get('sub') || 'sms-settings';
+
+        function setMsgHash(tab, sub){
+          try { setHash('messaging' + (tab? ('?tab='+encodeURIComponent(tab) + (sub? ('&sub='+encodeURIComponent(sub)) : '')) : '')); } catch(_){ }
+        }
+
+        content.innerHTML = ''+
+          '<div class="card glass" style="padding:1rem;display:flex;flex-direction:column;gap:.8rem">'
+          + '  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
+          + '    <button class="ar-btn ar-btn--soft" data-m-tab="sms">پیامک</button>'
+          + '    <button class="ar-btn ar-btn--soft" data-m-tab="settings">تنظیمات</button>'
+          + '  </div>'
+          + '  <div id="arMsg_SMS" class="m-panel" style="display:none">'
+          + '    <div class="title" style="margin-bottom:.4rem">ارسال پیامک به گروه‌های کاربری</div>'
+          + '    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem">'
+          + '      <label class="ar-field"><span class="ar-label">گروه‌ها</span><select id="smsGroups" class="ar-select" multiple size="6"></select></label>'
+          + '      <label class="ar-field"><span class="ar-label">فرم (اختیاری برای لینک شخصی)</span><select id="smsForm" class="ar-select"><option value="">— بدون لینک —</option></select></label>'
+          + '    </div>'
+          + '    <label class="ar-field"><span class="ar-label">متن پیام</span><textarea id="smsMessage" class="ar-input" rows="4" placeholder="مثال: سلام #name، لطفاً فرم زیر را تکمیل کنید: #link"></textarea></label>'
+          + '    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">'
+          + '      <label class="ar-field"><span class="ar-label">زمان‌بندی (اختیاری)</span><input id="smsSchedule" class="ar-input" placeholder="YYYY-MM-DD HH:MM" /></label>'
+          + '      <button id="smsSend" class="ar-btn">ارسال</button>'
+          + '      <span class="hint">متغیرها: #name، #phone، #link و فیلدهای سفارشی گروه</span>'
+          + '    </div>'
+          + '  </div>'
+          + '  <div id="arMsg_Settings" class="m-panel" style="display:none">'
+          + '    <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">'
+          + '      <button class="ar-btn ar-btn--soft" data-ms-tab="sms-settings">تنظیمات پیامک</button>'
+          + '    </div>'
+          + '    <div id="arMsgS_SmsSettings" class="ms-panel" style="display:none">'
+          + '      <div class="hint" style="margin-bottom:.6rem">پیکربندی اتصال به سرویس SMS.IR</div>'
+          + '      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem">'
+          + '        <label class="ar-field"><span class="ar-label">فعال</span><input id="smsEnabled" type="checkbox" class="ar-input" /></label>'
+          + '        <label class="ar-field"><span class="ar-label">کلید API</span><input id="smsApiKey" class="ar-input" placeholder="API Key" /></label>'
+          + '        <label class="ar-field"><span class="ar-label">شماره خط</span><input id="smsLine" class="ar-input" placeholder="3000..." /></label>'
+          + '      </div>'
+          + '      <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">'
+          + '        <button id="smsSave" class="ar-btn">ذخیره</button>'
+          + '        <button id="smsTest" class="ar-btn ar-btn--soft">تست</button>'
+          + '        <input id="smsTestPhone" class="ar-input" placeholder="شماره تست (اختیاری)" style="max-width:220px" />'
+          + '      </div>'
+          + '    </div>'
+          + '  </div>'
+          + '</div>';
+
+        // Tab handlers
+        (function(){
+          function showMain(which){ ['sms','settings'].forEach(function(k){ var el = document.getElementById('arMsg_'+k.toUpperCase()); if (el) el.style.display = (which===k)?'block':'none'; });
+            var btns = content.querySelectorAll('[data-m-tab]'); btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-m-tab')===which); }); }
+          function showSettings(sub){ var panels = { 'sms-settings': 'arMsgS_SmsSettings' }; Object.keys(panels).forEach(function(k){ var el = document.getElementById(panels[k]); if (el) el.style.display = (k===sub)?'block':'none'; });
+            var sbtns = content.querySelectorAll('[data-ms-tab]'); sbtns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-ms-tab')===sub); }); }
+          var mBtns = content.querySelectorAll('[data-m-tab]'); mBtns.forEach(function(b){ b.addEventListener('click', function(){ mtab = b.getAttribute('data-m-tab')||'sms'; setMsgHash(mtab, mtab==='settings'? msub : ''); showMain(mtab); }); });
+          var sBtns = content.querySelectorAll('[data-ms-tab]'); sBtns.forEach(function(b){ b.addEventListener('click', function(){ msub = b.getAttribute('data-ms-tab')||'sms-settings'; setMsgHash('settings', msub); showSettings(msub); }); });
+          // init
+          showMain(mtab);
+          if (mtab==='settings'){ showSettings(msub); }
+        })();
+
+        // Load settings (for settings tab)
+        fetch(ARSHLINE_REST + 'sms/settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+          .then(function(r){ return r.json(); })
+          .then(function(s){ try { var en=document.getElementById('smsEnabled'); if(en) en.checked = !!s.enabled; var ak=document.getElementById('smsApiKey'); if(ak) ak.value = s.api_key||''; var ln=document.getElementById('smsLine'); if(ln) ln.value = s.line_number||''; } catch(_){ } })
+          .catch(function(){ /* ignore */ });
+
+        // Load groups (for sms tab)
+        fetch(ARSHLINE_REST + 'user-groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+          .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+          .then(function(gs){ var el = document.getElementById('smsGroups'); if (!el) return; el.innerHTML = (gs||[]).map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); })
+          .catch(function(){ notify('بارگذاری گروه‌ها ناموفق بود', 'error'); });
+        // Load forms (for link)
+        fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+          .then(function(r){ return r.json(); })
+          .then(function(fs){ var el = document.getElementById('smsForm'); if (!el) return; (fs||[]).forEach(function(f){ el.insertAdjacentHTML('beforeend', '<option value="'+f.id+'">#'+f.id+' - '+escapeHtml(String(f.title||''))+'</option>'); }); })
+          .catch(function(){ /* ignore */ });
+
+        // Save settings
+        var btnSave = document.getElementById('smsSave'); if (btnSave) btnSave.addEventListener('click', function(){
+          var payload = { enabled: !!(document.getElementById('smsEnabled')&&document.getElementById('smsEnabled').checked), api_key: String((document.getElementById('smsApiKey')&&document.getElementById('smsApiKey').value)||''), line_number: String((document.getElementById('smsLine')&&document.getElementById('smsLine').value)||'') };
+          fetch(ARSHLINE_REST + 'sms/settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
+            .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+            .then(function(){ notify('تنظیمات پیامک ذخیره شد', 'success'); })
+            .catch(function(){ notify('ذخیره تنظیمات پیامک ناموفق بود', 'error'); });
+        });
+        // Test send
+        var btnTest = document.getElementById('smsTest'); if (btnTest) btnTest.addEventListener('click', function(){
+          var phEl = document.getElementById('smsTestPhone'); var ph = String(phEl && phEl.value || '').trim();
+          fetch(ARSHLINE_REST + 'sms/test', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ phone: ph }) })
+            .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+            .then(function(){ notify('تست موفق بود', 'success'); })
+            .catch(function(){ notify('تست ناموفق بود', 'error'); });
+        });
+        // Send to groups
+        var btnSend = document.getElementById('smsSend'); if (btnSend) btnSend.addEventListener('click', function(){
+          var groupsSel = document.getElementById('smsGroups'); var formSel = document.getElementById('smsForm'); var msgEl = document.getElementById('smsMessage'); var schEl = document.getElementById('smsSchedule');
+          var gids = []; try { gids = Array.from(groupsSel && groupsSel.selectedOptions || []).map(function(o){ return parseInt(o.value||'0'); }).filter(function(x){ return x>0; }); } catch(_){ }
+          var fid = parseInt((formSel && formSel.value)||'0')||0; var includeLink = fid>0;
+          var message = (msgEl && msgEl.value)||''; var schedule_at = (schEl && schEl.value)||'';
+          if (!gids.length){ notify('حداقل یک گروه را انتخاب کنید', 'warn'); return; }
+          if (!message.trim()){ notify('متن پیام خالی است', 'warn'); return; }
+          var payload = { group_ids: gids, message: message, include_link: includeLink, form_id: includeLink? fid: undefined, schedule_at: schedule_at||undefined };
+          fetch(ARSHLINE_REST + 'sms/send', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
+            .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); })
+            .then(function(res){ if (res.ok){ if (res.body && res.body.job_id){ notify('در صف ارسال قرار گرفت (#'+res.body.job_id+')', 'success'); } else { notify('ارسال انجام شد: '+(res.body && res.body.sent || 0), 'success'); } } else { notify('ارسال ناموفق بود', 'error'); } })
+            .catch(function(){ notify('خطا در ارسال پیامک', 'error'); });
+        });
       } else if (tab === 'users'){
         // Users landing with subsection link to گروه‌های کاربری
         var ugHref = '#users/ug?tab=groups';
@@ -553,6 +678,7 @@
       try { setHash('results/'+formId); } catch(_){ }
       content.innerHTML = '<div class="card glass" style="padding:1rem;">\
         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap;">\
+          <button id="arResultsBack" class="ar-btn ar-btn--muted">بازگشت</button>\
           <span class="title">نتایج فرم #'+formId+'</span>\
         </div>\
         <div id="arFieldFilters" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem;align-items:center">\
@@ -571,6 +697,12 @@
         </div>\
         <div id="arSubsList"></div>\
       </div>';
+      // Back button wiring: go back to Forms and keep sidebar state consistent
+      try {
+        var backBtn = document.getElementById('arResultsBack');
+        if (backBtn){ backBtn.addEventListener('click', function(){ try { if (typeof setHash==='function') setHash('forms'); else { location.hash = '#forms'; } } catch(_){ } arRenderTab('forms'); }); }
+      } catch(_){ }
+      try { if (typeof setActive === 'function') setActive('forms'); } catch(_){ }
       var expCsv = document.getElementById('arSubExportCsv');
       var expXls = document.getElementById('arSubExportXls');
       var selField = document.getElementById('arFieldSelect');
@@ -793,8 +925,17 @@
             try { var last = arr[arr.length-1]; var lp = last && (last.props||last); if (lp && (lp.type||last.type)==='thank_you' && at >= arr.length) at = arr.length - 1; } catch(_){ }
             arr.splice(at, 0, edited);
           } else {
-            if (idx >=0 && idx < arr.length) { arr[idx] = edited; }
-            else { arr.push(edited); }
+            // Preserve ID and update instead of creating duplicates
+            if (idx >= 0 && idx < arr.length){
+              try { var orig = arr[idx]; var origId = (orig && typeof orig.id !== 'undefined') ? orig.id : (orig && orig.props && typeof orig.props.id !== 'undefined' ? orig.props.id : undefined); if (typeof origId !== 'undefined') edited.id = origId; } catch(_){ }
+              arr[idx] = edited;
+            } else {
+              // If index out of range, update last non-thank-you field
+              var lastIdx = -1; for (var i = arr.length - 1; i >= 0; i--){ var pp = arr[i] && (arr[i].props || arr[i]); if ((pp && (pp.type||'') !== 'thank_you') || !pp){ lastIdx = i; break; } }
+              if (lastIdx >= 0){ try { var orig2 = arr[lastIdx]; var orig2Id = (orig2 && typeof orig2.id !== 'undefined') ? orig2.id : (orig2 && orig2.props && typeof orig2.props.id !== 'undefined' ? orig2.props.id : undefined); if (typeof orig2Id !== 'undefined') edited.id = orig2Id; } catch(_){ }
+                arr[lastIdx] = edited; }
+              else { arr.push(edited); }
+            }
           }
           dlog('saveFields:payload', arr);
           return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
