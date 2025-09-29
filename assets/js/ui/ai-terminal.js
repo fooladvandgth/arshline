@@ -408,6 +408,14 @@
       // Client-side smart intents for common Persian routes
       try {
         var c = cmd.replace(/[\s\u200c\u200d]+/g,' ').trim();
+        // If the command includes opening Forms, proactively navigate but continue
+        try {
+          var reForms = /(برو\s*(?:به)?\s*)?(?:منوی\s*)?فرم(?:\s*ها|ها)?/i;
+          if (reForms.test(c)){
+            if (typeof window.setHash === 'function') { setHash('forms'); } else { try { location.hash = '#forms'; } catch(_){ } }
+            if (typeof window.renderTab === 'function') { try { window.renderTab('forms'); } catch(_){ } }
+          }
+        } catch(_){ }
         // examples: "برو به گروه های کاربری" , "گروه‌های کاربری" , "کاربران/گروه‌ها"
         var reUG = /(برو\s*به\s*)?(گروه[\u200c\u200d\s-]*های\s*کاربری|گروه\s*های\s*کاربری|گروه‌های\s*کاربری|گروه ها?ی کاربری|کاربران\s*\/\s*گروه‌ها?)/i;
         if (reUG.test(c)){
@@ -471,10 +479,12 @@
         var txt = ''; try { txt = await r.clone().text(); } catch(_){ }
         var j = null; try { j = txt ? JSON.parse(txt) : await r.json(); } catch(_){ }
         try { console.debug(LOG_MARK+'[ARSH][AI] response', { status:r.status, body:j||txt }); } catch(_){ }
-        var friendly = humanizeResponse(j, txt, r.ok);
-        appendOut(friendly);
+  var friendly = humanizeResponse(j, txt, r.ok);
+  // Avoid double-printing preview: handleAgentAction will render preview + buttons once
+  var isPreview = !!(j && j.action === 'preview' && j.plan && Array.isArray(j.plan.steps));
+  if (!isPreview) { appendOut(friendly); }
         saveHist(cmd, friendly);
-        if (r.ok && j && j.ok !== false){ handleAgentAction(j); notify('انجام شد', 'success'); } else { notify('اجرا ناموفق بود', 'error'); }
+  if (r.ok && j && j.ok !== false){ handleAgentAction(j); notify('انجام شد', 'success'); } else { notify('اجرا ناموفق بود', 'error'); }
         if (j && j.undo_token){ lastServerUndoToken = String(j.undo_token||''); attachUndoUI(j.undo_token); logConsole('Server undo token', lastServerUndoToken); }
       } catch(e){ appendOut(String(e)); notify('خطا در اجرای دستور', 'error'); }
     }

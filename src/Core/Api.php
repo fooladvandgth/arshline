@@ -1665,7 +1665,7 @@ class Api
             // Add field (short_text) — examples:
             // "(یک )?سوال (پاسخ کوتاه|کوتاه|short_text) (در فرم (\d+|{title}))? اضافه کن|بساز"
             // New phrasing support: "افزودن سوال پاسخ کوتاه (به|در) فرم X"
-            if (preg_match('/^(?:یک\s*)?سوال\s*(?:پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)\s*(?:را|رو)?\s*(?:اضافه\s*کن|بساز)(?:\s*در\s*فرم\s*(.+))?$/iu', $cmd, $m)
+            if (preg_match('/^(?:یه|یک)?\s*سوال\s*(?:پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)\s*(?:را|رو)?\s*(?:اضافه\s*کن|بساز)(?:\s*در\s*فرم\s*(.+))?$/iu', $cmd, $m)
                 || preg_match('/^(?:افزودن|اضافه\s*کردن)\s*سوال\s*(?:پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)(?:\s*(?:به|در)\s*فرم\s*(.+))?$/iu', $cmd, $m)){
                 $target = isset($m[1]) ? trim((string)$m[1]) : '';
                 $fid = 0;
@@ -2728,8 +2728,18 @@ class Api
         } elseif (preg_match('/با\s*(?:عنوان|نام)\s*(.+?)(?=\s*(?:بساز|ایجاد\s*کن)|[،,]|$)/u', $sep, $m)){
             $title = trim((string)$m[1]);
         }
-        // Clean wrapping quotes/half-space
+        // Clean wrapping quotes/half-space and cut trailing verbs/noise if any leaked in
         $title = trim($title, " \"'\x{200C}\x{200F}");
+        if ($title !== ''){
+            // Stop at first occurrence of verbs or separators that indicate end of title
+            $title = preg_replace('/\s*(?:بساز|ایجاد\s*کن|اضافه\s*کن|سوال|پرسش)(.|\n)*$/u', '', $title);
+            $title = trim($title);
+        }
+        // Extract an explicit question text if provided, e.g., "متن سوال این باشه: X" or "سوال این باشه: X"
+        $question = '';
+        if (preg_match('/(?:متن\s*(?:سوال|پرسش)|(?:سوال|پرسش)\s*متن|(?:سوال|پرسش))\s*(?:این\s*باشه|باشد|باشه)?\s*[:\-]?\s*"?(.+?)"?(?=[،,]|$)/u', $sep, $mq)){
+            $question = trim((string)$mq[1], " \"'\x{200C}\x{200F}");
+        }
         if ($title === ''){
             $title = apply_filters('arshline_ai_new_form_default_title', 'فرم جدید');
         }
@@ -2754,7 +2764,9 @@ class Api
         $maxN = max(1, min(12, (int) apply_filters('arshline_ai_plan_internal_max_fields', 6)));
         $n = min(max(0, $count), $maxN);
         for ($i=0; $i<$n; $i++){
-            $steps[] = [ 'action' => 'add_field', 'params' => [ 'type' => $type ] ];
+            $p = [ 'type' => $type ];
+            if ($i === 0 && $question !== ''){ $p['question'] = mb_substr($question, 0, 200); }
+            $steps[] = [ 'action' => 'add_field', 'params' => $p ];
         }
         return [ 'version' => 1, 'steps' => $steps ];
     }
