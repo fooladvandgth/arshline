@@ -2706,21 +2706,21 @@ class Api
         // Detect intent to create a new form — tolerate interleaving "با عنوان ..." before the verb
         $hasCreate =
             // "فرم جدید ... بساز/ایجاد کن"
-            preg_match('/\bفرم\s*جدید(?:\s*با\s*(?:عنوان|نام)\s*.+?)?\s*(?:را|رو)?\s*(?:بساز|ایجاد\s*کن)\b/u', $sep) === 1
-            // "یک فرم جدید ... بساز/ایجاد کن"
-            || preg_match('/\b(?:یه|یک)\s*فرم\s*جدید(?:\s*با\s*(?:عنوان|نام)\s*.+?)?\s*(?:را|رو)?\s*(?:بساز|ایجاد\s*کن)\b/u', $sep) === 1
+            preg_match('/فرم\s*جدید(?:\s*با\s*(?:عنوان|نام)\s*.+?)?\s*(?:را|رو)?\s*(?:بساز|ایجاد\s*کن)/u', $sep) === 1
+            // "یک/یه فرم جدید ... بساز/ایجاد کن"
+            || preg_match('/(?:یه|یک)\s*فرم\s*جدید(?:\s*با\s*(?:عنوان|نام)\s*.+?)?\s*(?:را|رو)?\s*(?:بساز|ایجاد\s*کن)/u', $sep) === 1
             // Verb-first
-            || preg_match('/\b(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید\b/u', $sep) === 1
-            // Minimal: just "فرم جدید"
-            || preg_match('/(^|\s)فرم\s*جدید($|\s)/u', $sep) === 1
+            || preg_match('/(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید/u', $sep) === 1
+            // Minimal: just "فرم جدید" anywhere
+            || preg_match('/فرم\s*جدید/u', $sep) === 1
             // Explicit: "ایجاد فرم با عنوان X"
-            || preg_match('/\bایجاد\s*فرم\s*با\s*(?:عنوان|نام)\b/u', $sep) === 1;
+            || preg_match('/ایجاد\s*فرم\s*با\s*(?:عنوان|نام)/u', $sep) === 1;
         if (!$hasCreate) return null;
         // Extract a title if present: patterns like "اسم(ش| فرم) را X بگذار/بذار" or "با عنوان X"
         $title = '';
         if (preg_match('/(?:اسم(?:\s*فرم)?|عنوان(?:\s*فرم)?|نام(?:\s*فرم)?)\s*(?:را|رو)?\s*(.+?)\s*(?:بگذار|بذار|قرار\s*ده|کن)/u', $sep, $m)){
             $title = trim((string)$m[1]);
-        } elseif (preg_match('/با\s*(?:عنوان|نام)\s*(.+?)(?:\s|،|,|$)/u', $sep, $m)){
+        } elseif (preg_match('/با\s*(?:عنوان|نام)\s*(.+?)(?=\s*(?:بساز|ایجاد\s*کن)|[،,]|$)/u', $sep, $m)){
             $title = trim((string)$m[1]);
         }
         // Clean wrapping quotes/half-space
