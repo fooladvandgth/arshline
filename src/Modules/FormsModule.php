@@ -46,14 +46,90 @@ class FormsModule
             // Fallback: if dbDelta didn't add the column (environment differences), use ALTER TABLE
             $col2 = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'public_token'));
             if (!$col2) {
+                // Extra safety: Validate table identifier strictly to avoid injection via unexpected prefixes.
+                // We cannot parameterize identifiers with $wpdb->prepare, so we whitelist characters and backtick-quote.
+                $safeTable = preg_replace('/[^A-Za-z0-9_]/', '', (string)$table);
+                if ($safeTable === '' || $safeTable !== $table) {
+                    // If sanitization changed the name, bail to avoid risky query on an unexpected identifier.
+                    return;
+                }
                 // Add column
-                $wpdb->query("ALTER TABLE `{$table}` ADD `public_token` VARCHAR(24) NULL");
+                $wpdb->query("ALTER TABLE `{$safeTable}` ADD `public_token` VARCHAR(24) NULL");
                 // Add unique index if missing
-                $idx = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM `{$table}` WHERE Key_name = %s", 'public_token_unique'));
+                $idx = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM `{$safeTable}` WHERE Key_name = %s", 'public_token_unique'));
                 if (!$idx) {
-                    $wpdb->query("ALTER TABLE `{$table}` ADD UNIQUE KEY `public_token_unique` (`public_token`)");
+                    $wpdb->query("ALTER TABLE `{$safeTable}` ADD UNIQUE KEY `public_token_unique` (`public_token`)");
                 }
             }
         }
+
+        // Ensure status column exists (default 'draft') and normalize existing rows
+        $hasStatus = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'status'));
+        if (!$hasStatus) {
+            $sql = Migrations::up()['forms'] ?? '';
+            if ($sql) {
+                $sql = str_replace('{prefix}', $wpdb->prefix, $sql);
+                require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+                dbDelta($sql);
+            }
+            $hasStatus2 = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'status'));
+            if (!$hasStatus2) {
+                $safeTable = preg_replace('/[^A-Za-z0-9_]/', '', (string)$table);
+                if ($safeTable === '' || $safeTable !== $table) { return; }
+                $wpdb->query("ALTER TABLE `{$safeTable}` ADD `status` VARCHAR(20) DEFAULT 'draft'");
+            }
+        }
+        // Normalize invalid/NULL statuses to 'draft'
+        try {
+            $wpdb->query("UPDATE {$table} SET status='draft' WHERE status IS NULL OR status='' ");
+        } catch (\Throwable $e) { /* ignore */ }
+
+        // Ensure new module tables exist (user groups, mapping). If plugin was activated before these tables
+        // were introduced, they may be missing in existing installs.
+        $required = [ 'user_groups', 'user_group_fields', 'user_group_members', 'form_group_access' ];
+        $missing = [];
+        foreach ($required as $key){
+            $t = Helpers::tableName($key);
+            $ex = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $t));
+            if ($ex !== $t) { $missing[] = $key; }
+        }
+        if (!empty($missing)){
+            $defs = Migrations::up();
+            require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+            foreach ($missing as $k){
+                if (!empty($defs[$k])){
+                    $sql = str_replace('{prefix}', $wpdb->prefix, $defs[$k]);
+                    dbDelta($sql);
+                }
+            }
+        }
+
+        // Lightweight schema upgrade for user_groups: ensure parent_id exists
+        try {
+            $ug = Helpers::tableName('user_groups');
+            $col = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$ug} LIKE %s", 'parent_id'));
+            if (!$col){
+                // Try dbDelta with latest DDL
+                $sql = Migrations::up()['user_groups'] ?? '';
+                if ($sql) {
+                    $sql = str_replace('{prefix}', $wpdb->prefix, $sql);
+                    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+                    dbDelta($sql);
+                }
+                // Fallback: ALTER TABLE add column, index, and FK (if supported)
+                $col2 = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$ug} LIKE %s", 'parent_id'));
+                if (!$col2){
+                    $safe = preg_replace('/[^A-Za-z0-9_]/', '', (string)$ug);
+                    if ($safe && $safe === $ug){
+                        $wpdb->query("ALTER TABLE `{$safe}` ADD `parent_id` BIGINT UNSIGNED NULL AFTER `name`");
+                        // index
+                        $idx = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM `{$safe}` WHERE Key_name = %s", 'parent_idx'));
+                        if (!$idx) { $wpdb->query("ALTER TABLE `{$safe}` ADD KEY `parent_idx` (`parent_id`)"); }
+                        // best-effort FK (may fail silently on some MySQL modes)
+                        try { $wpdb->query("ALTER TABLE `{$safe}` ADD CONSTRAINT `fk_user_groups_parent` FOREIGN KEY (`parent_id`) REFERENCES `{$safe}`(`id`) ON DELETE SET NULL"); } catch (\Throwable $e) { /* ignore */ }
+                    }
+                }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
     }
 }

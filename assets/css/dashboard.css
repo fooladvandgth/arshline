@@ -56,7 +56,7 @@
             --glow-accent: 0 0 0 3px rgba(0,255,149,.22), 0 14px 34px rgba(0,229,255,.34);
         }
         body {
-            margin: 0; padding: 0; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif; 
+            margin: 0; padding: 0; font-family: 'Vazir', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif; 
             background: var(--bg-surface);
             color: var(--text); transition: background .3s, color .3s;
         }
@@ -86,8 +86,9 @@
         /* add extra breathing room from the right edge when collapsed (RTL) */
         [dir='rtl'] .arshline-sidebar.closed nav { padding-inline-end: 12px; }
         [dir='ltr'] .arshline-sidebar.closed nav { padding-inline-start: 12px; }
-    [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 50px; }
-    [dir='ltr'] .arshline-sidebar.closed nav a .ic { margin-left: 50px; }
+    /* When collapsed, center icons without extra margin */
+    [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 0; }
+    [dir='ltr'] .arshline-sidebar.closed nav a .ic { margin-left: 0; }
         .arshline-sidebar nav a .label { white-space: nowrap; transition: opacity .18s ease, transform .18s ease; }
         .arshline-sidebar.closed nav a { justify-content: center; }
         .arshline-sidebar.closed nav a .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
@@ -96,7 +97,7 @@
 	.arshline-sidebar nav a.active { background: var(--primary); color: #fff; border: 0; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
 	.arshline-sidebar nav a:hover { background: rgba(37,99,255,.18); color: #0b1220; box-shadow: 0 8px 20px rgba(37,99,255,.18); }
         .arshline-sidebar .toggle { 
-            margin: 0 1.25rem 1rem 1.25rem; cursor: pointer; color: var(--muted); font-size: 1rem; text-align: center; background: transparent; border: 1px solid var(--border); padding: .35rem .55rem; border-radius: 10px; display:flex; align-items:center; justify-content:center; gap:.4rem; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif;
+            margin: 0 1.25rem 1rem 1.25rem; cursor: pointer; color: var(--muted); font-size: 1rem; text-align: center; background: transparent; border: 1px solid var(--border); padding: .35rem .55rem; border-radius: 10px; display:flex; align-items:center; justify-content:center; gap:.4rem; font-family: 'Vazir', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif;
         }
         .arshline-sidebar .toggle:hover { background: rgba(37,99,255,.08); }
         .arshline-sidebar .toggle .chev { display:inline-block; transition: transform .2s ease; line-height: 1; font-size: 18px; }
@@ -108,15 +109,13 @@
         }
     /* Sun/Moon Toggle */
     .theme-toggle { --w: 56px; --h: 30px; position: relative; width: var(--w); height: var(--h); border-radius: 999px; background: linear-gradient(135deg, #60a5fa, #0ea5e9); display:inline-flex; align-items:center; padding: 3px; cursor: pointer; box-shadow: var(--shadow-card); border:1px solid var(--border); }
-    .theme-toggle .knob { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s ease, background .25s ease; box-shadow: 0 4px 10px rgba(0,0,0,.15); }
+    .theme-toggle .knob { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s ease, background .25s ease; box-shadow: 0 4px 10px rgba(0,0,0,.15); left: 3px; }
     .theme-toggle .sun, .theme-toggle .moon { font-size: 14px; color: #fff; opacity: .9; }
     .theme-toggle .sun { margin-inline-start: 9px; }
     .theme-toggle .moon { margin-inline-end: 9px; margin-inline-start: auto; }
     body.dark .theme-toggle { background: linear-gradient(135deg, #312e81, #0f172a); }
-    /* knob translate differs in RTL */
-    [dir='rtl'] body:not(.dark) .theme-toggle .knob { transform: translateX(-0px); }
-    [dir='rtl'] body.dark .theme-toggle .knob { transform: translateX(26px); }
-    [dir='ltr'] body.dark .theme-toggle .knob { transform: translateX(-26px); }
+    /* knob position: start on left in light; slide to right in dark */
+    body.dark .theme-toggle .knob { transform: translateX(calc(var(--w) - 3px - 24px)); }
     .ar-btn { cursor:pointer; font-weight:700; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.55rem .95rem; box-shadow: 0 8px 18px rgba(0,0,0,.12); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; font-family: inherit; letter-spacing:.2px; text-decoration:none; display:inline-flex; align-items:center; gap:.35rem; line-height:1.1; }
     .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.18); }
     .ar-btn:disabled { opacity:.6; cursor:not-allowed; box-shadow:none; }
@@ -127,6 +126,8 @@
     .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
     .ar-input::placeholder { color: var(--muted); opacity: .85; }
     .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    /* Ensure toolbar controls sit side-by-side (don’t stretch 100%) */
+    #arFormSearch, #arFormStatusFilter { width: auto; flex: 0 0 auto; }
     .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
     .ar-dnd-ghost { opacity:.6; transform: scale(.98); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
     .ar-dnd-over { outline: none; background: transparent; }
@@ -198,3 +199,393 @@
     .ar-input--invalid { border-color: #b91c1c !important; box-shadow: 0 0 0 3px rgba(185,28,28,.12); }
     .ar-required { color:#b91c1c; margin: 0 .2rem; font-weight: 700; }
     .ar-field-error { color:#b91c1c; margin-top:.3rem; display:none; }
+
+    /* Card glassmorphism styles */
+    .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: var(--shadow-card);
+        transition: all 0.2s ease;
+    }
+    
+    .card.glass {
+        background: var(--glass-a);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--glass-border);
+    }
+    
+    .card--static {
+        transition: none;
+    }
+    
+    /* Typography */
+    .title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text);
+        margin: 0;
+        line-height: 1.2;
+    }
+    
+    .hint {
+        font-size: 0.9rem;
+        color: var(--muted);
+        margin: 0;
+        line-height: 1.4;
+    }
+    
+    /* Field styling */
+    .field {
+        margin-bottom: 1rem;
+    }
+    
+    .field label {
+        display: block;
+        margin-bottom: 0.25rem;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--text);
+    }
+    
+    /* Toggle switch base */
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 24px;
+    }
+    
+    .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    
+    .toggle-switch-background {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--muted);
+        border-radius: 24px;
+        transition: .2s;
+    }
+    
+    .toggle-switch-handle {
+        position: absolute;
+        cursor: pointer;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        background-color: white;
+        border-radius: 50%;
+        transition: .2s;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    .toggle-switch input:checked + .toggle-switch-background {
+        background-color: var(--primary);
+    }
+    
+    .toggle-switch input:checked + .toggle-switch-background + .toggle-switch-handle {
+        transform: translateX(20px);
+    }
+    
+    /* Table styles */
+    .ar-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--surface);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .ar-table th,
+    .ar-table td {
+        padding: 0.75rem;
+        text-align: right;
+        border-bottom: 1px solid var(--border);
+    }
+    
+    .ar-table th {
+        background: var(--bg-surface);
+        font-weight: 600;
+        color: var(--text);
+    }
+    
+    .ar-table tbody tr:hover {
+        background: rgba(30, 64, 175, 0.05);
+    }
+    
+    .ar-th-draggable {
+        cursor: grab;
+        user-select: none;
+        position: relative;
+    }
+    
+    .ar-th-draggable:active {
+        cursor: grabbing;
+    }
+    
+    .ar-th-drag-over {
+        background: rgba(30, 64, 175, 0.1);
+    }
+    
+    /* Actions styling */
+    .actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-start;
+    }
+    
+    /* Wrap/nowrap utilities */
+    .ar-wrap {
+        white-space: normal;
+        word-break: break-word;
+    }
+    
+    .ar-nowrap {
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    
+    .ar-nowrap .ar-table {
+        table-layout: fixed;
+    }
+    
+    .ar-nowrap .ar-table td,
+    .ar-nowrap .ar-table th {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    /* Rating component */
+    .ar-rating-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    
+    .ar-rating-icon {
+        cursor: pointer;
+        transition: color 0.2s ease, transform 0.1s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .ar-rating-icon:hover {
+        transform: scale(1.1);
+    }
+    
+    /* AI Floating Terminal */
+    .ar-ai-fab {
+        position: fixed;
+        bottom: 2rem;
+        left: 2rem;
+        background: var(--primary);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: var(--shadow-card);
+        transition: all 0.2s ease;
+        z-index: 1000;
+        font-family: inherit;
+    }
+    
+    .ar-ai-fab:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-primary);
+    }
+    
+    .ar-ai-panel {
+        position: fixed;
+        bottom: 2rem;
+        left: 2rem;
+        width: 400px;
+        max-height: 500px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: var(--shadow-card);
+        transform: translateY(100%) scale(0.95);
+        opacity: 0;
+        pointer-events: none;
+        transition: all 0.2s ease;
+        z-index: 1001;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .ar-ai-panel.open {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+        pointer-events: all;
+    }
+    
+    .ar-ai-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem;
+        border-bottom: 1px solid var(--border);
+        cursor: grab; /* drag affordance */
+        user-select: none;
+    }
+    
+    .ar-ai-header .title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+    }
+    
+    .ar-ai-close {
+        background: none;
+        border: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 1.2rem;
+        padding: 0.25rem;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+    }
+    
+    .ar-ai-close:hover {
+        background: var(--bg-surface);
+        color: var(--text);
+    }
+
+    .ar-ai-header:active { cursor: grabbing; }
+    
+    .ar-ai-body {
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        flex: 1;
+        min-height: 0;
+    }
+    
+    .ar-ai-body textarea {
+        resize: none;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem;
+        font-family: inherit;
+        background: var(--surface);
+        color: var(--text);
+        min-height: 80px;
+    }
+    
+    .ar-ai-body pre {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin: 0;
+        overflow-y: auto;
+        max-height: 200px;
+        font-size: 0.85rem;
+        line-height: 1.4;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    /* Dark mode: phosphorescent green notes text in Hoshyar terminal */
+    body.dark .ar-ai-panel #arAiOut {
+        color: #39ff14; /* neon/phosphorescent green */
+        text-shadow: 0 0 6px rgba(57, 255, 20, 0.55);
+    }
+    
+    /* Tool buttons */
+    .ar-toolbtn {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        width: 100%;
+        text-align: right;
+        padding: 0.75rem 1rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        font-family: inherit;
+        cursor: pointer;
+    }
+    
+    .ar-toolbtn:hover {
+        background: rgba(30, 64, 175, 0.05);
+        border-color: var(--primary);
+        transform: translateX(-2px);
+    }
+    
+    .ar-type-ic {
+        width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--primary);
+        color: white;
+        border-radius: 6px;
+        font-size: 16px;
+    }
+    
+    /* Editor loading state */
+    .editor-loading .ar-settings,
+    .editor-loading .ar-preview {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 1024px) {
+        .arshline-main {
+            padding: 1.5rem 1rem;
+        }
+        
+        .ar-ai-panel {
+            width: 350px;
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .arshline-sidebar {
+            width: 0;
+            overflow: hidden;
+        }
+        
+        .arshline-sidebar.closed {
+            width: 0;
+        }
+        
+        .arshline-main {
+            padding: 1rem;
+        }
+        
+        .ar-ai-fab {
+            bottom: 1rem;
+            left: 1rem;
+        }
+        
+        .ar-ai-panel {
+            bottom: 1rem;
+            left: 1rem;
+            right: 1rem;
+            width: auto;
+        }
+    }

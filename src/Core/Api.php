@@ -11,9 +11,376 @@ use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\Forms\FormValidator;
 use Arshline\Modules\Forms\FieldRepository;
+use Arshline\Core\Ai\Hoshyar;
+use Arshline\Support\Audit;
+use Arshline\Modules\UserGroups\GroupRepository;
+use Arshline\Modules\UserGroups\MemberRepository;
+use Arshline\Modules\UserGroups\FormGroupAccessRepository;
+use Arshline\Modules\UserGroups\FieldRepository as UGFieldRepo;
+use Arshline\Modules\UserGroups\Field as UGField;
+use Arshline\Core\AccessControl;
 
 class Api
 {
+    /**
+     * Normalize and sanitize supported meta keys to expected types.
+     * Unknown keys are left as-is to keep flexibility, but callers should prefer known keys.
+     */
+    protected static function sanitize_meta_input(array $in): array
+    {
+        $out = $in;
+        // Booleans
+        if (array_key_exists('anti_spam_honeypot', $in)) {
+            $out['anti_spam_honeypot'] = (bool)$in['anti_spam_honeypot'];
+        }
+        if (array_key_exists('captcha_enabled', $in)) {
+            $out['captcha_enabled'] = (bool)$in['captcha_enabled'];
+        }
+        // Integers with bounds
+        if (array_key_exists('min_submit_seconds', $in)) {
+            $out['min_submit_seconds'] = max(0, (int)$in['min_submit_seconds']);
+        }
+        if (array_key_exists('rate_limit_per_min', $in)) {
+            $out['rate_limit_per_min'] = max(0, (int)$in['rate_limit_per_min']);
+        }
+        if (array_key_exists('rate_limit_window_min', $in)) {
+            $out['rate_limit_window_min'] = max(1, (int)$in['rate_limit_window_min']);
+        }
+        // Captcha keys (allow limited charset)
+        $allowKey = function($v) {
+            $v = is_scalar($v) ? (string)$v : '';
+            $v = trim($v);
+            // Allow common recaptcha key charset
+            $v = preg_replace('/[^A-Za-z0-9_\-\.:]/', '', $v);
+            // Limit length
+            return substr($v, 0, 200);
+        };
+        if (array_key_exists('captcha_site_key', $in)) {
+            $out['captcha_site_key'] = $allowKey($in['captcha_site_key']);
+        }
+        if (array_key_exists('captcha_secret_key', $in)) {
+            $out['captcha_secret_key'] = $allowKey($in['captcha_secret_key']);
+        }
+        if (array_key_exists('captcha_version', $in)) {
+            $v = is_scalar($in['captcha_version']) ? (string)$in['captcha_version'] : 'v2';
+            $v = ($v === 'v3') ? 'v3' : 'v2';
+            $out['captcha_version'] = $v;
+        }
+        // Design keys
+        $sanitize_color = function($v, $fallback) {
+            $s = is_scalar($v) ? (string)$v : '';
+            $s = trim($s);
+            if (preg_match('/^#([A-Fa-f0-9]{6})$/', $s)) return $s;
+            return $fallback;
+        };
+        if (array_key_exists('design_primary', $in)) {
+            $out['design_primary'] = $sanitize_color($in['design_primary'], '#1e40af');
+        }
+        if (array_key_exists('design_bg', $in)) {
+            $out['design_bg'] = $sanitize_color($in['design_bg'], '#f5f7fb');
+        }
+        if (array_key_exists('design_theme', $in)) {
+            $v = is_scalar($in['design_theme']) ? (string)$in['design_theme'] : 'light';
+            $v = ($v === 'dark') ? 'dark' : 'light';
+            $out['design_theme'] = $v;
+        }
+        return $out;
+    }
+    /**
+     * Sanitize global settings payload and enforce defaults/limits.
+     */
+    protected static function sanitize_settings_input(array $in): array
+    {
+        $out = self::sanitize_meta_input($in);
+        // Upload constraints
+        if (array_key_exists('upload_max_kb', $in)) {
+            $kb = (int)$in['upload_max_kb'];
+            $out['upload_max_kb'] = max(50, min(4096, $kb));
+        }
+        if (array_key_exists('block_svg', $in)) {
+            $out['block_svg'] = (bool)$in['block_svg'];
+        }
+        // AI options
+        if (array_key_exists('ai_enabled', $in)) {
+            $out['ai_enabled'] = (bool)$in['ai_enabled'];
+        }
+        if (array_key_exists('ai_spam_threshold', $in)) {
+            $t = is_numeric($in['ai_spam_threshold']) ? (float)$in['ai_spam_threshold'] : 0.5;
+            $out['ai_spam_threshold'] = max(0.0, min(1.0, $t));
+        }
+        if (array_key_exists('ai_model', $in)) {
+            $m = is_scalar($in['ai_model']) ? trim((string)$in['ai_model']) : '';
+            // keep arbitrary model name but constrain length and charset
+            $m = preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $m);
+            $out['ai_model'] = substr($m, 0, 100);
+        }
+        return $out;
+    }
+
+    /**
+     * Load global settings from WP options with defaults and sanitization.
+     */
+    protected static function get_global_settings(): array
+    {
+        $defaults = [
+            'anti_spam_honeypot' => false,
+            'min_submit_seconds' => 0,
+            'rate_limit_per_min' => 0,
+            'rate_limit_window_min' => 1,
+            'captcha_enabled' => false,
+            'captcha_site_key' => '',
+            'captcha_secret_key' => '',
+            'captcha_version' => 'v2',
+            'upload_max_kb' => 300,
+            'block_svg' => true,
+            'ai_enabled' => false,
+            'ai_spam_threshold' => 0.5,
+            'ai_model' => 'gpt-4o-mini',
+        ];
+        $raw = get_option('arshline_settings', []);
+        $arr = is_array($raw) ? $raw : [];
+        $san = self::sanitize_settings_input($arr);
+        return array_merge($defaults, $san);
+    }
+    /** Get SMS settings (separate option to keep credentials isolated). */
+    protected static function get_sms_settings_store(): array
+    {
+        $raw = get_option('arshline_sms_settings', []);
+        $arr = is_array($raw) ? $raw : [];
+        $out = [
+            'enabled' => !empty($arr['enabled']),
+            'provider' => ($arr['provider'] ?? 'sms_ir') === 'sms_ir' ? 'sms_ir' : 'sms_ir',
+            'api_key' => is_string($arr['api_key'] ?? '') ? (string)$arr['api_key'] : '',
+            'line_number' => is_string($arr['line_number'] ?? '') ? (string)$arr['line_number'] : '',
+        ];
+        // sanitize
+        $out['api_key'] = substr(preg_replace('/[^A-Za-z0-9_\-\.]/', '', $out['api_key']), 0, 200);
+        $out['line_number'] = substr(preg_replace('/[^0-9]/', '', $out['line_number']), 0, 20);
+        return $out;
+    }
+    protected static function put_sms_settings_store(array $in): array
+    {
+        $cur = self::get_sms_settings_store();
+        $next = [
+            'enabled' => array_key_exists('enabled', $in) ? (bool)$in['enabled'] : $cur['enabled'],
+            'provider' => 'sms_ir',
+            'api_key' => array_key_exists('api_key', $in) ? (string)$in['api_key'] : $cur['api_key'],
+            'line_number' => array_key_exists('line_number', $in) ? (string)$in['line_number'] : $cur['line_number'],
+        ];
+        // Sanitize
+        $next['api_key'] = substr(preg_replace('/[^A-Za-z0-9_\-\.]/', '', $next['api_key']), 0, 200);
+        $next['line_number'] = substr(preg_replace('/[^0-9]/', '', $next['line_number']), 0, 20);
+        update_option('arshline_sms_settings', $next, false);
+        return $next;
+    }
+
+    public static function get_sms_settings(\WP_REST_Request $r)
+    {
+        return new \WP_REST_Response(self::get_sms_settings_store(), 200);
+    }
+    public static function update_sms_settings(\WP_REST_Request $r)
+    {
+        $p = $r->get_json_params(); if (!is_array($p)) $p = $r->get_params();
+        $saved = self::put_sms_settings_store($p);
+        return new \WP_REST_Response($saved, 200);
+    }
+
+    /** Compose message from template and member data. Supports #name/#نام, #phone, #link/#لینک placeholders. */
+    protected static function compose_sms_template(string $tpl, array $member, string $link = ''): string
+    {
+        // Normalize Persian synonyms to canonical placeholders
+        $tpl = str_replace(['#نام', '#لینک'], ['#name', '#link'], $tpl);
+        $repl = [
+            'name' => (string)($member['name'] ?? ''),
+            'phone' => (string)($member['phone'] ?? ''),
+            'link' => (string)$link,
+        ];
+        // include custom fields from member[data]
+        $data = is_array($member['data'] ?? null) ? $member['data'] : [];
+        foreach ($data as $k=>$v){
+            if (is_scalar($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)){
+                $repl[(string)$k] = (string)$v;
+            }
+        }
+        $msg = preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k, $repl) ? (string)$repl[$k] : $m[0]; }, $tpl);
+        return self::ensure_sms_suffix($msg);
+    }
+
+    /** Ensure required SMS suffix (opt-out phrase) is appended once. */
+    protected static function ensure_sms_suffix(string $msg): string
+    {
+        $suffix = ' لغو11';
+        $m = rtrim($msg);
+        // Avoid double-adding: if message already ends with suffix (allowing whitespace), skip
+        if (preg_match('/'.preg_quote($suffix, '/').'\s*$/u', $m)) return $m;
+        return $m.$suffix;
+    }
+
+    /** Build personal link for form + member if requested. */
+    protected static function build_member_form_link(int $formId, array $member): string
+    {
+        $form = FormRepository::find($formId);
+        if (!$form || $form->status !== 'published' || empty($form->public_token)) return '';
+        $formToken = (string)$form->public_token;
+        // Ensure member token
+        $tok = MemberRepository::ensureToken((int)($member['id'] ?? 0));
+        if (!$tok) return '';
+        $base = add_query_arg('arshline', rawurlencode($formToken), home_url('/'));
+        $url = add_query_arg('member_token', rawurlencode((string)$tok), $base);
+        return esc_url_raw($url);
+    }
+
+    /** Send SMS via SMS.IR for a single recipient (simple bulk endpoint with single mobile). */
+    protected static function smsir_send_single(string $apiKey, string $lineNumber, string $mobile, string $message, ?string $sendDateTime): bool
+    {
+        $apiKey = trim($apiKey); $lineNumber = trim($lineNumber); $mobile = preg_replace('/[^0-9]/', '', (string)$mobile);
+        if ($apiKey === '' || $lineNumber === '' || $mobile === '' || $message === '') return false;
+        $url = 'https://api.sms.ir/v1/send/bulk';
+        $body = [
+            'lineNumber' => $lineNumber,
+            'messageText' => $message,
+            'mobiles' => [$mobile],
+        ];
+        if ($sendDateTime){ $body['sendDateTime'] = $sendDateTime; }
+        $args = [
+            'headers' => [ 'x-api-key' => $apiKey, 'Content-Type' => 'application/json' ],
+            'body' => wp_json_encode($body),
+            'timeout' => 20,
+        ];
+        $resp = wp_remote_post($url, $args);
+        if (is_wp_error($resp)) return false;
+        $code = wp_remote_retrieve_response_code($resp);
+        if ($code >= 200 && $code < 300) return true;
+        $json = json_decode(wp_remote_retrieve_body($resp), true);
+        if (is_array($json) && isset($json['status']) && (int)$json['status'] === 1) return true;
+        return false;
+    }
+
+    /** Basic SMS.IR test: if phone provided, attempt to send; else, just validate config presence. */
+    public static function test_sms_connect(\WP_REST_Request $r)
+    {
+        $cfg = self::get_sms_settings_store();
+        $phone = trim((string)($r->get_param('phone') ?? ''));
+        $msg = trim((string)($r->get_param('message') ?? 'آزمایش ارتباط پیامک عرشلاین'));
+        $msg = self::ensure_sms_suffix($msg);
+        if ($phone !== ''){
+            $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $phone, $msg, null);
+            return new \WP_REST_Response(['ok' => $ok], $ok ? 200 : 500);
+        }
+        $ok = ($cfg['api_key'] !== '' && $cfg['line_number'] !== '');
+        return new \WP_REST_Response(['ok' => $ok], $ok ? 200 : 422);
+    }
+
+    /** POST /sms/send — create a job or send immediately. */
+    public static function sms_send(\WP_REST_Request $r)
+    {
+    $cfg = self::get_sms_settings_store();
+    if (!$cfg['enabled']) return new \WP_REST_Response(['error'=>'sms_disabled','message'=>'ارسال پیامک غیرفعال است. لطفاً در تنظیمات پیامک فعال کنید.'], 422);
+    if ($cfg['api_key'] === '' || $cfg['line_number'] === '') return new \WP_REST_Response(['error'=>'missing_config','message'=>'تنظیمات پیامک ناقص است (API Key یا شماره خط).'], 422);
+
+        $formId = (int)($r->get_param('form_id') ?? 0);
+        $includeLink = !empty($r->get_param('include_link')) && $formId > 0;
+        $groupIds = $r->get_param('group_ids'); if (!is_array($groupIds)) $groupIds = [];
+        $groupIds = array_values(array_unique(array_map('intval', $groupIds)));
+        // Enforce group scope for current user
+        $groupIds = AccessControl::filterGroupIdsByCurrentUser($groupIds);
+        $template = trim((string)($r->get_param('message') ?? ''));
+        // Normalize Persian synonyms in template for early validations
+        $templateNorm = str_replace(['#نام', '#لینک'], ['#name', '#link'], $template);
+    if (empty($groupIds)) return new \WP_REST_Response(['error'=>'no_groups','message'=>'حداقل یک گروه را انتخاب کنید.'], 422);
+    if ($template === '') return new \WP_REST_Response(['error'=>'empty_message','message'=>'متن پیام خالی است.'], 422);
+        // If template uses #link but includeLink not requested (no form), abort
+        if (strpos($templateNorm, '#link') !== false && !$includeLink){
+            return new \WP_REST_Response(['error'=>'link_placeholder_without_form','message'=>'در متن از #لینک استفاده شده ولی فرمی انتخاب نشده است.'], 422);
+        }
+
+        // If a form link is requested, enforce that the form is mapped to the selected groups
+        if ($includeLink){
+            $allowedGroups = FormGroupAccessRepository::getGroupIds($formId);
+            // Require explicit mapping to avoid sending links to groups without access
+            if (empty($allowedGroups)){
+                return new \WP_REST_Response(['error'=>'form_not_mapped','message'=>'فرم انتخابی به هیچ گروهی متصل نشده است. ابتدا در «اتصال فرم‌ها» گروه(ها) را برای این فرم تنظیم کنید.'], 422);
+            }
+            $invalid = array_values(array_diff($groupIds, $allowedGroups));
+            if (!empty($invalid)){
+                return new \WP_REST_Response([
+                    'error' => 'form_not_allowed_for_groups',
+                    'message' => 'فرم انتخابی به برخی از گروه‌های انتخابی متصل نیست.',
+                    'invalid_group_ids' => $invalid,
+                ], 422);
+            }
+        }
+
+        // Resolve recipients from DB
+        global $wpdb; $t = \Arshline\Support\Helpers::tableName('user_group_members');
+        $in = implode(',', array_map('intval', $groupIds));
+        $rows = $wpdb->get_results("SELECT id, group_id, name, phone, data FROM {$t} WHERE group_id IN ($in) AND phone IS NOT NULL AND phone <> ''", ARRAY_A) ?: [];
+        // Deduplicate by phone
+        $byPhone = [];
+        foreach ($rows as $row){ $ph = preg_replace('/[^0-9]/', '', (string)$row['phone']); if ($ph==='') continue; $row['phone'] = $ph; $row['data'] = json_decode($row['data'] ?: '[]', true) ?: []; $byPhone[$ph] = $row; }
+        $recipients = array_values($byPhone);
+    if (empty($recipients)) return new \WP_REST_Response(['error'=>'no_recipients','message'=>'هیچ مخاطبی با شماره معتبر در گروه‌های انتخابی یافت نشد.'], 422);
+
+        // Build messages with optional personal link
+        $payload = [];
+        foreach ($recipients as $m){
+            $link = $includeLink ? self::build_member_form_link($formId, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ]) : '';
+            // If link placeholder is used but we couldn't build a link, abort
+            if ($includeLink && strpos($templateNorm, '#link') !== false && $link === ''){
+                return new \WP_REST_Response(['error'=>'link_build_failed','member_id'=>(int)$m['id'], 'message'=>'ساخت لینک اختصاصی برای یکی از اعضا ناموفق بود. فرم باید فعال و دارای توکن عمومی باشد.'], 422);
+            }
+            $msg = self::compose_sms_template($template, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ], $link);
+            $payload[] = [ 'phone'=>$m['phone'], 'message'=> self::ensure_sms_suffix($msg), 'vars' => [ 'name'=>$m['name'], 'phone'=>$m['phone'], 'link'=>$link ] ];
+        }
+
+        // Schedule or send now
+        $scheduleAt = $r->get_param('schedule_at');
+        $ts = null;
+        if (is_numeric($scheduleAt)) { $ts = (int)$scheduleAt; }
+        else if (is_string($scheduleAt) && $scheduleAt !== '') { $ts = strtotime($scheduleAt); }
+        $now = time(); if ($ts !== null && $ts < ($now+60)) { $ts = $now + 60; }
+
+        $maxImmediate = 50; // limit to avoid timeouts
+        if ($ts === null && count($payload) <= $maxImmediate){
+            $okCount = 0; $failCount = 0;
+            foreach ($payload as $i=>$it){ $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $it['phone'], $it['message'], null); if ($ok) $okCount++; else $failCount++; }
+            return new \WP_REST_Response(['ok'=>true, 'sent'=>$okCount, 'failed'=>$failCount], 200);
+        }
+        // Create job in options and schedule cron
+        $seq = (int)get_option('arsh_sms_job_seq', 0) + 1; update_option('arsh_sms_job_seq', $seq, false);
+        $jobId = $seq;
+        $job = [ 'id'=>$jobId, 'provider'=>'sms_ir', 'created_at'=>current_time('timestamp'), 'schedule_at'=> ($ts ?? ($now+5)), 'config'=>[ 'api_key'=>$cfg['api_key'], 'line_number'=>$cfg['line_number'] ], 'payload'=>$payload, 'cursor'=>0 ];
+        update_option('arsh_sms_job_'.$jobId, $job, false);
+        wp_schedule_single_event($job['schedule_at'], 'arshline_process_sms_job', [ $jobId ]);
+        return new \WP_REST_Response(['ok'=>true, 'job_id'=>$jobId, 'schedule_at'=>$job['schedule_at'], 'recipients'=>count($payload)], 200);
+    }
+
+    /** Cron handler to process a queued SMS job in batches. */
+    public static function process_sms_job($jobId)
+    {
+        $key = 'arsh_sms_job_'.(int)$jobId; $job = get_option($key, null);
+        if (!$job || !is_array($job)) return;
+        $cfg = $job['config'] ?? ['api_key'=>'','line_number'=>''];
+        $payload = is_array($job['payload'] ?? null) ? $job['payload'] : [];
+        $cursor = (int)($job['cursor'] ?? 0);
+        $batch = array_slice($payload, $cursor, 40);
+        foreach ($batch as $i=>$it){ self::smsir_send_single((string)$cfg['api_key'], (string)$cfg['line_number'], (string)$it['phone'], (string)$it['message'], null); }
+        $cursor += count($batch);
+        if ($cursor >= count($payload)){
+            // Persist a trimmed result for auditing
+            $result = [
+                'job_id' => (int)$jobId,
+                'finished_at' => time(),
+                'total' => count($payload),
+                'entries' => array_map(function($it){ return [ 'phone'=>$it['phone'], 'vars'=>($it['vars'] ?? []), 'message'=>$it['message'] ]; }, $payload),
+            ];
+            update_option('arsh_sms_result_'.(int)$jobId, $result, false);
+            delete_option($key);
+        } else {
+            $job['cursor'] = $cursor; update_option($key, $job, false);
+            wp_schedule_single_event(time()+30, 'arshline_process_sms_job', [ (int)$jobId ]);
+        }
+    }
     protected static function flag(array $meta, string $key, bool $default=false): bool
     {
         if (!array_key_exists($key, $meta)) return $default;
@@ -24,11 +391,30 @@ class Api
         add_action('rest_api_init', [self::class, 'register_routes']);
         // Serve raw HTML for HTMX routes (avoid JSON-encoding the HTML fragment)
         add_filter('rest_pre_serve_request', [self::class, 'serve_htmx_html'], 10, 4);
+        // Background SMS job processor (runs via WP-Cron)
+        add_action('arshline_process_sms_job', [self::class, 'process_sms_job'], 10, 1);
     }
 
     public static function user_can_manage_forms(): bool
     {
-        return current_user_can('manage_options') || current_user_can('edit_posts');
+        return AccessControl::currentUserCanFeature('forms');
+    }
+
+    public static function user_can_manage_groups(): bool
+    {
+        return AccessControl::currentUserCanFeature('groups');
+    }
+    public static function user_can_send_sms(): bool
+    {
+        return AccessControl::currentUserCanFeature('sms');
+    }
+    public static function user_can_manage_settings(): bool
+    {
+        return AccessControl::currentUserCanFeature('settings');
+    }
+    public static function user_can_manage_users(): bool
+    {
+        return AccessControl::currentUserCanFeature('users');
     }
 
     public static function register_routes()
@@ -37,6 +423,28 @@ class Api
             'methods' => 'GET',
             'callback' => [self::class, 'get_forms'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        // Basic dashboard/reporting stats
+        register_rest_route('arshline/v1', '/stats', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_stats'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('reports'); },
+            'args' => [
+                'days' => [ 'type' => 'integer', 'required' => false ],
+            ],
+        ]);
+        // Global settings (admin-only)
+        register_rest_route('arshline/v1', '/settings', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_settings'],
+                'permission_callback' => [self::class, 'user_can_manage_settings'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_settings'],
+                'permission_callback' => [self::class, 'user_can_manage_settings'],
+            ]
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
@@ -52,7 +460,8 @@ class Api
         // Public, read-only form definition (without requiring admin perms)
         register_rest_route('arshline/v1', '/public/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
-            'callback' => [self::class, 'get_form'],
+            // Use a public-safe getter that enforces status gating
+            'callback' => [self::class, 'get_public_form'],
             'permission_callback' => '__return_true',
         ]);
         // Public by-token routes
@@ -101,6 +510,12 @@ class Api
             'callback' => [self::class, 'delete_form'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
+        // Update form (status toggle: draft|published|disabled)
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
+            'methods' => 'PUT',
+            'callback' => [self::class, 'update_form'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/submissions', [
             [
                 'methods' => 'GET',
@@ -112,6 +527,47 @@ class Api
                 'callback' => [self::class, 'create_submission'],
                 'permission_callback' => '__return_true',
             ]
+        ]);
+        // AI configuration and agent endpoints (admin-only)
+        register_rest_route('arshline/v1', '/ai/config', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_ai_config'],
+                'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_ai_config'],
+                'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
+            ]
+        ]);
+        register_rest_route('arshline/v1', '/ai/test', [
+            'methods' => 'POST',
+                'callback' => [self::class, 'test_ai_connect'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
+        ]);
+        register_rest_route('arshline/v1', '/ai/capabilities', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_ai_capabilities'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
+        ]);
+        register_rest_route('arshline/v1', '/ai/agent', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'ai_agent'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
+        ]);
+        // Audit log and undo endpoints (admin-only)
+        register_rest_route('arshline/v1', '/ai/audit', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'list_audit'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'args' => [ 'limit' => [ 'type' => 'integer', 'required' => false ] ],
+        ]);
+        register_rest_route('arshline/v1', '/ai/undo', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'undo_by_token'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'args' => [ 'token' => [ 'type' => 'string', 'required' => true ] ],
         ]);
         // Get a specific submission (with values)
         register_rest_route('arshline/v1', '/submissions/(?P<submission_id>\\d+)', [
@@ -128,6 +584,661 @@ class Api
                 'file' => [ 'required' => false ],
             ],
         ]);
+
+        // User Groups Management (feature-gated)
+        register_rest_route('arshline/v1', '/user-groups', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'ug_list_groups'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'ug_create_group'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+                'args' => [
+                    'name' => [ 'type' => 'string', 'required' => true ],
+                    'meta' => [ 'required' => false ],
+                ]
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)', [
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'ug_update_group'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'ug_delete_group'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'ug_list_members'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'ug_add_members'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+                'args' => [ 'members' => [ 'required' => true ] ]
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/(?P<member_id>\\d+)', [
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'ug_update_member'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'ug_delete_member'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/(?P<member_id>\\d+)/token', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'ug_ensure_member_token'],
+            'permission_callback' => [self::class, 'user_can_manage_groups'],
+        ]);
+        // Bulk ensure tokens for a group's members
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/ensure-tokens', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'ug_bulk_ensure_tokens'],
+            'permission_callback' => [self::class, 'user_can_manage_groups'],
+        ]);
+
+        // Group custom fields
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/fields', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'ug_list_fields'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'ug_create_field'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/fields/(?P<field_id>\\d+)', [
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'ug_update_field'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'ug_delete_field'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
+            ],
+        ]);
+
+        // Form ↔ Group access mapping (admin-only)
+        register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)/access/groups', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_form_access_groups'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'set_form_access_groups'],
+                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'args' => [ 'group_ids' => [ 'required' => true ] ],
+            ],
+        ]);
+        // Messaging (SMS)
+        register_rest_route('arshline/v1', '/sms/settings', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_sms_settings'],
+                'permission_callback' => [self::class, 'user_can_send_sms'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_sms_settings'],
+                'permission_callback' => [self::class, 'user_can_send_sms'],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/sms/test', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'test_sms_connect'],
+            'permission_callback' => [self::class, 'user_can_send_sms'],
+        ]);
+        register_rest_route('arshline/v1', '/sms/send', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'sms_send'],
+            'permission_callback' => [self::class, 'user_can_send_sms'],
+        ]);
+
+        // Role policies (super admin only)
+        register_rest_route('arshline/v1', '/roles/policies', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_role_policies'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_role_policies'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
+        ]);
+
+        // Roles info (list roles + feature caps) — super admin only
+        register_rest_route('arshline/v1', '/roles', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_roles_info'],
+            'permission_callback' => function(){ return current_user_can('manage_options'); },
+        ]);
+
+        // Users management (super admin only)
+        register_rest_route('arshline/v1', '/users', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'list_users'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+                'args' => [ 'search' => [ 'required' => false ], 'role' => [ 'required' => false ] ],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'create_user'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+                'args' => [ 'user_email' => [ 'required' => true ], 'user_login' => [ 'required' => true ], 'role' => [ 'required' => false ] ],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/users/(?P<user_id>\\d+)', [
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_user'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'delete_user'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
+        ]);
+    }
+
+    // ========== User Groups Handlers ==========
+    public static function ug_list_groups(WP_REST_Request $r)
+    {
+        // Enforce group scope for non-admins: filter returned groups to allowed set
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed === null) {
+            $rows = GroupRepository::all();
+        } else {
+            $rows = array_values(array_filter(GroupRepository::all(), function($g) use ($allowed){ return in_array((int)$g->id, $allowed, true); }));
+        }
+        // Build member counts for listed groups in a single query
+        $counts = [];
+        try {
+            global $wpdb; $t = \Arshline\Support\Helpers::tableName('user_group_members');
+            $ids = array_map(fn($g)=> (int)$g->id, $rows);
+            if (!empty($ids)){
+                $in = implode(',', array_map('intval', $ids));
+                $sql = "SELECT group_id, COUNT(*) AS c FROM {$t} WHERE group_id IN ($in) GROUP BY group_id";
+                $rs = $wpdb->get_results($sql, ARRAY_A) ?: [];
+                foreach ($rs as $r){ $counts[(int)$r['group_id']] = (int)$r['c']; }
+            }
+        } catch (\Throwable $e) { /* noop */ }
+        $out = array_map(function($g) use ($counts){ return [
+            'id' => $g->id,
+            'name' => $g->name,
+            'parent_id' => $g->parent_id,
+            'meta' => $g->meta,
+            'member_count' => isset($counts[$g->id]) ? (int)$counts[$g->id] : 0,
+            'created_at' => $g->created_at,
+            'updated_at' => $g->updated_at,
+        ]; }, $rows);
+        return new WP_REST_Response($out, 200);
+    }
+
+    // ===== Roles/users helpers =====
+    public static function get_roles_info(WP_REST_Request $r)
+    {
+        global $wp_roles;
+        if (!isset($wp_roles)) $wp_roles = wp_roles();
+        $roles = [];
+        foreach ($wp_roles->roles as $k=>$v){ $roles[] = [ 'key'=>$k, 'name'=>$v['name'] ?? $k ]; }
+        return new WP_REST_Response(['roles'=>$roles, 'features'=>array_keys(AccessControl::featureCaps())], 200);
+    }
+    public static function list_users(WP_REST_Request $r)
+    {
+        $args = [ 'number' => 50 ];
+        $search = (string)($r->get_param('search') ?? ''); if ($search !== ''){ $args['search'] = '*'.esc_attr($search).'*'; }
+        $role = (string)($r->get_param('role') ?? ''); if ($role !== ''){ $args['role'] = $role; }
+        $users = get_users($args);
+        $items = array_map(function($u){ return [ 'id'=>$u->ID, 'user_login'=>$u->user_login, 'display_name'=>$u->display_name, 'email'=>$u->user_email, 'roles'=>$u->roles ]; }, $users);
+        return new WP_REST_Response([ 'items'=>$items, 'count'=>count($items) ], 200);
+    }
+    public static function create_user(WP_REST_Request $r)
+    {
+        $email = sanitize_email((string)$r->get_param('user_email'));
+        $login = sanitize_user((string)$r->get_param('user_login'));
+        $role = (string)($r->get_param('role') ?? '');
+        if (!$email || !$login) return new WP_REST_Response(['message'=>'invalid_input'], 422);
+        $pass = wp_generate_password(12, true);
+        $uid = wp_create_user($login, $pass, $email);
+        if (is_wp_error($uid)) return new WP_REST_Response(['message'=>$uid->get_error_message()], 400);
+        if ($role !== ''){ $u = new \WP_User($uid); $u->set_role($role); }
+        return new WP_REST_Response(['id'=>$uid], 201);
+    }
+    public static function update_user(WP_REST_Request $r)
+    {
+        $uid = (int)$r['user_id']; $u = get_user_by('id', $uid); if (!$u) return new WP_REST_Response(['message'=>'not_found'], 404);
+        $role = $r->get_param('role'); if (is_string($role) && $role!==''){ $u = new \WP_User($uid); $u->set_role($role); }
+        $roles = $r->get_param('roles'); if (is_array($roles)){
+            $u = new \WP_User($uid);
+            foreach ($u->roles as $r0){ $u->remove_role($r0); }
+            foreach ($roles as $r1){ if (is_string($r1) && $r1!=='') $u->add_role($r1); }
+        }
+        return new WP_REST_Response(['ok'=>true], 200);
+    }
+    public static function delete_user(WP_REST_Request $r)
+    {
+        $uid = (int)$r['user_id'];
+        if ($uid <= 0) return new WP_REST_Response(['message'=>'invalid_id'], 422);
+        $reassign = null;
+        $ok = wp_delete_user($uid, $reassign);
+        return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
+    }
+    public static function ug_create_group(WP_REST_Request $r)
+    {
+        $name = trim((string)$r->get_param('name'));
+        if ($name === '') return new WP_REST_Response(['message' => 'نام گروه الزامی است.'], 422);
+        $meta = $r->get_param('meta'); if (!is_array($meta)) $meta = [];
+        $parent_id = $r->get_param('parent_id');
+        $pid = is_numeric($parent_id) ? (int)$parent_id : null; if ($pid === 0) { $pid = null; }
+        if ($pid !== null) { if (!GroupRepository::find($pid)) { return new WP_REST_Response(['message' => 'گروه مادر نامعتبر است.'], 422); } }
+        $g = new \Arshline\Modules\UserGroups\Group(['name' => $name, 'parent_id' => $pid, 'meta' => $meta]);
+        $id = GroupRepository::save($g);
+        return new WP_REST_Response(['id' => $id], 201);
+    }
+    public static function ug_update_group(WP_REST_Request $r)
+    {
+        $id = (int)$r['group_id'];
+        $g = GroupRepository::find($id);
+        if (!$g) return new WP_REST_Response(['message' => 'گروه یافت نشد.'], 404);
+        $name = $r->get_param('name'); if (is_string($name)) $g->name = trim($name);
+        if ($r->offsetExists('parent_id')){
+            $parent_id = $r->get_param('parent_id');
+            $pid = (is_numeric($parent_id) ? (int)$parent_id : null);
+            if ($pid === 0) $pid = null;
+            if ($pid === $g->id) { return new WP_REST_Response(['message' => 'نمی‌توانید گروه را مادر خودش قرار دهید.'], 422); }
+            if ($pid !== null && !GroupRepository::find($pid)) { return new WP_REST_Response(['message' => 'گروه مادر نامعتبر است.'], 422); }
+            $g->parent_id = $pid;
+        }
+        $meta = $r->get_param('meta'); if (is_array($meta)) $g->meta = $meta;
+        GroupRepository::save($g);
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+    public static function ug_delete_group(WP_REST_Request $r)
+    {
+        $id = (int)$r['group_id'];
+        $ok = GroupRepository::delete($id);
+        return new WP_REST_Response(['ok' => (bool)$ok], $ok?200:404);
+    }
+    public static function ug_list_members(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        // Enforce group scope
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        // Support pagination and search for large datasets
+        $per_page = (int)($r->get_param('per_page') ?? 20);
+        if ($per_page <= 0) $per_page = 20; if ($per_page > 200) $per_page = 200;
+        $page = (int)($r->get_param('page') ?? 1); if ($page <= 0) $page = 1;
+        $search = trim((string)($r->get_param('search') ?? ''));
+        $orderby = (string)($r->get_param('orderby') ?? 'id');
+        $order = (string)($r->get_param('order') ?? 'DESC');
+
+        // Compute total first, then fetch page
+        $total = MemberRepository::countAll($gid, $search);
+        $rows = MemberRepository::paginated($gid, $per_page, $page, $search, $orderby, $order);
+        $items = array_map(function($m){ return [
+            'id' => $m->id,
+            'group_id' => $m->group_id,
+            'name' => $m->name,
+            'phone' => $m->phone,
+            'data' => $m->data,
+            'token' => $m->token,
+            'created_at' => $m->created_at,
+        ];}, $rows);
+        $resp = [
+            'items' => $items,
+            'total' => (int)$total,
+            'page' => (int)$page,
+            'per_page' => (int)$per_page,
+            'total_pages' => (int)max(1, (int)ceil(($total ?: 0) / max(1, $per_page)))
+        ];
+        return new WP_REST_Response($resp, 200);
+    }
+    public static function ug_add_members(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        $members = $r->get_param('members');
+        if (!is_array($members)) return new WP_REST_Response(['message' => 'members باید آرایه باشد.'], 422);
+        $n = MemberRepository::addBulk($gid, $members);
+        return new WP_REST_Response(['inserted' => $n], 201);
+    }
+    public static function ug_delete_member(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $mid = (int)$r['member_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        $ok = MemberRepository::delete($gid, $mid);
+        return new WP_REST_Response(['ok' => (bool)$ok], $ok?200:404);
+    }
+    public static function ug_update_member(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $mid = (int)$r['member_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        $name = $r->get_param('name');
+        $phone = $r->get_param('phone');
+        $data = $r->get_param('data');
+        $fields = [];
+        if (is_string($name)) $fields['name'] = $name;
+        if (is_string($phone)) $fields['phone'] = $phone;
+        if (is_array($data)) $fields['data'] = $data;
+        if (empty($fields)) return new WP_REST_Response(['ok'=>false,'message'=>'no_fields'], 422);
+        $ok = MemberRepository::update($gid, $mid, $fields);
+        if ($ok) { try { MemberRepository::ensureToken($mid); } catch (\Throwable $e) { /* noop */ } }
+        return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
+    }
+    public static function ug_ensure_member_token(WP_REST_Request $r)
+    {
+        $mid = (int)$r['member_id'];
+        // Gate by member's group scope
+        $tok = null;
+        try {
+            $m = MemberRepository::find($mid);
+            $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+            if ($m && ($allowed === null || in_array((int)$m->group_id, $allowed, true))){
+                $tok = MemberRepository::ensureToken($mid);
+            }
+        } catch (\Throwable $e) { /* noop */ }
+        if (!$tok) return new WP_REST_Response(['message' => 'عضو یافت نشد.'], 404);
+        return new WP_REST_Response(['token' => $tok], 200);
+    }
+
+    public static function ug_bulk_ensure_tokens(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        $count = 0;
+        try {
+            $members = MemberRepository::list($gid, 50000);
+            foreach ($members as $m){ $tok = $m->token; if (!$tok){ $tok2 = MemberRepository::ensureToken((int)$m->id); if ($tok2) $count++; } }
+        } catch (\Throwable $e) { /* noop */ }
+        return new WP_REST_Response(['ok'=>true, 'generated' => $count], 200);
+    }
+
+    // ========== Group custom fields ==========
+    public static function ug_list_fields(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        $rows = UGFieldRepo::listByGroup($gid);
+        $out = array_map(function($f){ return [
+            'id' => $f->id,
+            'group_id' => $f->group_id,
+            'name' => $f->name,
+            'label' => $f->label,
+            'type' => $f->type,
+            'options' => $f->options,
+            'required' => $f->required,
+            'sort' => $f->sort,
+        ]; }, $rows);
+        return new WP_REST_Response($out, 200);
+    }
+    public static function ug_create_field(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        $name = trim((string)$r->get_param('name'));
+        $label = trim((string)$r->get_param('label'));
+        $type = trim((string)($r->get_param('type') ?? 'text'));
+        $options = $r->get_param('options'); if (!is_array($options)) $options = [];
+        $required = (bool)$r->get_param('required');
+        $sort = (int)($r->get_param('sort') ?? 0);
+        if ($gid<=0 || $name==='') return new WP_REST_Response(['message'=>'invalid'], 422);
+        $f = new UGField([ 'group_id'=>$gid, 'name'=>$name, 'label'=>$label?:$name, 'type'=>$type, 'options'=>$options, 'required'=>$required, 'sort'=>$sort ]);
+        $id = UGFieldRepo::save($f);
+        return new WP_REST_Response(['id'=>$id], 201);
+    }
+    public static function ug_update_field(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $fid = (int)$r['field_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        $rows = UGFieldRepo::listByGroup($gid);
+        $target = null; foreach ($rows as $f){ if ((int)$f->id === $fid) { $target = $f; break; } }
+        if (!$target) return new WP_REST_Response(['message'=>'not_found'], 404);
+        $p = $r->get_params();
+        if (isset($p['name'])) $target->name = trim((string)$p['name']);
+        if (isset($p['label'])) $target->label = trim((string)$p['label']);
+        if (isset($p['type'])) $target->type = trim((string)$p['type']);
+        if (isset($p['options']) && is_array($p['options'])) $target->options = $p['options'];
+        if (isset($p['required'])) $target->required = (bool)$p['required'];
+        if (isset($p['sort'])) $target->sort = (int)$p['sort'];
+        UGFieldRepo::save($target);
+        return new WP_REST_Response(['ok'=>true], 200);
+    }
+    public static function ug_delete_field(WP_REST_Request $r)
+    {
+        $gid = (int)$r['group_id']; $fid = (int)$r['field_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
+        // Ensure it belongs to the group
+        $rows = UGFieldRepo::listByGroup($gid);
+        $ok = false; foreach ($rows as $f){ if ((int)$f->id === $fid) { $ok = UGFieldRepo::delete($fid); break; } }
+        return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
+    }
+
+    // ===== Roles/Policies endpoints (super admin) =====
+    public static function get_role_policies(WP_REST_Request $r)
+    {
+        $pol = AccessControl::getPolicies();
+        return new WP_REST_Response(['policies' => $pol], 200);
+    }
+    public static function update_role_policies(WP_REST_Request $r)
+    {
+        $body = $r->get_json_params(); if (!is_array($body)) $body = $r->get_params();
+        $pol = is_array($body['policies'] ?? null) ? $body['policies'] : [];
+        $saved = AccessControl::updatePolicies($pol);
+        return new WP_REST_Response(['ok'=>true, 'policies'=>$saved], 200);
+    }
+
+    // ========== Form ↔ Group access mapping (admin-only) ==========
+    public static function get_form_access_groups(WP_REST_Request $r)
+    {
+        $fid = (int)$r['form_id'];
+        if ($fid <= 0) return new WP_REST_Response(['group_ids' => []], 200);
+        $ids = FormGroupAccessRepository::getGroupIds($fid);
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null){
+            $ids = array_values(array_intersect(array_map('intval', $ids), array_map('intval', $allowed)));
+        }
+        return new WP_REST_Response(['group_ids' => array_values($ids)], 200);
+    }
+    public static function set_form_access_groups(WP_REST_Request $r)
+    {
+        $fid = (int)$r['form_id'];
+        if ($fid <= 0) return new WP_REST_Response(['error'=>'invalid_form_id'], 400);
+        $arr = $r->get_param('group_ids');
+        if (!is_array($arr)) $arr = [];
+        $ids = array_values(array_unique(array_map('intval', $arr)));
+        // Enforce group scope: only allow mapping within current user's allowed groups
+        $ids = AccessControl::filterGroupIdsByCurrentUser($ids);
+        FormGroupAccessRepository::setGroupIds($fid, $ids);
+        return new WP_REST_Response(['ok'=>true, 'group_ids'=>$ids], 200);
+    }
+
+    // ===== Access control helpers =====
+    /**
+     * Check whether the current requester can access the given form via either:
+     * - Logged-in WP user belonging to at least one allowed group (via filter hook), or
+     * - A valid member token provided as request param `member_token` or header `X-Arsh-Member-Token`.
+     * Returns [allowed:boolean, member?:array].
+     */
+    protected static function enforce_form_group_access($formId, WP_REST_Request $r): array
+    {
+        $formId = (int)$formId;
+        $allowedGroups = FormGroupAccessRepository::getGroupIds($formId);
+        // If no mapping exists, treat as public for backward-compat
+        if (empty($allowedGroups)) return [ true, null ];
+
+        // 1) Member token path (preferred for visitors)
+        $tok = '';
+        $p = $r->get_param('member_token'); if (is_string($p)) $tok = trim($p);
+        if ($tok === ''){
+            // Try headers
+            if (method_exists($r, 'get_header')){
+                $tok = (string)($r->get_header('X-Arsh-Member-Token') ?: $r->get_header('x-arsh-member-token'));
+                $tok = trim($tok);
+            }
+        }
+        if ($tok !== ''){
+            $m = MemberRepository::verifyToken($tok);
+            if ($m && in_array((int)$m->group_id, $allowedGroups, true)){
+                // Attach member to request context for later personalization
+                return [ true, [
+                    'id' => (int)$m->id,
+                    'group_id' => (int)$m->group_id,
+                    'name' => (string)$m->name,
+                    'phone' => (string)$m->phone,
+                    'data' => is_array($m->data) ? $m->data : [],
+                ] ];
+            }
+        }
+
+        // 2) Logged-in WP user path — allow integrators to declare user→group mapping via filter
+        $uid = get_current_user_id();
+        if ($uid > 0 && function_exists('apply_filters')){
+            $userGroupIds = apply_filters('arshline_user_group_ids', [], $uid);
+            if (is_array($userGroupIds)){
+                $userGroupIds = array_map('intval', $userGroupIds);
+                foreach ($userGroupIds as $gid){ if (in_array($gid, $allowedGroups, true)) return [ true, null ]; }
+            }
+        }
+        return [ false, null ];
+    }
+
+    /** Replace #placeholders using member data for title/description meta (server-side hydration). */
+    protected static function hydrate_meta_with_member(array $meta, ?array $member): array
+    {
+        if (!$member) return $meta;
+        $repl = [];
+        // Flatten member for simple replacement keys
+        $repl['name'] = (string)($member['name'] ?? '');
+        $repl['phone'] = (string)($member['phone'] ?? '');
+        $data = is_array($member['data'] ?? null) ? ($member['data']) : [];
+        foreach ($data as $k => $v){ if (is_scalar($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)) { $repl[(string)$k] = (string)$v; } }
+        $replaceIn = function($s) use ($repl){ if (!is_string($s) || $s==='') return $s; return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k,$repl) ? (string)$repl[$k] : $m[0]; }, $s); };
+        if (isset($meta['title'])) $meta['title'] = $replaceIn($meta['title']);
+        if (isset($meta['description'])) $meta['description'] = $replaceIn($meta['description']);
+        return $meta;
+    }
+
+    /**
+     * GET /stats — Returns simple KPI counts and a submissions time series for last N days (default 30)
+     */
+    public static function get_stats(WP_REST_Request $request)
+    {
+        global $wpdb;
+        $forms = Helpers::tableName('forms');
+        $subs = Helpers::tableName('submissions');
+
+        // Counts
+        $total_forms = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$forms}");
+        $draft_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'draft'));
+        $disabled_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'disabled'));
+        // Active is strictly published; we also surface disabled separately
+        $active_forms = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$forms} WHERE status = %s", 'published'));
+        $total_submissions = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$subs}");
+        // WP users
+        $users_count = 0;
+        if (function_exists('count_users')) {
+            $cu = count_users();
+            $users_count = isset($cu['total_users']) ? (int)$cu['total_users'] : 0;
+        } else {
+            // Fallback minimal query if needed
+            $users_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->users}");
+        }
+
+        // Time series for submissions per day
+        $days = (int)$request->get_param('days');
+        if ($days <= 0) $days = 30;
+        $days = min(max($days, 7), 180); // clamp 7..180
+        // Build date buckets in PHP to include days with zero
+        $tz = wp_timezone();
+        $now = new \DateTimeImmutable('now', $tz);
+        $start = $now->sub(new \DateInterval('P'.($days-1).'D'));
+        $labels = [];
+        $map = [];
+        for ($i = 0; $i < $days; $i++){
+            $d = $start->add(new \DateInterval('P'.$i.'D'));
+            $key = $d->format('Y-m-d');
+            $labels[] = $key;
+            $map[$key] = 0;
+        }
+        // Query grouped counts from DB (UTC assumed by MySQL; we use DATE of created_at)
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT DATE(created_at) AS d, COUNT(*) AS c FROM {$subs} WHERE created_at >= %s GROUP BY DATE(created_at) ORDER BY d ASC",
+            $start->format('Y-m-d 00:00:00')
+        ), ARRAY_A) ?: [];
+        foreach ($rows as $r){
+            $d = (string)$r['d'];
+            $c = (int)$r['c'];
+            if (isset($map[$d])) $map[$d] = $c;
+        }
+        $series = array_values($map);
+
+        $out = [
+            'counts' => [
+                'forms' => $total_forms,
+                'forms_active' => $active_forms,
+                'forms_draft' => $draft_forms,
+                'forms_disabled' => $disabled_forms,
+                'submissions' => $total_submissions,
+                'users' => $users_count,
+            ],
+            'series' => [
+                'labels' => $labels,
+                'submissions_per_day' => $series,
+            ],
+        ];
+        return new WP_REST_Response($out, 200);
     }
 
     public static function get_forms(WP_REST_Request $request)
@@ -159,7 +1270,9 @@ class Api
         $form = new Form($formData);
         $id = FormRepository::save($form);
         if ($id > 0) {
-            return new WP_REST_Response([ 'id' => $id, 'title' => $title, 'status' => 'draft' ], 201);
+            // Log audit entry with undo token
+            $undo = Audit::log('create_form', 'form', $id, [], [ 'form' => [ 'id'=>$id, 'title'=>$title, 'status'=>'draft' ] ]);
+            return new WP_REST_Response([ 'id' => $id, 'title' => $title, 'status' => 'draft', 'undo_token' => $undo ], 201);
         }
         global $wpdb;
         $err = $wpdb->last_error ?: 'unknown_db_error';
@@ -171,11 +1284,9 @@ class Api
         $id = (int)$request['form_id'];
         $form = FormRepository::find($id);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
-        // Ensure token exists when an admin/editor opens the builder (backfill on-read)
-        if (self::user_can_manage_forms() && empty($form->public_token)) {
-            // Save will generate a token if missing
+        // Ensure token exists for published forms only (avoid generating for drafts/disabled)
+        if (self::user_can_manage_forms() && $form->status === 'published' && empty($form->public_token)) {
             FormRepository::save($form);
-            // Re-fetch to include the generated token
             $form = FormRepository::find($id) ?: $form;
         }
         $fields = FieldRepository::listByForm($id);
@@ -185,11 +1296,1247 @@ class Api
             'meta' => $form->meta,
             'fields' => $fields,
         ];
-        // Expose token only to users who can manage forms (admin/editor)
-        if (self::user_can_manage_forms() && !empty($form->public_token)) {
+        // Expose token only for published forms to users who can manage
+        if (self::user_can_manage_forms() && $form->status === 'published' && !empty($form->public_token)) {
             $payload['token'] = $form->public_token;
         }
         return new WP_REST_Response($payload, 200);
+    }
+
+    /**
+     * Public-safe: only returns form definition when status is published.
+     * Hides token field and returns 403 for draft/disabled forms.
+     */
+    public static function get_public_form(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        $form = FormRepository::find($id);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
+        }
+        // Enforce group-based access if any mapping exists
+        list($ok, $member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
+        $fields = FieldRepository::listByForm($id);
+        // Minimal personalization via GET params for title/description placeholders like #name
+        $meta = $form->meta;
+        $params = $request->get_params();
+        $repl = [];
+        foreach ($params as $k=>$v){ if (is_string($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)) { $repl[$k] = $v; } }
+        $replaceIn = function($s) use ($repl){ if (!is_string($s) || $s==='') return $s; return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k,$repl) ? (string)$repl[$k] : $m[0]; }, $s); };
+        if (isset($meta['title'])) $meta['title'] = $replaceIn($meta['title']);
+        if (isset($meta['description'])) $meta['description'] = $replaceIn($meta['description']);
+        // Then apply member-based hydration for server-side personalization
+        $meta = self::hydrate_meta_with_member($meta, $member);
+        $payload = [
+            'id' => $form->id,
+            'status' => $form->status,
+            'meta' => $meta,
+            'fields' => $fields,
+        ];
+        return new WP_REST_Response($payload, 200);
+    }
+
+    /**
+     * GET /settings (admin-only)
+     */
+    public static function get_settings(WP_REST_Request $request)
+    {
+        $settings = self::get_global_settings();
+        return new WP_REST_Response(['settings' => $settings], 200);
+    }
+
+    /**
+     * PUT /settings (admin-only)
+     */
+    public static function update_settings(WP_REST_Request $request)
+    {
+        $data = $request->get_param('settings');
+        if (!is_array($data)) $data = [];
+        $san = self::sanitize_settings_input($data);
+        $current = get_option('arshline_settings', []);
+        $cur = is_array($current) ? $current : [];
+        $merged = array_merge($cur, $san);
+        update_option('arshline_settings', $merged, false);
+        $out = self::get_global_settings();
+        return new WP_REST_Response(['ok'=>true, 'settings'=>$out], 200);
+    }
+
+    // ---- AI config helpers & endpoints ----
+    protected static function get_ai_settings(): array
+    {
+        $raw = get_option('arshline_settings', []);
+        $arr = is_array($raw) ? $raw : [];
+        $base = isset($arr['ai_base_url']) && is_scalar($arr['ai_base_url']) ? trim((string)$arr['ai_base_url']) : '';
+        // normalize base URL (no trailing spaces, keep as-is otherwise to allow custom paths)
+        $base = substr($base, 0, 500);
+        $key = isset($arr['ai_api_key']) && is_scalar($arr['ai_api_key']) ? trim((string)$arr['ai_api_key']) : '';
+        $key = substr($key, 0, 2000);
+        $enabled = isset($arr['ai_enabled']) ? (bool)$arr['ai_enabled'] : false;
+        $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'gpt-4o-mini';
+    $parser = isset($arr['ai_parser']) && is_scalar($arr['ai_parser']) ? (string)$arr['ai_parser'] : 'hybrid'; // 'internal' | 'hybrid' | 'llm'
+    $parser = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid';
+        return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'parser' => $parser ];
+    }
+    public static function get_ai_config(WP_REST_Request $request)
+    {
+        return new WP_REST_Response(['config' => self::get_ai_settings()], 200);
+    }
+    public static function update_ai_config(WP_REST_Request $request)
+    {
+        $cfg = $request->get_param('config');
+        if (!is_array($cfg)) $cfg = [];
+        $base = is_scalar($cfg['base_url'] ?? '') ? trim((string)$cfg['base_url']) : '';
+        $key  = is_scalar($cfg['api_key'] ?? '') ? trim((string)$cfg['api_key']) : '';
+        $enabled = (bool)($cfg['enabled'] ?? false);
+        $model = is_scalar($cfg['model'] ?? '') ? trim((string)$cfg['model']) : '';
+    $parser = is_scalar($cfg['parser'] ?? '') ? trim((string)$cfg['parser']) : '';
+        $cur = get_option('arshline_settings', []);
+        $arr = is_array($cur) ? $cur : [];
+        $arr['ai_base_url'] = substr($base, 0, 500);
+        $arr['ai_api_key']  = substr($key, 0, 2000);
+        $arr['ai_enabled']  = $enabled;
+        if ($model !== ''){ $arr['ai_model'] = substr(preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $model), 0, 100); }
+    if ($parser !== ''){ $arr['ai_parser'] = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid'; }
+        update_option('arshline_settings', $arr, false);
+        return new WP_REST_Response(['ok'=>true, 'config'=> self::get_ai_settings()], 200);
+    }
+    public static function test_ai_connect(WP_REST_Request $request)
+    {
+        $s = self::get_ai_settings();
+        if (!$s['enabled'] || !$s['base_url'] || !$s['api_key']){
+            return new WP_REST_Response(['ok'=>false, 'error'=>'missing_config'], 400);
+        }
+        $url = rtrim($s['base_url'], '/').'/';
+        $resp = wp_remote_get($url, [ 'timeout'=>5, 'headers'=> [ 'Authorization' => 'Bearer '.$s['api_key'] ] ]);
+        if (is_wp_error($resp)) return new WP_REST_Response(['ok'=>false, 'error'=>'network'], 502);
+        $code = (int)wp_remote_retrieve_response_code($resp);
+        return new WP_REST_Response(['ok'=> ($code>=200 && $code<500), 'status'=>$code ], 200);
+    }
+    public static function get_ai_capabilities(WP_REST_Request $request)
+    {
+        $caps = [
+            'navigation' => [
+                'title' => 'مسیر‌یابی',
+                'items' => [
+                    [ 'id' => 'open_tab', 'label' => 'باز کردن تب‌ها', 'params' => ['tab' => 'dashboard|forms|reports|users|settings', 'section?' => 'security|ai|users'], 'confirm' => false, 'examples' => [ 'باز کردن تنظیمات', 'باز کردن فرم‌ها' ] ],
+                    [ 'id' => 'open_builder', 'label' => 'باز کردن ویرایشگر فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'ویرایش فرم 12' ] ],
+                    [ 'id' => 'open_editor', 'label' => 'ویرایش یک پرسش خاص', 'params' => ['id' => 'number', 'index' => 'number (0-based)'], 'confirm' => false, 'examples' => [ 'ویرایش پرسش 1 فرم 12' ] ],
+                    [ 'id' => 'public_link', 'label' => 'دریافت لینک عمومی فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'لینک عمومی فرم 7' ] ],
+                ],
+            ],
+            'forms' => [
+                'title' => 'فرم‌ها',
+                'items' => [
+                    [ 'id' => 'list_forms', 'label' => 'نمایش لیست فرم‌ها', 'params' => [], 'confirm' => false, 'examples' => [ 'لیست فرم ها' ] ],
+                    [ 'id' => 'create_form', 'label' => 'ایجاد فرم جدید', 'params' => ['title' => 'string'], 'confirm' => true, 'examples' => [ 'ایجاد فرم با عنوان فرم تست' ] ],
+                    [ 'id' => 'delete_form', 'label' => 'حذف فرم', 'params' => ['id' => 'number'], 'confirm' => true, 'examples' => [ 'حذف فرم 5' ] ],
+                    [ 'id' => 'open_form', 'label' => 'فعال کردن فرم (انتشار)', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'فعال کن فرم 3', 'انتشار فرم 3' ] ],
+                    [ 'id' => 'close_form', 'label' => 'بستن/غیرفعال کردن فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'غیرفعال کن فرم 8', 'بستن فرم 8' ] ],
+                    [ 'id' => 'draft_form', 'label' => 'بازگرداندن به پیش‌نویس', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'پیش‌نویس کن فرم 4' ] ],
+                    [ 'id' => 'update_form_title', 'label' => 'تغییر عنوان فرم', 'params' => ['id' => 'number', 'title' => 'string'], 'confirm' => true, 'examples' => [ 'عنوان فرم 2 را به فرم مشتریان تغییر بده' ] ],
+                    [ 'id' => 'export_csv', 'label' => 'خروجی CSV از ارسال‌ها', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'خروجی فرم 5' ] ],
+                ],
+            ],
+            'settings' => [
+                'title' => 'تنظیمات',
+                'items' => [
+                    [ 'id' => 'set_setting', 'label' => 'تغییر تنظیمات سراسری', 'params' => ['key' => 'ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model|ai_parser', 'value' => 'string|number|boolean'], 'confirm' => true, 'examples' => [ 'فعال کردن هوش مصنوعی', 'مدل را روی gpt-5-mini بگذار', 'تحلیل دستورات با اوپن‌ای‌آی', 'تحلیلگر را هیبرید کن' ] ],
+                    [ 'id' => 'ui', 'label' => 'اقدامات رابط کاربری', 'params' => ['target' => 'toggle_theme|undo|go_back|open_editor_index', 'index?' => 'number (0-based)'], 'confirm' => false, 'examples' => [ 'تم را تغییر بده', 'یک قدم برگرد', 'بازگردانی کن', 'پرسش 1 را باز کن' ] ],
+                ],
+            ],
+            'ui' => [
+                'title' => 'تعاملات UI',
+                'items' => [
+                    [ 'id' => 'toggle_theme', 'label' => 'روشن/تاریک', 'params' => [], 'confirm' => false, 'examples' => [ 'حالت تاریک را فعال کن' ] ],
+                    [ 'id' => 'open_ai_terminal', 'label' => 'باز کردن ترمینال هوش مصنوعی', 'params' => [], 'confirm' => false, 'examples' => [ 'ترمینال هوش مصنوعی را باز کن' ] ],
+                ],
+            ],
+            'help' => [
+                'title' => 'کمک',
+                'items' => [
+                    [ 'id' => 'help', 'label' => 'نمایش راهنما و لیست توانمندی‌ها', 'params' => [], 'confirm' => false, 'examples' => [ 'کمک', 'لیست دستورات' ] ],
+                ],
+            ],
+        ];
+        return new WP_REST_Response(['ok' => true, 'capabilities' => $caps], 200);
+    }
+    public static function ai_agent(WP_REST_Request $request)
+    {
+        // Helper closures for fuzzy matching titles and normalizing Persian strings
+        $normalize = function(string $s): string {
+            $s = trim($s);
+            $s = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $s); // ZWNJ,RLM
+            $s = preg_replace('/\s+/u',' ', $s);
+            return mb_strtolower($s, 'UTF-8');
+        };
+        $score_title = function(string $q, string $t) use ($normalize): float {
+            $q = $normalize($q); $t = $normalize($t);
+            if ($q === '' || $t === '') return 0.0;
+            if (mb_strpos($t, $q, 0, 'UTF-8') !== false) return 1.0; // strong contains
+            // fallback: normalized similarity (similar_text is byte-based; acceptable here)
+            $a = $q; $b = $t; $pct = 0.0; similar_text($a, $b, $pct); return max(0.0, min(1.0, $pct/100.0));
+        };
+        $find_by_title = function(string $q, int $limit = 5) use ($score_title){
+            $forms = self::get_forms_list();
+            $scored = [];
+            foreach ($forms as $f){
+                $s = $score_title($q, (string)($f['title'] ?? ''));
+                if ($s > 0){ $scored[] = [ 'id'=>(int)$f['id'], 'title'=>(string)$f['title'], 'score'=>$s ]; }
+            }
+            usort($scored, function($x,$y){ return $y['score'] <=> $x['score']; });
+            return array_slice($scored, 0, max(1, $limit));
+        };
+        // Allow site owner to control auto-confirm threshold for non-destructive title matches
+        $get_auto_confirm_threshold = function(): float {
+            $default = 0.75; // if >= this score and exactly one match, execute directly
+            if (function_exists('apply_filters')){
+                $val = apply_filters('arshline_ai_title_auto_confirm_threshold', $default);
+                $num = is_numeric($val) ? (float)$val : $default;
+                return max(0.0, min(1.0, $num));
+            }
+            return $default;
+        };
+        // UI context for page-aware LLM prompting
+        $ui_tab = (string)($request->get_param('ui_tab') ?? '');
+        $ui_tab = $ui_tab !== '' ? $ui_tab : 'dashboard';
+        $ui_route = (string)($request->get_param('ui_route') ?? '');
+        // Build a concise capability shortlist relevant to the current tab
+        $capsResp = self::get_ai_capabilities($request);
+        $capsData = $capsResp instanceof WP_REST_Response ? $capsResp->get_data() : ['capabilities'=>[]];
+        $allCaps = $capsData['capabilities'] ?? [];
+        $filterCaps = function(array $all, string $tab) {
+            $takeIds = [];
+            $tab = strtolower($tab);
+            if ($tab === 'forms' || strpos($tab, 'builder') !== false){
+                $takeIds = ['open_tab','open_builder','open_editor','public_link','list_forms','create_form','delete_form','open_form','close_form','draft_form','update_form_title','export_csv','ui','help'];
+            } elseif ($tab === 'reports'){
+                $takeIds = ['open_tab','export_csv','list_forms','ui','help'];
+            } elseif ($tab === 'settings'){
+                $takeIds = ['open_tab','set_setting','ui','help'];
+            } else {
+                $takeIds = ['open_tab','list_forms','open_builder','public_link','ui','help'];
+            }
+            $out = [];
+            foreach ($all as $group){
+                if (!is_array($group['items'] ?? null)) continue;
+                foreach (($group['items'] ?? []) as $it){
+                    $id = (string)($it['id'] ?? '');
+                    if ($id !== '' && in_array($id, $takeIds, true)){
+                        $out[] = [
+                            'id' => $id,
+                            'label' => (string)($it['label'] ?? $id),
+                            'examples' => is_array($it['examples'] ?? null) ? array_slice($it['examples'], 0, 2) : [],
+                        ];
+                    }
+                }
+            }
+            return $out;
+        };
+        $kb = $filterCaps(is_array($allCaps) ? $allCaps : [], $ui_tab);
+        // New structured intents for Hoshyar (هوشیار)
+        $intentName = (string)($request->get_param('intent') ?? '');
+        $intentName = trim($intentName);
+        if ($intentName !== ''){
+            try {
+                $params = $request->get_param('params');
+                if (!is_array($params)) $params = [];
+                $out = Hoshyar::agent([ 'intent' => $intentName, 'params' => $params ]);
+                return new WP_REST_Response($out, 200);
+            } catch (\Throwable $e) {
+                return new WP_REST_Response(['ok'=>false,'error'=>'hoshyar_error'], 200);
+            }
+        }
+        // Legacy command-based flow (backward-compat)
+        $cmd = (string)($request->get_param('command') ?? '');
+        $cmd = trim($cmd);
+        // Execute previously confirmed action directly (accept legacy 'type' as well)
+        $confirmPayload = $request->get_param('confirm_action');
+        if (is_array($confirmPayload)){
+            if (!isset($confirmPayload['action']) && isset($confirmPayload['type'])){
+                $confirmPayload['action'] = (string)$confirmPayload['type'];
+            }
+            if (isset($confirmPayload['action'])){
+                return self::execute_confirmed_action($confirmPayload);
+            }
+        }
+    if ($cmd === '') return new WP_REST_Response(['ok'=>false,'error'=>'empty_command'], 200);
+        try {
+            // Parser routing based on AI mode
+            $s = self::get_ai_settings();
+            $parserMode = $s['parser'] ?? 'hybrid';
+            $llmReady = ($s['enabled'] && !empty($s['base_url']) && !empty($s['api_key']));
+            if ($llmReady && $parserMode === 'llm'){
+                $intent = self::llm_parse_command($cmd, $s, [ 'ui_tab' => $ui_tab, 'ui_route' => $ui_route, 'kb' => $kb ]);
+                if (is_array($intent) && isset($intent['action'])){
+                    $action = (string)$intent['action'];
+                    // Map add_field with title->id when needed
+                    if ($action === 'add_field'){
+                        $itype = (string)($intent['type'] ?? '');
+                        if (!empty($intent['title']) && empty($intent['id'])){
+                            $matches = $find_by_title((string)$intent['title'], 5);
+                            if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                            elseif (!empty($matches)){
+                                $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'add_field','type'=>$itype?:'short_text']], 200);
+                            }
+                        }
+                        if (!empty($intent['id'])){
+                            $fid = (int)$intent['id']; $itype = $itype ?: 'short_text';
+                            return new WP_REST_Response([
+                                'ok'=>true,
+                                'action'=>'confirm',
+                                'message'=>'یک سوال '+($itype==='short_text'?'پاسخ کوتاه':'از نوع '+$itype)+' به فرم '+$fid+' اضافه شود؟',
+                                'confirm_action'=>['action'=>'add_field','params'=>['id'=>$fid,'type'=>$itype]]
+                            ], 200);
+                        }
+                    }
+                    // Map title->id if id is missing but title is present
+                    if (!empty($intent['title']) && empty($intent['id'])){
+                        $matches = $find_by_title((string)$intent['title'], 5);
+                        if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                        elseif (!empty($matches)){
+                            $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                            $msg = ($action==='open_results') ? 'نتایج کدام فرم را باز کنم؟' : 'کدام فرم را ویرایش کنم؟';
+                            $clarifyTarget = ($action==='open_results') ? 'open_results' : 'open_builder';
+                            return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>$msg,'param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>$clarifyTarget]], 200);
+                        }
+                    }
+                    // Pass-through common actions
+                    if (!empty($intent['action'])){
+                        if ($action === 'open_tab' && !empty($intent['tab'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_tab','tab'=>(string)$intent['tab']], 200);
+                        if ($action === 'open_builder' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_builder','id'=>(int)$intent['id']], 200);
+                        if ($action === 'open_results' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_results','id'=>(int)$intent['id']], 200);
+                        if ($action === 'open_editor' && !empty($intent['id'])){ $idx = isset($intent['index']) ? (int)$intent['index'] : 0; return new WP_REST_Response(['ok'=>true,'action'=>'open_editor','id'=>(int)$intent['id'],'index'=>$idx], 200); }
+                        if ($action === 'create_form' && !empty($intent['title'])) return new WP_REST_Response(['ok'=>true,'action'=>'confirm','message'=>'ایجاد فرم جدید با عنوان «'.(string)$intent['title'].'» تایید می‌کنید؟','confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>(string)$intent['title']] ]], 200);
+                        if ($action === 'delete_form' && !empty($intent['id'])){ $fid = (int)$intent['id']; return new WP_REST_Response(['ok'=>true,'action'=>'confirm','message'=>'حذف فرم شماره '.$fid.' تایید می‌کنید؟ این عمل قابل بازگشت نیست.','confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$fid] ]], 200); }
+                        if ($action === 'list_forms'){ $forms = self::get_forms_list(); return new WP_REST_Response(['ok'=>true, 'action'=>'list_forms', 'forms'=>$forms], 200); }
+                    }
+                }
+                // else continue to internal parsing
+            }
+            // Add field (short_text) — examples:
+            // "(یک )?سوال (پاسخ کوتاه|کوتاه|short_text) (در فرم (\d+|{title}))? اضافه کن|بساز"
+            // New phrasing support: "افزودن سوال پاسخ کوتاه (به|در) فرم X"
+            if (preg_match('/^(?:یک\s*)?سوال\s*(?:پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)\s*(?:را|رو)?\s*(?:اضافه\s*کن|بساز)(?:\s*در\s*فرم\s*(.+))?$/iu', $cmd, $m)
+                || preg_match('/^(?:افزودن|اضافه\s*کردن)\s*سوال\s*(?:پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)(?:\s*(?:به|در)\s*فرم\s*(.+))?$/iu', $cmd, $m)){
+                $target = isset($m[1]) ? trim((string)$m[1]) : '';
+                $fid = 0;
+                if ($target !== ''){
+                    $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                    $num = (int) strtr(preg_replace('/\D+/u','', $target), $fa2en);
+                    if ($num > 0){ $fid = $num; }
+                    else {
+                        $matches = $find_by_title($target, 5);
+                        if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                            $fid = (int)$matches[0]['id'];
+                        } elseif (!empty($matches)){
+                            $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                            return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'add_field','type'=>'short_text']], 200);
+                        }
+                    }
+                }
+                if ($fid > 0){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'یک سوال پاسخ کوتاه به فرم '.$fid.' اضافه شود؟',
+                        'confirm_action'=> [ 'action'=>'add_field', 'params'=>['id'=>$fid, 'type'=>'short_text'] ]
+                    ], 200);
+                }
+                // No target provided: ask to choose a form
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'add_field','type'=>'short_text']], 200);
+            }
+            // Help / capabilities
+            if (preg_match('/^(کمک|راهنما|لیست\s*دستورات)$/u', $cmd)){
+                $caps = self::get_ai_capabilities($request);
+                $data = $caps instanceof WP_REST_Response ? $caps->get_data() : ['capabilities'=>[]];
+                return new WP_REST_Response(['ok'=>true, 'action'=>'help', 'capabilities'=>$data['capabilities'] ?? []], 200);
+            }
+            // New Form (natural phrases): e.g., "فرم جدید می خوام", "یک فرم جدید میخوام", "میخوام یک فرم جدید"
+            // We treat these as a request to create a new form with a sensible default title.
+            if (
+                preg_match('/^(?:می\s*خوام|میخوام)\s*(?:یه|یک)?\s*فرم\s*جدید$/u', $cmd)
+                || preg_match('/^(?:یه|یک)?\s*فرم\s*جدید\s*(?:می\s*خوام|میخوام)$/u', $cmd)
+                || preg_match('/^(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید$/u', $cmd)
+                || preg_match('/^فرم\s*جدید$/u', $cmd)
+            ){
+                $defTitle = apply_filters('arshline_ai_new_form_default_title', 'فرم جدید');
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'ایجاد فرم جدید با عنوان «'.(string)$defTitle.'» تایید می‌کنید؟',
+                    'confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>(string)$defTitle] ]
+                ], 200);
+            }
+            // Create form: "ایجاد فرم با عنوان X"
+            if (preg_match('/^ایجاد\s*فرم\s*با\s*عنوان\s*(.+)$/u', $cmd, $m)){
+                $title = trim($m[1]);
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'ایجاد فرم جدید با عنوان «'.$title.'» تایید می‌کنید؟',
+                    'confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>$title] ]
+                ], 200);
+            }
+            // Delete form: "حذف فرم <id>"
+            if (preg_match('/^حذف\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'حذف فرم شماره '.$fid.' تایید می‌کنید؟ این عمل قابل بازگشت نیست.',
+                    'confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$fid] ]
+                ], 200);
+            }
+            // Delete form without id -> clarify
+            if (preg_match('/^حذف\s*فرم\s*$/u', $cmd)){
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را حذف کنم؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'delete_form']], 200);
+            }
+            // Public link: "لینک عمومی فرم <id>"
+            if (preg_match('/^لینک\s*عمومی\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $res = self::get_form($req);
+                $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $status = isset($data['status']) ? (string)$data['status'] : '';
+                $token = isset($data['token']) ? (string)$data['token'] : '';
+                $url = ($token && $status==='published') ? home_url('/?arshline='.rawurlencode($token)) : '';
+                return new WP_REST_Response(['ok'=> (bool)$url, 'url'=>$url, 'token'=>$token], 200);
+            }
+            // Activate/publish form: "فعال کن فرم <id>" | "انتشار فرم <id>"
+            if (preg_match('/^(?:فعال\s*کن|فعال\s*کردن|انتشار)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'published']);
+                $res = self::update_form($req);
+                if ($res instanceof WP_REST_Response){ return $res; }
+                return new WP_REST_Response(['ok'=>true], 200);
+            }
+            // Disable/close form: "غیرفعال کن فرم <id>" | "بستن فرم <id>"
+            if (preg_match('/^(?:غیرفعال\s*کن|غیرفعال\s*کردن|بستن)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'disabled']);
+                $res = self::update_form($req);
+                if ($res instanceof WP_REST_Response){ return $res; }
+                return new WP_REST_Response(['ok'=>true], 200);
+            }
+            // Draft form: "پیش نویس کن فرم <id>" | "بازگرداندن به پیش‌نویس فرم <id>"
+            if (preg_match('/^(?:پیش\s*نویس\s*کن|پیش‌نویس\s*کن|بازگرداندن\s*به\s*پیش‌نویس)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'draft']);
+                $res = self::update_form($req);
+                if ($res instanceof WP_REST_Response){ return $res; }
+                return new WP_REST_Response(['ok'=>true], 200);
+            }
+            // Update title: "عنوان فرم <id> را به X تغییر بده/بذار/کن"
+            if (preg_match('/^عنوان\s*فرم\s*(\d+)\s*(?:را)?\s*به\s*(.+)\s*(?:تغییر\s*بده|تغییر\s*ده|بگذار|بذار|قرار\s*ده|کن)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                $title = trim((string)$m[2]);
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'confirm',
+                    'message'=>'عنوان فرم '.$fid.' به «'.$title.'» تغییر داده شود؟',
+                    'confirm_action'=> [ 'action'=>'update_form_title', 'params'=>['id'=>$fid, 'title'=>$title] ]
+                ], 200);
+            }
+            // Title-based open builder: "ویرایش/ادیت فرم {title}" when no numeric id
+            if (preg_match('/^(?:ویرایش|ادیت|edit|باز\s*کردن|بازش\s*کن|سازنده)\s*فرم\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                // Attempt Persian digit to int first
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200); }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1){
+                    $m1 = $matches[0];
+                    if ($m1['score'] >= $get_auto_confirm_threshold()){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                    }
+                    if ($m1['score'] >= 0.6){
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                }
+                // fallthrough to unknown later
+            }
+            // Title-first open builder: "{title} رو باز کن/وا کن" (implicit form)
+            if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:باز\s*کن|باز\s*کردن|وا\s*کن)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                // Guard: if the requested name is an app tab, prefer opening that tab instead of treating it as a form title
+                $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $name); // remove ZWNJ/RLM
+                $raw = preg_replace('/\s+/u', ' ', $raw);
+                $tabMap = [
+                    'داشبورد' => 'dashboard', 'خانه' => 'dashboard',
+                    'فرم ها' => 'forms', 'فرم‌ها' => 'forms', 'فرمها' => 'forms', 'فرم' => 'forms',
+                    'گزارشات' => 'reports', 'گزارش' => 'reports', 'آمار' => 'reports',
+                    'کاربران' => 'users', 'کاربر' => 'users', 'اعضا' => 'users',
+                    'تنظیمات' => 'settings', 'تنظیم' => 'settings', 'ستینگ' => 'settings', 'پیکربندی' => 'settings',
+                ];
+                // Normalize some common variants
+                $rawNorm = str_replace(['‌'], ' ', $raw); // Persian half-space to normal space
+                $rawNorm = trim($rawNorm);
+                if (isset($tabMap[$rawNorm])){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tabMap[$rawNorm]], 200);
+                }
+                if (!preg_match('/^(?:فرم|forms?)$/iu', $name)){
+                    $matches = $find_by_title($name, 5);
+                    if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                        $m1 = $matches[0];
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
+                    if (!empty($matches)){
+                        $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                        return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                    }
+                }
+            }
+            // Results by title: "نتایج [فرم] {title}"
+            if (preg_match('/^نتایج\s*(?:فرم)?\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>$matches[0]['id']], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'نتایج کدام فرم را باز کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_results']], 200);
+                }
+            }
+            // Title-based open builder with form-first order: "فرم {title} رو ادیت/ویرایش کن"
+            if (preg_match('/^فرم\s+(.+?)\s*(?:را|رو)?\s*(?:ویرایش|ادیت|edit)(?:\s*کن)?$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200); }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1){
+                    $m1 = $matches[0];
+                    if ($m1['score'] >= $get_auto_confirm_threshold()){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                    }
+                    if ($m1['score'] >= 0.6){
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                }
+            }
+            // Title-only to edit (implicit "فرم" omitted): "{title} رو ادیت کن" | "{title} را ویرایش کن"
+            if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:ویرایش|ادیت|edit)(?:\s*کن)?$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                // Prevent treating known tab names as form titles in odd phrases like "داشبورد رو ادیت کن"
+                $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $name);
+                $raw = preg_replace('/\s+/u', ' ', $raw);
+                $tabSyns = ['داشبورد','خانه','فرم ها','فرم‌ها','فرمها','گزارشات','گزارش','آمار','کاربران','کاربر','اعضا','تنظیمات','تنظیم','ستینگ','پیکربندی'];
+                if (in_array($raw, $tabSyns, true)){
+                    // Do not match as a form title; let navigation handlers decide
+                } else if (!preg_match('/^(?:فرم|forms?)$/iu', $name)){
+                    $matches = $find_by_title($name, 5);
+                    if (count($matches) === 1){
+                        $m1 = $matches[0];
+                        if ($m1['score'] >= $get_auto_confirm_threshold()){
+                            return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                        }
+                        if ($m1['score'] >= 0.6){
+                            return new WP_REST_Response([
+                                'ok'=>true,
+                                'action'=>'confirm',
+                                'message'=>'آیا منظورتان ویرایش «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                                'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                            ], 200);
+                        }
+                    }
+                    if (!empty($matches)){
+                        $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                        return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                    }
+                }
+            }
+            // Title-based delete: "حذف فرم {title}"
+            if (preg_match('/^(?:حذف|پاک(?:\s*کردن)?|delete)\s*فرم\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'حذف فرم شماره '.$num.' تایید می‌کنید؟ این عمل قابل بازگشت نیست.',
+                        'confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$num] ]
+                    ], 200);
+                }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    $m1 = $matches[0];
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'آیا منظورتان حذف «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟ حذف غیرقابل بازگشت است.',
+                        'confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$m1['id']] ]
+                    ], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را حذف کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'delete_form']], 200);
+                }
+            }
+            // List forms: "لیست فرم ها" | "نمایش فرم ها"
+            if (preg_match('/^(لیست|نمایش)\s*فرم(?:\s*ها)?$/u', $cmd)){
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                // Normalize minimal list
+                $list = array_map(function($r){ return [ 'id'=>(int)($r['id']??0), 'title'=>(string)($r['title']??'') ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true, 'forms'=>$list], 200);
+            }
+            // Open builder: "باز کردن فرم <id>" | "ویرایش فرم <id>"
+            if (preg_match('/^(باز\s*کردن|ویرایش)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[2];
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$fid], 200);
+            }
+            // Open a specific question editor by index: "پرسش 1 را ویرایش کن" (optionally "در فرم 12")
+            if (preg_match('/^پرسش\s*(\d+)\s*(?:را|رو)?\s*(?:ویرایش|ادیت|edit)\s*(?:کن)?(?:\s*در\s*فرم\s*(\d+))?$/u', $cmd, $m)){
+                $qIndexHuman = (int)$m[1];
+                $fid = isset($m[2]) ? (int)$m[2] : 0;
+                $index = max(0, $qIndexHuman - 1); // convert to 0-based
+                if ($fid > 0){
+                    // We can go directly to editor if form id is specified
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_editor', 'id'=>$fid, 'index'=>$index], 200);
+                }
+                // Without form id, if currently in a builder context, UI can handle it; otherwise ask to clarify form
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'action'=>'ui',
+                    'target'=>'open_editor_index',
+                    'index'=>$index,
+                    'message'=>'در صورتی که در صفحه ویرایش فرم هستید، ویرایشگر پرسش '+($index+1)+' باز می‌شود؛ در غیر اینصورت لطفاً شماره فرم را مشخص کنید (مثلا: پرسش '+($index+1)+' فرم 12).'
+                ], 200);
+            }
+            // Back/Undo: "برگرد" | "یک قدم برگرد" | "بازگردانی" | "آن‌دو" | "undo"
+            if (preg_match('/^(?:برگرد|یک\s*قدم\s*برگرد|بازگردانی|آن‌?دو|undo)$/iu', $cmd)){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'ui', 'target'=>'go_back'], 200);
+            }
+            if (preg_match('/^(?:بازگردانی\s*کن|undo\s*کن|بازگردانی)$/iu', $cmd)){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'ui', 'target'=>'undo'], 200);
+            }
+            // Open builder without id -> clarify
+            if (preg_match('/^(باز\s*کردن|ویرایش)\s*فرم\s*$/u', $cmd)){
+                $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                $res = self::get_forms($req);
+                $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'فرم مورد نظر برای باز کردن؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'open_builder']], 200);
+            }
+            // Open tab: "باز کردن تنظیمات" | "باز کردن گزارشات" | "باز کردن فرم ها"
+            if (preg_match('/^باز\s*کردن\s*(داشبورد|فرم\s*ها|گزارشات|کاربران|تنظیمات)$/u', $cmd, $m)){
+                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرمها'=>'forms', 'گزارشات'=>'reports', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
+                $raw = (string)$m[1]; $raw = str_replace('‌',' ', $raw);
+                $tab = $map[$raw] ?? ($raw === 'فرم ها' ? 'forms' : 'dashboard');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tab], 200);
+            }
+            // Colloquial navigation verbs: "بازش کن", "واکن", "ببر به X", "برو تو X"
+            if (preg_match('/^(?:بازش\s*کن|وا\s*کن|واکن|ببر\s*به|برو\s*تو|برو\s*به)\s*(داشبورد|فرم\s*ها|فرم|گزارشات|کاربران|تنظیمات)$/u', $cmd, $m)){
+                $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', (string)$m[1]);
+                $raw = preg_replace('/\s+/u', ' ', $raw);
+                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرم'=>'forms', 'گزارشات'=>'reports', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
+                $tab = $map[$raw] ?? ($raw === 'فرم ها' || $raw === 'فرم' ? 'forms' : 'dashboard');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tab], 200);
+            }
+            // Colloquial: "برو تو فرم <id>" | "برو تو فرم {title}"
+            if (preg_match('/^(?:برو\s*تو|برو\s*به|ببر\s*به)\s*فرم\s*(.+)$/u', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200);
+                }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1){
+                    $m1 = $matches[0];
+                    if ($m1['score'] >= $get_auto_confirm_threshold()){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$m1['id']], 200);
+                    }
+                    if ($m1['score'] >= 0.6){
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'آیا منظورتان باز کردن «'.$m1['title'].'» (شناسه '.$m1['id'].') بود؟',
+                            'confirm_action'=> [ 'action'=>'open_builder', 'params'=>['id'=>$m1['id']] ]
+                        ], 200);
+                    }
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را باز کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
+                }
+            }
+            // Open tab without target -> clarify
+            if (preg_match('/^باز\s*کردن\s*$/u', $cmd)){
+                $opts = [
+                    ['label'=>'داشبورد', 'value'=>'dashboard'],
+                    ['label'=>'فرم‌ها', 'value'=>'forms'],
+                    ['label'=>'گزارشات', 'value'=>'reports'],
+                    ['label'=>'کاربران', 'value'=>'users'],
+                    ['label'=>'تنظیمات', 'value'=>'settings'],
+                ];
+                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام بخش را باز کنم؟','param_key'=>'tab','options'=>$opts,'clarify_action'=>['action'=>'open_tab']], 200);
+            }
+            // Export CSV: "خروجی فرم <id>" | "دانلود csv فرم <id>"
+            if (preg_match('/^(خروجی|دانلود)\s*(csv\s*)?فرم\s*(\d+)$/iu', $cmd, $m)){
+                $fid = (int)$m[3];
+                $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+            }
+            // Open results by id: "نتایج فرم <id>" | "نمایش نتایج فرم <id>"
+            if (preg_match('/^(?:نتایج|نمایش\s*نتایج)\s*فرم\s*(\d+)$/u', $cmd, $m)){
+                $fid = (int)$m[1];
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>$fid], 200);
+            }
+            // Open results by title (no id)
+            if (preg_match('/^(?:نتایج|نمایش\s*نتایج)\s*فرم\s+(.+)$/iu', $cmd, $m)){
+                $name = trim((string)$m[1]);
+                $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>$num], 200); }
+                $matches = $find_by_title($name, 5);
+                if (count($matches) === 1 && $matches[0]['score'] >= 0.6){
+                    $m1 = $matches[0];
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'نتایج «'.$m1['title'].'» (شناسه '.$m1['id'].') نمایش داده شود؟',
+                        'confirm_action'=> [ 'action'=>'open_results', 'params'=>['id'=>$m1['id']] ]
+                    ], 200);
+                }
+                if (!empty($matches)){
+                    $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                    return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'نتایج کدام فرم را نمایش دهم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_results']], 200);
+                }
+            }
+            // Heuristic colloquial navigation: "منوی فرم‌ها رو باز کن"، "برو به فرم‌ها", "منو تنظیمات" + tolerate "بازش کن" and "واکن"
+            {
+                $plain = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $cmd); // remove ZWNJ, RLM
+                $hasNavVerb = preg_match('/(منو|منوی|باز\s*کن|بازش\s*کن|باز|وا\s*کن|واکن|برو\s*به|برو\s*تو|برو|ببر\s*به|نمایش|نشون\s*بده)/u', $plain) === 1;
+                $syns = [
+                    'forms' => ['فرم ها','فرمها','فرم‌ها','فرم'],
+                    'dashboard' => ['داشبورد','خانه'],
+                    'reports' => ['گزارشات','گزارش','آمار'],
+                    'users' => ['کاربران','کاربر','اعضا'],
+                    'settings' => ['تنظیمات','تنظیم','ستینگ','پیکربندی'],
+                ];
+                $foundTab = '';
+                foreach ($syns as $tabKey => $words){
+                    foreach ($words as $w){ if ($w !== '' && mb_strpos($plain, $w) !== false){ $foundTab = $tabKey; break 2; } }
+                }
+                // Extra tolerance for 'forms' and 'dashboard' if not matched strictly
+                if (!$foundTab){
+                    // Any occurrence of 'فرم' (with/without half-space/plurals) → forms
+                    if (preg_match('/فرم[\s‌]*ها?/u', $plain) || mb_strpos($plain, 'فرم') !== false){ $foundTab = 'forms'; }
+                    // Any token starting with 'داشب' → dashboard
+                    if (!$foundTab && mb_strpos($plain, 'داشب') !== false){ $foundTab = 'dashboard'; }
+                }
+                if ($foundTab && ($hasNavVerb || mb_strpos($plain, 'منو') !== false)){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$foundTab], 200);
+                }
+                // Tolerate common typos for dashboard: e.g., "داشبودر" → detect via prefix 'داشب'
+                if (!$foundTab && ($hasNavVerb || mb_strpos($plain, 'منو') !== false)){
+                    if (mb_strpos($plain, 'داشب') !== false){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>'dashboard'], 200);
+                    }
+                }
+            }
+            // Colloquial Persian digit map for id parsing
+            $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+            $toInt = function($s) use ($fa2en){ return (int) strtr(preg_replace('/\D+/u','', (string)$s), $fa2en); };
+
+            // Colloquial: open/edit form builder by id
+                        if (preg_match('/^(ویرایش|ادیت|edit|باز(?:\s*کن)?|بازش\s*کن|سازنده)\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
+                            || preg_match('/^فرم\s*([0-9۰-۹]+)\s*(?:را|رو)?\s*(ویرایش|ادیت|edit|باز)(?:\s*کن)?$/iu', $cmd, $m)){
+                $fid = $toInt($m[2] ?? $m[1]);
+                if ($fid > 0){
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$fid], 200);
+                }
+            }
+
+            // Colloquial: delete form by id (confirmation)
+            if (preg_match('/^(حذف|پاک(?:\s*کردن)?|دلیت|delete)\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
+              || preg_match('/^فرم\s*([0-9۰-۹]+)\s*(?:را|رو)?\s*(حذف|پاک)(?:\s*کن)?$/iu', $cmd, $m)){
+                $fid = $toInt($m[2] ?? $m[1]);
+                if ($fid > 0){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>sprintf(__('آیا از حذف فرم %d مطمئنید؟','arshline'), $fid),
+                        'confirm_action'=>['type'=>'delete_form','params'=>['id'=>$fid]]
+                    ], 200);
+                }
+            }
+
+            // Colloquial: create form with name
+            if (preg_match('/^(بساز|ایجاد|درست\s*کن)\s*فرم(?:\s*جدید)?\s*(?:با\s*عنوان|به\s*نام)?\s*(.+)$/iu', $cmd, $m)){
+                $name = trim($m[2]);
+                $name = trim($name, " \"'\x{200C}\x{200F}");
+                if ($name !== ''){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>sprintf(__('فرم جدید با عنوان "%s" ساخته شود؟','arshline'), $name),
+                        'confirm_action'=>['type'=>'create_form','params'=>['name'=>$name]]
+                    ], 200);
+                }
+            }
+
+            // Create a new blank form and open builder (no title specified)
+            // Examples: "یک فرم جدید باز کن", "فرم جدید باز کن", "فرم جدید بساز", "یک فرم جدید بساز"
+            if (preg_match('/^(?:یک\s*)?فرم\s*جدید\s*(?:باز\s*کن|بساز|ایجاد\s*کن)$/u', $cmd)
+                || preg_match('/^(?:باز\s*کردن\s*)?فرم\s*جدید$/u', $cmd)){
+                // Create a draft form with default title and return open_builder
+                $req = new WP_REST_Request('POST', '/arshline/v1/forms');
+                // Title left empty to let create_form apply its default (or we could pass 'فرم جدید')
+                $res = self::create_form($req);
+                if ($res instanceof WP_REST_Response){
+                    $data = $res->get_data();
+                    $newId = isset($data['id']) ? (int)$data['id'] : 0;
+                    if ($newId > 0){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$newId, 'undo_token'=>($data['undo_token']??null)], 200);
+                    }
+                }
+                return new WP_REST_Response(['ok'=>false, 'error'=>'create_failed'], 500);
+            }
+
+            // Colloquial: export csv by id
+            if (preg_match('/^(اکسپورت|خروجی|دانلود)\s*(?:csv\s*)?(?:از\s*)?فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)
+              || preg_match('/^csv\s*فرم\s*([0-9۰-۹]+)/iu', $cmd, $m)){
+                $fid = $toInt($m[2] ?? $m[1]);
+                if ($fid > 0){
+                    $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                    return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+                }
+            }
+
+            // Colloquial: list forms
+            if (preg_match('/^(لیست|فهرست|نمایش|نشون\s*بده)\s*فرم(?:\s*ها)?$/iu', $cmd)){
+                $forms = self::get_forms_list();
+                return new WP_REST_Response(['ok'=>true, 'action'=>'list_forms', 'forms'=>$forms], 200);
+            }
+            // If not matched, try LLM-assisted parsing when configured (hybrid fallback)
+            $s = self::get_ai_settings();
+            $parserMode = $s['parser'] ?? 'hybrid';
+            if ($s['enabled'] && $parserMode === 'hybrid' && $s['base_url'] && $s['api_key']){
+                $intent = self::llm_parse_command($cmd, $s, [ 'ui_tab' => $ui_tab, 'ui_route' => $ui_route, 'kb' => $kb ]);
+                if (is_array($intent) && isset($intent['action'])){
+                    $action = (string)$intent['action'];
+                    // Map add_field with title->id when needed
+                    if ($action === 'add_field'){
+                        $itype = (string)($intent['type'] ?? '');
+                        if (!empty($intent['title']) && empty($intent['id'])){
+                            $matches = $find_by_title((string)$intent['title'], 5);
+                            if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                            elseif (!empty($matches)){
+                                $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                                return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'add_field','type'=>$itype?:'short_text']], 200);
+                            }
+                        }
+                        if (!empty($intent['id'])){
+                            $fid = (int)$intent['id']; $itype = $itype ?: 'short_text';
+                            return new WP_REST_Response([
+                                'ok'=>true,
+                                'action'=>'confirm',
+                                'message'=>'یک سوال '+($itype==='short_text'?'پاسخ کوتاه':'از نوع '+$itype)+' به فرم '+$fid+' اضافه شود؟',
+                                'confirm_action'=>['action'=>'add_field','params'=>['id'=>$fid,'type'=>$itype]]
+                            ], 200);
+                        }
+                    }
+                    // Map title->id if id is missing but title is present
+                    if (!empty($intent['title']) && empty($intent['id'])){
+                        $matches = $find_by_title((string)$intent['title'], 5);
+                        if (count($matches) === 1 && $matches[0]['score'] >= 0.6){ $intent['id'] = $matches[0]['id']; }
+                        elseif (!empty($matches)){
+                            $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                            $msg = ($action==='open_results') ? 'نتایج کدام فرم را باز کنم؟' : 'کدام فرم را ویرایش کنم؟';
+                            $clarifyTarget = ($action==='open_results') ? 'open_results' : 'open_builder';
+                            return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>$msg,'param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>$clarifyTarget]], 200);
+                        }
+                    }
+                    if ($action === 'create_form' && !empty($intent['title'])){
+                        $req = new WP_REST_Request('POST', '/arshline/v1/forms');
+                        $req->set_body_params(['title'=>(string)$intent['title']]);
+                        $res = self::create_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'delete_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('DELETE', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $res = self::delete_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'public_link' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('GET', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $res = self::get_form($req);
+                        $data = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                        $status = isset($data['status']) ? (string)$data['status'] : '';
+                        $token = isset($data['token']) ? (string)$data['token'] : '';
+                        $url = ($token && $status==='published') ? home_url('/?arshline='.rawurlencode($token)) : '';
+                        return new WP_REST_Response(['ok'=> (bool)$url, 'url'=>$url, 'token'=>$token], 200);
+                    }
+                    if ($action === 'list_forms'){
+                        $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                        $res = self::get_forms($req);
+                        $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                        $list = array_map(function($r){ return [ 'id'=>(int)($r['id']??0), 'title'=>(string)($r['title']??'') ]; }, is_array($rows)?$rows:[]);
+                        return new WP_REST_Response(['ok'=>true, 'forms'=>$list], 200);
+                    }
+                    if ($action === 'open_builder' && !empty($intent['id'])){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>(int)$intent['id']], 200);
+                    }
+                    if ($action === 'open_tab' && !empty($intent['tab'])){
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>(string)$intent['tab']], 200);
+                    }
+                    if ($action === 'export_csv' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                        return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+                    }
+                    if ($action === 'open_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $req->set_body_params(['status'=>'published']);
+                        $res = self::update_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'close_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $req->set_body_params(['status'=>'disabled']);
+                        $res = self::update_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'draft_form' && !empty($intent['id'])){
+                        $fid = (int)$intent['id'];
+                        $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                        $req->set_url_params(['form_id'=>$fid]);
+                        $req->set_body_params(['status'=>'draft']);
+                        $res = self::update_form($req);
+                        return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+                    }
+                    if ($action === 'update_form_title' && !empty($intent['id']) && isset($intent['title'])){
+                        $fid = (int)$intent['id'];
+                        $title = (string)$intent['title'];
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'confirm',
+                            'message'=>'عنوان فرم '.$fid.' به «'.$title.'» تغییر داده شود؟',
+                            'confirm_action'=>['action'=>'update_form_title','params'=>['id'=>$fid,'title'=>$title]]
+                        ], 200);
+                    }
+                    // If LLM says unknown, fall through to suggestions
+                    if ($action === 'unknown'){ /* handled below */ }
+                }
+            }
+            // Final fallback: suggest next steps instead of plain unknown
+            $plain = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $cmd);
+            $hasEdit = preg_match('/(ویرایش|ادیت|edit|باز\s*کردن|بازش\s*کن|سازنده)/u', $plain) === 1;
+            $hasDel = preg_match('/(حذف|پاک(?:\s*کردن)?|delete)/iu', $plain) === 1;
+            if ($hasEdit || $hasDel){
+                // Try last token after the word "فرم" as a possible name
+                if (preg_match('/فرم\s+(.+)$/u', $plain, $mm)){
+                    $guess = trim((string)$mm[1]);
+                    $matches = $find_by_title($guess, 5);
+                    if (!empty($matches)){
+                        $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
+                        $act = $hasDel ? 'delete_form' : 'open_builder';
+                        $msg = $hasDel ? 'کدام فرم را حذف کنم؟' : 'کدام فرم را ویرایش کنم؟';
+                        return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>$msg,'param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>$act]], 200);
+                    }
+                }
+            }
+            // Provide suggestions instead of bare unknown
+            $suggest = [ 'نمونه‌ها' => ['ویرایش فرم 12','فرم مشتریان رو ادیت کن','نتایج فرم 5','لیست فرم‌ها'] ];
+            return new WP_REST_Response(['ok'=>false,'error'=>'unknown_command','message'=>'دستور واضح نیست.','suggestions'=>$suggest], 200);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response(['ok'=>false,'error'=>'agent_error'], 200);
+        }
+    }
+
+    /**
+     * Execute a previously confirmed action sent by the UI terminal.
+     */
+    protected static function execute_confirmed_action(array $payload)
+    {
+        $action = (string)($payload['action'] ?? '');
+        $params = is_array($payload['params'] ?? null) ? $payload['params'] : [];
+        try {
+            if ($action === 'add_field' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $type = isset($params['type']) ? (string)$params['type'] : 'short_text';
+                // Load current fields and snapshot for audit
+                $before = FieldRepository::listByForm($fid);
+                $fields = $before;
+                // Compute insert index (append at end)
+                $insertAt = count($fields);
+                // Default props for short_text (server-side mirror of tool-defaults)
+                $defaults = [ 'type'=>'short_text', 'label'=>'پاسخ کوتاه', 'format'=>'free_text', 'required'=>false, 'show_description'=>false, 'description'=>'', 'placeholder'=>'', 'question'=>'', 'numbered'=>true ];
+                if ($type !== 'short_text') { $defaults['type'] = $type; }
+                $fields[] = [ 'props' => $defaults ];
+                FieldRepository::replaceAll($fid, $fields);
+                $after = FieldRepository::listByForm($fid);
+                $undo = Audit::log('update_form_fields', 'form', $fid, ['fields'=>$before], ['fields'=>$after]);
+                // Determine new index by comparing lengths
+                $newIndex = max(0, count($after) - 1);
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_editor', 'id'=>$fid, 'index'=>$newIndex, 'undo_token'=>$undo], 200);
+            }
+            if ($action === 'create_form' && !empty($params['title'])){
+                $req = new WP_REST_Request('POST', '/arshline/v1/forms');
+                $req->set_body_params(['title'=>(string)$params['title']]);
+                $res = self::create_form($req);
+                if ($res instanceof WP_REST_Response){
+                    $data = $res->get_data();
+                    if (is_array($data) && !empty($data['id'])){
+                        // Navigate to builder for the new form and surface undo token
+                        return new WP_REST_Response([
+                            'ok'=>true,
+                            'action'=>'open_builder',
+                            'id'=>(int)$data['id'],
+                            'undo_token'=> ($data['undo_token'] ?? '')
+                        ], 200);
+                    }
+                    return $res;
+                }
+                return new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'open_builder' && !empty($params['id'])){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>(int)$params['id']], 200);
+            }
+            if ($action === 'open_tab' && !empty($params['tab'])){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>(string)$params['tab']], 200);
+            }
+            if ($action === 'open_results' && !empty($params['id'])){
+                return new WP_REST_Response(['ok'=>true, 'action'=>'open_results', 'id'=>(int)$params['id']], 200);
+            }
+            if ($action === 'export_csv' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $url = rest_url('arshline/v1/forms/'.$fid.'/submissions?format=csv');
+                return new WP_REST_Response(['ok'=>true, 'action'=>'download', 'format'=>'csv', 'url'=>$url], 200);
+            }
+            if ($action === 'delete_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('DELETE', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $res = self::delete_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'set_setting' && !empty($params['key'])){
+                $key = (string)$params['key']; $value = $params['value'] ?? null;
+                $allowed = ['ai_enabled','ai_model','min_submit_seconds','rate_limit_per_min','block_svg','ai_parser'];
+                if (!in_array($key, $allowed, true)){
+                    return new WP_REST_Response(['ok'=>false, 'error'=>'invalid_setting'], 200);
+                }
+                if ($key === 'ai_model' || $key === 'ai_enabled'){
+                    $cur = self::get_ai_settings();
+                    $cfg = [
+                        'base_url' => $cur['base_url'],
+                        'api_key' => $cur['api_key'],
+                        'enabled' => ($key === 'ai_enabled') ? (bool)$value : $cur['enabled'],
+                        'model' => ($key === 'ai_model') ? (string)$value : $cur['model'],
+                        'parser' => $cur['parser'],
+                    ];
+                    $before = ['config'=>$cur];
+                    $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
+                    $r->set_body_params(['config'=>$cfg]);
+                    $resp = self::update_ai_config($r);
+                    $undo = Audit::log('set_setting', 'settings', null, $before, ['config'=>$cfg]);
+                    if ($resp instanceof WP_REST_Response){ $data = $resp->get_data(); $data['undo_token'] = $undo; return new WP_REST_Response($data, $resp->get_status()); }
+                    return $resp;
+                } elseif ($key === 'ai_parser'){
+                    $cur = self::get_ai_settings();
+                    $cfg = [
+                        'base_url' => $cur['base_url'],
+                        'api_key' => $cur['api_key'],
+                        'enabled' => $cur['enabled'],
+                        'model' => $cur['model'],
+                        'parser' => in_array((string)$value, ['internal','hybrid','llm'], true) ? (string)$value : 'hybrid',
+                    ];
+                    $before = ['config'=>$cur];
+                    $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
+                    $r->set_body_params(['config'=>$cfg]);
+                    $resp = self::update_ai_config($r);
+                    $undo = Audit::log('set_setting', 'settings', null, $before, ['config'=>$cfg]);
+                    if ($resp instanceof WP_REST_Response){ $data = $resp->get_data(); $data['undo_token'] = $undo; return new WP_REST_Response($data, $resp->get_status()); }
+                    return $resp;
+                } else {
+                    $cur = get_option('arshline_settings', []);
+                    $arr = is_array($cur) ? $cur : [];
+                    $before = ['settings'=>$arr];
+                    if ($key === 'min_submit_seconds') $arr['min_submit_seconds'] = max(0, (int)$value);
+                    if ($key === 'rate_limit_per_min') $arr['rate_limit_per_min'] = max(0, (int)$value);
+                    if ($key === 'block_svg') $arr['block_svg'] = (bool)$value;
+                    update_option('arshline_settings', $arr, false);
+                    $undo = Audit::log('set_setting', 'settings', null, $before, ['settings'=>$arr]);
+                    return new WP_REST_Response(['ok'=>true, 'settings'=> self::get_global_settings(), 'undo_token'=>$undo], 200);
+                }
+            }
+            if ($action === 'open_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'published']);
+                $res = self::update_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'close_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'disabled']);
+                $res = self::update_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'draft_form' && !empty($params['id'])){
+                $fid = (int)$params['id'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid);
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['status'=>'draft']);
+                $res = self::update_form($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+            if ($action === 'update_form_title' && !empty($params['id']) && isset($params['title'])){
+                $fid = (int)$params['id'];
+                $title = (string)$params['title'];
+                $req = new WP_REST_Request('PUT', '/arshline/v1/forms/'.$fid.'/meta');
+                $req->set_url_params(['form_id'=>$fid]);
+                $req->set_body_params(['meta'=>['title'=>$title]]);
+                $res = self::update_meta($req);
+                return $res instanceof WP_REST_Response ? $res : new WP_REST_Response(['ok'=>true], 200);
+            }
+        } catch (\Throwable $e) {
+            return new WP_REST_Response(['ok'=>false, 'error'=>'confirm_execute_failed'], 200);
+        }
+        return new WP_REST_Response(['ok'=>false, 'error'=>'unknown_confirm_action'], 200);
+    }
+
+    /**
+     * Minimal forms list for agent suggestions: [{id,title}]
+     */
+    protected static function get_forms_list(): array
+    {
+        global $wpdb;
+        $table = Helpers::tableName('forms');
+        $rows = $wpdb->get_results("SELECT id, status, meta FROM {$table} ORDER BY id DESC LIMIT 200", ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $r){
+            $meta = json_decode($r['meta'] ?: '{}', true);
+            $out[] = [ 'id'=>(int)$r['id'], 'title'=>(string)($meta['title'] ?? 'بدون عنوان') ];
+        }
+        return $out;
+    }
+
+    /**
+     * Use an OpenAI-compatible chat/completions endpoint to parse a natural-language command
+     * into a structured intent. Expected JSON output schema:
+     * { action: "create_form"|"delete_form"|"public_link", title?: string, id?: number }
+     */
+    protected static function llm_parse_command(string $cmd, array $s, array $ctx = [])
+    {
+        try {
+            $base = rtrim((string)$s['base_url'], '/');
+            $model = (string)($s['model'] ?? 'gpt-4o-mini');
+            $url = $base . '/v1/chat/completions';
+          $sys = 'You are a deterministic command parser for the Arshline dashboard. '
+              . 'Your ONLY job is to convert Persian admin commands into a single strict JSON object. '
+              . 'Do NOT chat, do NOT add explanations, do NOT ask follow-up questions. Output JSON ONLY. '
+              . 'Schema: '
+              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_editor|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title|add_field","title?":string,"id?":number,"index?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal|undo|go_back","type?":"short_text|long_text|multiple_choice|dropdown|rating","params?":object}. '
+              . 'Examples: '
+              . '"ایجاد فرم با عنوان فرم تست" => {"action":"create_form","title":"فرم تست"}. '
+              . '"حذف فرم 12" => {"action":"delete_form","id":12}. '
+              . '"لینک عمومی فرم 7" => {"action":"public_link","id":7}. '
+              . '"لیست فرم ها" => {"action":"list_forms"}. '
+              . '"باز کردن فرم 9" => {"action":"open_builder","id":9}. '
+              . '"فرم مشتریان رو ادیت کن" => {"action":"open_builder","title":"فرم مشتریان"}. '
+              . '"آزمایش جدید رو باز کن" => {"action":"open_builder","title":"آزمایش جدید"}. '
+              . '"نتایج فرم مشتریان" => {"action":"open_results","title":"فرم مشتریان"}. '
+              . '"باز کردن تنظیمات" => {"action":"open_tab","tab":"settings"}. '
+              . '"خروجی فرم 5" => {"action":"export_csv","id":5}. '
+              . '"کمک" => {"action":"help"}. '
+              . '"مدل را روی gpt-4o-mini بگذار" => {"action":"set_setting","key":"ai_model","value":"gpt-4o-mini"}. '
+              . '"حالت تاریک را فعال کن" => {"action":"ui","target":"toggle_theme","params":{"mode":"dark"}}. '
+              . '"فعال کن فرم 3" => {"action":"open_form","id":3}. '
+              . '"غیرفعال کن فرم 8" => {"action":"close_form","id":8}. '
+              . '"پیش‌نویس کن فرم 4" => {"action":"draft_form","id":4}. '
+              . '"عنوان فرم 2 را به فرم مشتریان تغییر بده" => {"action":"update_form_title","id":2,"title":"فرم مشتریان"}. '
+              . '"یک سوال پاسخ کوتاه در فرم 5 اضافه کن" => {"action":"add_field","id":5,"type":"short_text"}. '
+              . 'Context: you may use the following current UI hints to disambiguate. '
+              . 'UI Tab: ' . (!empty($ctx['ui_tab']) ? $ctx['ui_tab'] : 'unknown') . '. '
+              . 'UI Route: ' . (!empty($ctx['ui_route']) ? $ctx['ui_route'] : '') . '. '
+              . 'Capabilities shortlist (IDs + labels; choose closest): ' . wp_json_encode($ctx['kb'] ?? []) . '. '
+              . 'If unclear, reply {"action":"unknown"}.';
+            $body = [
+                'model' => $model,
+                'messages' => [
+                    [ 'role' => 'system', 'content' => $sys ],
+                    [ 'role' => 'user', 'content' => $cmd ],
+                ],
+                'temperature' => 0,
+                'response_format' => [ 'type' => 'json_object' ],
+            ];
+            $resp = wp_remote_post($url, [
+                'timeout' => 10,
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'Authorization' => 'Bearer ' . (string)$s['api_key'],
+                ],
+                'body' => wp_json_encode($body),
+            ]);
+            if (is_wp_error($resp)) return null;
+            $code = (int)wp_remote_retrieve_response_code($resp);
+            if ($code < 200 || $code >= 300) return null;
+            $json = json_decode(wp_remote_retrieve_body($resp), true);
+            $content = $json['choices'][0]['message']['content'] ?? '';
+            if (!is_string($content) || $content === '') return null;
+            $parsed = json_decode($content, true);
+            return is_array($parsed) ? $parsed : null;
+        } catch (\Throwable $e) { return null; }
     }
 
     public static function get_form_by_token(WP_REST_Request $request)
@@ -197,12 +2544,27 @@ class Api
         $token = (string)$request['token'];
         $form = FormRepository::findByToken($token);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
+        }
+        // When accessing by public token, still enforce group mapping if present (require member token or user membership)
+        list($ok, $member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
         $fields = FieldRepository::listByForm($form->id);
+        // Minimal personalization via GET params for title/description
+        $meta = $form->meta;
+        $params = $request->get_params();
+        $repl = [];
+        foreach ($params as $k=>$v){ if (is_string($v) && preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', (string)$k)) { $repl[$k] = $v; } }
+        $replaceIn = function($s) use ($repl){ if (!is_string($s) || $s==='') return $s; return preg_replace_callback('/#([A-Za-z_][A-Za-z0-9_]*)/', function($m) use ($repl){ $k=$m[1]; return array_key_exists($k,$repl) ? (string)$repl[$k] : $m[0]; }, $s); };
+        if (isset($meta['title'])) $meta['title'] = $replaceIn($meta['title']);
+        if (isset($meta['description'])) $meta['description'] = $replaceIn($meta['description']);
+        $meta = self::hydrate_meta_with_member($meta, $member);
         return new WP_REST_Response([
             'id' => $form->id,
             'token' => $form->public_token,
             'status' => $form->status,
-            'meta' => $form->meta,
+            'meta' => $meta,
             'fields' => $fields,
         ], 200);
     }
@@ -223,9 +2585,19 @@ class Api
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
         $meta = $request->get_param('meta');
         if (!is_array($meta)) $meta = [];
-        $form->meta = array_merge(is_array($form->meta)?$form->meta:[], $meta);
+        // Normalize and sanitize incoming meta before merging
+        $meta = self::sanitize_meta_input($meta);
+        $beforeAll = is_array($form->meta)? $form->meta : [];
+        // Capture only the keys being changed for audit diff
+        $beforeSubset = [];
+        foreach ($meta as $k => $_){ $beforeSubset[$k] = $beforeAll[$k] ?? null; }
+        $form->meta = array_merge($beforeAll, $meta);
         FormRepository::save($form);
-        return new WP_REST_Response(['ok'=>true, 'meta'=>$form->meta], 200);
+        $afterSubset = [];
+        foreach ($meta as $k => $_){ $afterSubset[$k] = $form->meta[$k] ?? null; }
+        // Log audit with undo token
+        $undo = Audit::log('update_form_meta', 'form', $id, ['meta'=>$beforeSubset], ['meta'=>$afterSubset]);
+        return new WP_REST_Response(['ok'=>true, 'meta'=>$form->meta, 'undo_token'=>$undo], 200);
     }
 
     public static function get_submissions(WP_REST_Request $request)
@@ -392,7 +2764,15 @@ class Api
         // Load form to access meta settings
         $form = FormRepository::find($form_id);
         if (!$form) return new WP_REST_Response(['error' => 'invalid_form_id'], 400);
-        $meta = is_array($form->meta) ? $form->meta : [];
+        // Gate submissions to published forms only
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error' => 'form_disabled'], 403);
+        }
+        // Enforce group-based access for submissions as well
+        list($ok, $member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
+    $global = self::get_global_settings();
+    $meta = array_merge($global, is_array($form->meta) ? $form->meta : []);
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         $now = time();
         // 1) Honeypot: reject if value present
@@ -461,6 +2841,15 @@ class Api
             'meta' => [ 'summary' => 'ایجاد از REST' ],
             'values' => $values,
         ];
+        // Optionally include member context into submission meta for later personalization
+        if (is_array($member)){
+            $submissionData['meta']['member'] = [
+                'id' => (int)$member['id'],
+                'group_id' => (int)$member['group_id'],
+                'name' => (string)$member['name'],
+                'phone' => (string)$member['phone'],
+            ];
+        }
         $submission = new Submission($submissionData);
         $id = SubmissionRepository::save($submission);
         foreach ($values as $idx => $entry) {
@@ -478,6 +2867,13 @@ class Api
         $token = (string)$request['token'];
         $form = FormRepository::findByToken($token);
         if (!$form) return new WP_REST_Response(['error' => 'invalid_form_token'], 404);
+        // Block submissions when not published
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error' => 'form_disabled'], 403);
+        }
+        // Enforce group-based access (member token or logged-in membership)
+        list($ok, $_member) = self::enforce_form_group_access($form->id, $request);
+    if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
         $request['form_id'] = $form->id;
         return self::create_submission($request);
     }
@@ -492,7 +2888,11 @@ class Api
         if ($form_id <= 0) return new WP_REST_Response('<div class="ar-alert ar-alert--err">شناسه فرم نامعتبر است.</div>', 200);
         $form = FormRepository::find($form_id);
         if (!$form) return new WP_REST_Response('<div class="ar-alert ar-alert--err">فرم یافت نشد.</div>', 200);
-        $meta = is_array($form->meta) ? $form->meta : [];
+    $global = self::get_global_settings();
+    $meta = array_merge($global, is_array($form->meta) ? $form->meta : []);
+        // Enforce access
+        list($ok, $_member) = self::enforce_form_group_access($form->id, $request);
+        if (!$ok){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">دسترسی مجاز نیست.</div>', 200); }
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         $now = time();
         // Honeypot (htmx submit may include hp/ts fields)
@@ -585,6 +2985,12 @@ class Api
         if (!$form) {
             return new WP_REST_Response('<div class="ar-alert ar-alert--err">فرم یافت نشد.</div>', 200);
         }
+        if ($form->status !== 'published'){
+            return new WP_REST_Response('<div class="ar-alert ar-alert--err">این فرم در حال حاضر فعال نیست.</div>', 200);
+        }
+        // Enforce access
+        list($ok, $_member) = self::enforce_form_group_access($form->id, $request);
+        if (!$ok){ return new WP_REST_Response('<div class="ar-alert ar-alert--err">دسترسی مجاز نیست.</div>', 200); }
         $request['form_id'] = $form->id;
         return self::create_submission_htmx($request);
     }
@@ -660,8 +3066,125 @@ class Api
     {
         $id = (int)$request['form_id'];
         if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
+        // Take snapshot before destructive delete
+        $before = FormRepository::snapshot($id);
         $ok = FormRepository::delete($id);
-        return new WP_REST_Response(['ok' => (bool)$ok], $ok ? 200 : 404);
+        if ($ok) {
+            $undo = Audit::log('delete_form', 'form', $id, $before ?: [], []);
+            return new WP_REST_Response(['ok' => true, 'undo_token' => $undo], 200);
+        }
+        return new WP_REST_Response(['ok' => false], 404);
+    }
+
+    /**
+     * GET /ai/audit — list recent audit entries (admin-only)
+     */
+    public static function list_audit(WP_REST_Request $request)
+    {
+        $limit = (int)($request->get_param('limit') ?? 50);
+        $items = Audit::list(max(1, min(200, $limit)));
+        return new WP_REST_Response(['ok'=>true, 'items'=>$items], 200);
+    }
+
+    /**
+     * POST /ai/undo — undo a single action by token (idempotent)
+     */
+    public static function undo_by_token(WP_REST_Request $request)
+    {
+        $token = (string)($request->get_param('token') ?? '');
+        if ($token === '') return new WP_REST_Response(['ok'=>false,'error'=>'missing_token'], 400);
+        $row = Audit::findByToken($token);
+        if (!$row) return new WP_REST_Response(['ok'=>false,'error'=>'not_found'], 404);
+        if (!empty($row['undone'])) return new WP_REST_Response(['ok'=>false,'error'=>'already_undone'], 409);
+        $action = (string)$row['action'];
+        $scope = (string)$row['scope'];
+        $before = is_array($row['before'] ?? null) ? $row['before'] : [];
+        $after = is_array($row['after'] ?? null) ? $row['after'] : [];
+        try {
+            if ($scope === 'form'){
+                if ($action === 'delete_form'){
+                    // Restore full form snapshot
+                    $restored = FormRepository::restore($before);
+                    if ($restored > 0){ Audit::markUndone($token); return new WP_REST_Response(['ok'=>true, 'restored_id'=>$restored], 200); }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'restore_failed'], 500);
+                }
+                if ($action === 'create_form'){
+                    // Remove the created form
+                    $fid = 0;
+                    if (isset($after['form']) && is_array($after['form'])){ $fid = (int)($after['form']['id'] ?? 0); }
+                    if ($fid > 0){
+                        $ok = FormRepository::delete($fid);
+                        if ($ok){ Audit::markUndone($token); return new WP_REST_Response(['ok'=>true, 'deleted_id'=>$fid], 200); }
+                        return new WP_REST_Response(['ok'=>false,'error'=>'delete_failed'], 500);
+                    }
+                }
+                if ($action === 'update_form_status'){
+                    $fid = (int)($row['target_id'] ?? 0);
+                    if ($fid > 0){
+                        $form = FormRepository::find($fid);
+                        if ($form){
+                            $prev = isset($before['status']) ? (string)$before['status'] : 'draft';
+                            $form->status = in_array($prev, ['draft','published','disabled'], true) ? $prev : 'draft';
+                            FormRepository::save($form);
+                            Audit::markUndone($token);
+                            return new WP_REST_Response(['ok'=>true, 'restored_status'=>$form->status], 200);
+                        }
+                    }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'invalid_target'], 400);
+                }
+                if ($action === 'update_form_meta'){
+                    $fid = (int)($row['target_id'] ?? 0);
+                    if ($fid > 0){
+                        $form = FormRepository::find($fid);
+                        if ($form){
+                            $metaPrev = is_array($before['meta'] ?? null) ? $before['meta'] : [];
+                            $metaAll = is_array($form->meta) ? $form->meta : [];
+                            foreach ($metaPrev as $k => $v){
+                                if ($v === null) { unset($metaAll[$k]); }
+                                else { $metaAll[$k] = $v; }
+                            }
+                            $form->meta = $metaAll;
+                            FormRepository::save($form);
+                            Audit::markUndone($token);
+                            return new WP_REST_Response(['ok'=>true, 'restored_meta_keys'=>array_keys($metaPrev)], 200);
+                        }
+                    }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'invalid_target'], 400);
+                }
+                if ($action === 'update_form_fields'){
+                    $fid = (int)($row['target_id'] ?? 0);
+                    if ($fid > 0){
+                        $prevFields = is_array($before['fields'] ?? null) ? $before['fields'] : [];
+                        FieldRepository::replaceAll($fid, $prevFields);
+                        Audit::markUndone($token);
+                        return new WP_REST_Response(['ok'=>true, 'restored_fields'=>true], 200);
+                    }
+                    return new WP_REST_Response(['ok'=>false,'error'=>'invalid_target'], 400);
+                }
+            }
+            if ($scope === 'settings' && $action === 'set_setting'){
+                // Swap entire settings/config back using before snapshot
+                $before = is_array($before) ? $before : [];
+                if (isset($before['config'])){
+                    $cfg = $before['config'];
+                    $r = new WP_REST_Request('PUT', '/arshline/v1/ai/config');
+                    $r->set_body_params(['config'=>$cfg]);
+                    self::update_ai_config($r);
+                    Audit::markUndone($token);
+                    return new WP_REST_Response(['ok'=>true, 'restored'=>'ai_config'], 200);
+                }
+                if (isset($before['settings'])){
+                    $arr = $before['settings'];
+                    if (is_array($arr)) update_option('arshline_settings', $arr, false);
+                    Audit::markUndone($token);
+                    return new WP_REST_Response(['ok'=>true, 'restored'=>'settings'], 200);
+                }
+                return new WP_REST_Response(['ok'=>false,'error'=>'invalid_before_state'], 400);
+            }
+            return new WP_REST_Response(['ok'=>false,'error'=>'unsupported_undo'], 400);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response(['ok'=>false,'error'=>'undo_error'], 500);
+        }
     }
 
     /**
@@ -673,11 +3196,44 @@ class Api
         if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
         $form = FormRepository::find($id);
         if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        // Do not issue tokens for non-published forms to enforce gating
+        if ($form->status !== 'published'){
+            return new WP_REST_Response(['error'=>'forbidden','message'=>'form_not_published'], 403);
+        }
         if (empty($form->public_token)) {
             FormRepository::save($form);
             $form = FormRepository::find($id) ?: $form;
         }
         return new WP_REST_Response(['token' => (string)$form->public_token], 200);
+    }
+
+    /**
+     * PUT /forms/{id} — update form attributes (currently only status)
+     */
+    public static function update_form(WP_REST_Request $request)
+    {
+        $id = (int)$request['form_id'];
+        if ($id <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
+        $form = FormRepository::find($id);
+        if (!$form) return new WP_REST_Response(['error'=>'not_found'], 404);
+        $status = (string)($request->get_param('status') ?? '');
+        $undo = null;
+        if ($status !== ''){
+            $allowed = ['draft','published','disabled'];
+            if (!in_array($status, $allowed, true)){
+                return new WP_REST_Response(['error'=>'invalid_status'], 400);
+            }
+            $beforeStatus = $form->status;
+            $form->status = $status;
+            // Only log when status actually changes
+            if ($beforeStatus !== $status){
+                $undo = Audit::log('update_form_status', 'form', $id, ['status'=>$beforeStatus], ['status'=>$status]);
+            }
+        }
+        FormRepository::save($form);
+        $resp = ['ok'=>true, 'id'=>$form->id, 'status'=>$form->status];
+        if ($undo){ $resp['undo_token'] = $undo; }
+        return new WP_REST_Response($resp, 200);
     }
 
     public static function upload_image(WP_REST_Request $request)
@@ -688,20 +3244,73 @@ class Api
         if (!isset($files['file'])){
             return new WP_REST_Response(['error' => 'no_file'], 400);
         }
+        // Simple per-IP rate limit for uploads (10 per دقیقه)
+        try {
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            $now = time();
+            $key = 'arsh_up_rl_'.md5($ip ?: '');
+            $entry = get_transient($key);
+            $windowSec = 60; $limit = 10;
+            $data = is_array($entry) ? $entry : ['count'=>0,'reset'=>$now + $windowSec];
+            if ($now >= (int)$data['reset']){ $data = ['count'=>0,'reset'=>$now + $windowSec]; }
+            if ((int)$data['count'] >= $limit){ return new WP_REST_Response(['error'=>'rate_limited','retry_after'=>max(0,(int)$data['reset']-$now)], 429); }
+            $data['count'] = (int)$data['count'] + 1; set_transient($key, $data, $windowSec);
+        } catch (\Throwable $e) { /* ignore RL errors */ }
         $file = $files['file'];
-        // Allow only images
-        $allowed = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml'];
-        $type = $file['type'] ?? '';
-        if ($type && !in_array($type, $allowed, true)){
+    // Basic size limit (server-side double-check) from global settings
+    $gs = self::get_global_settings();
+    $maxKB = isset($gs['upload_max_kb']) ? max(50, min(4096, (int)$gs['upload_max_kb'])) : 300;
+    $maxBytes = $maxKB * 1024;
+        $size = isset($file['size']) ? (int)$file['size'] : 0;
+        if ($size <= 0 || $size > $maxBytes){
+            return new WP_REST_Response(['error' => 'invalid_size', 'message' => 'File too large or invalid. Max 300KB'], 413);
+        }
+    // Allow only common raster image types by extension and real MIME (SVG excluded for security)
+    $allowedMimes = ['image/jpeg','image/png','image/gif','image/webp'];
+        $clientType = (string)($file['type'] ?? '');
+        $name = (string)($file['name'] ?? '');
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    $allowedExt = ['jpg','jpeg','png','gif','webp'];
+        if (!in_array($ext, $allowedExt, true)){
+            return new WP_REST_Response(['error' => 'invalid_extension'], 415);
+        }
+        // Real MIME sniffing using finfo when available
+        $realMime = '';
+        if (function_exists('finfo_open') && is_readable($file['tmp_name'] ?? '')){
+            $f = finfo_open(FILEINFO_MIME_TYPE);
+            if ($f){ $realMime = (string)finfo_file($f, $file['tmp_name']); finfo_close($f); }
+        }
+        $mimeToCheck = $realMime ?: $clientType;
+        if ($mimeToCheck && !in_array($mimeToCheck, $allowedMimes, true)){
             return new WP_REST_Response(['error' => 'invalid_type'], 415);
         }
+        // Block SVG uploads entirely when enabled (risk of embedded scripts)
+        $blockSvg = !isset($gs['block_svg']) || (bool)$gs['block_svg'];
+        if ($blockSvg && $ext === 'svg'){
+            return new WP_REST_Response(['error' => 'invalid_type'], 415);
+        }
+        // Enforce max dimensions (<=2048x2048 and <=4MP)
+        try {
+            $tmp = isset($file['tmp_name']) ? (string)$file['tmp_name'] : '';
+            if ($tmp && is_readable($tmp)){
+                $info = @getimagesize($tmp);
+                if (is_array($info)){
+                    $w = (int)($info[0] ?? 0); $h = (int)($info[1] ?? 0);
+                    $maxW = 2048; $maxH = 2048; $maxPixels = 4000000;
+                    if ($w <= 0 || $h <= 0 || $w > $maxW || $h > $maxH || ($w*$h) > $maxPixels){
+                        return new WP_REST_Response(['error'=>'invalid_dimensions','message'=>'Image dimensions exceed limits'], 415);
+                    }
+                }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
         add_filter('upload_dir', function($dirs){
             $dirs['subdir'] = '/arshline';
             $dirs['path'] = $dirs['basedir'] . $dirs['subdir'];
             $dirs['url']  = $dirs['baseurl'] . $dirs['subdir'];
             return $dirs;
         });
-        $overrides = [ 'test_form' => false ];
+        // Enforce type/size checks in WordPress as well
+    $overrides = [ 'test_form' => false, 'mimes' => [ 'jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','webp'=>'image/webp' ], 'unique_filename_callback' => null ];
         $movefile = wp_handle_upload($file, $overrides);
         remove_all_filters('upload_dir');
         if (!$movefile || isset($movefile['error'])){

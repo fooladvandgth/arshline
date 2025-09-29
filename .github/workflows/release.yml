@@ -1,3 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute version and notes path
+        shell: pwsh
+        run: |
+          $m = Select-String -Path 'arshline.php' -Pattern '^\s*\*\s*Version:\s*([0-9]+\.[0-9]+\.[0-9]+)'
+          if (-not $m) { throw 'Cannot determine version from arshline.php' }
+          $v = $m.Matches[0].Groups[1].Value
+          "RELEASE_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $notes = "tools/releases/RELEASE_$v.md"
+          if (Test-Path $notes) { "RELEASE_NOTES=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append }
+
+      - name: Build ZIP
+        shell: pwsh
+        run: |
+          pwsh -File tools/releases/make-zip.ps1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tools/releases/out/*.zip
+          fail_on_unmatched_files: true
+          body_path: ${{ env.RELEASE_NOTES }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 name: Release plugin
 
 on:
@@ -10,6 +47,9 @@ on:
         description: 'Tag to release (e.g., v1.6.1). If empty, uses ref tag when triggered from a tag.'
         required: false
         default: ''
+
+permissions:
+  contents: write
 
 jobs:
   release:
@@ -50,23 +90,35 @@ jobs:
                "*.DS_Store" \
                "*/.DS_Store"
 
-      - name: Resolve release notes path
+      - name: Resolve release name and notes
         id: notes
         shell: bash
         run: |
+          set -euo pipefail
           TAG='${{ steps.tag.outputs.tag }}'
           NOTES="tools/releases/${TAG}.md"
+          BODY_PATH=""
           if [ -f "$NOTES" ]; then
-            echo "notes_path=$NOTES" >> "$GITHUB_OUTPUT"
-          else
-            echo "notes_path=" >> "$GITHUB_OUTPUT"
+            BODY_PATH="$NOTES"
+          elif [ -f "CHANGELOG.md" ]; then
+            BODY_PATH="CHANGELOG.md"
           fi
+          # Extract first heading as name if present
+          NAME="$TAG"
+          if [ -n "$BODY_PATH" ]; then
+            FIRST_LINE=$(head -n 1 "$BODY_PATH" || true)
+            if echo "$FIRST_LINE" | grep -qE '^#'; then
+              NAME=$(echo "$FIRST_LINE" | sed -E 's/^# *//')
+            fi
+          fi
+          echo "notes_path=$BODY_PATH" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.notes.outputs.name }}
           body_path: ${{ steps.notes.outputs.notes_path }}
           draft: false
           prerelease: false

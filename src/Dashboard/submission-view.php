@@ -60,15 +60,13 @@ $allowed = [
   <meta charset="<?php bloginfo('charset'); ?>" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ارسال #<?php echo (int)$sub['id']; ?></title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/vazir-font/dist/font-face.css" rel="stylesheet"/>
   <style>
     :root{
       --bg:#f7f8fb; --surface:#fff; --text:#0f172a; --muted:#6b7280; --border:#e5e7eb; --primary:#1e3a8a;
     }
     html, body { height: 100%; }
-  body{ margin:0; background:var(--bg); color:var(--text); font-family: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Helvetica Neue', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family: 'Vazir', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Helvetica Neue', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; }
     .arsh-btn{ background:var(--primary); color:#fff; border:none; border-radius:10px; padding:.55rem .9rem; cursor:pointer; }
     .arsh-btn:focus{ outline:2px solid #93c5fd; outline-offset:2px; }
     .arsh-print-wrap{ max-width:960px; margin:28px auto; padding:16px; }

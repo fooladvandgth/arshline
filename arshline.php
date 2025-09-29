@@ -1,11 +1,11 @@
 <?php
 /**
- * Plugin Name: ?????? ?????? ??????? (Arshline Starter)
- * Plugin URI: https://example.com/
- * Description: ??? ???? ?????? ?????? ??????? ??? ? ???? ???? ????? ???????.
- * Version: 2.0.2
- * Author: Your Name
- * Author URI: https://example.com/
+ * Plugin Name: فرم‌ساز و داشبورد عرشلاین (Arshline Starter)
+ * Plugin URI: https://arshline.ir/
+ * Description: افزونه فرم‌ساز، داشبورد و گزارشات فارسی عرشلاین برای وردپرس با پشتیبانی هوش مصنوعی و امنیت پیشرفته.
+ * Version: 4.0.0
+ * Author: گروه توسعه عرشلاین
+ * Author URI: https://arshline.ir/
  * License: GPL2
  * Text Domain: arshline
  */
@@ -20,6 +20,9 @@ use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\FormsModule;
 use Arshline\Core\Api;
+use Arshline\Core\AccessControl;
+use Arshline\Dashboard\SettingsPage;
+use Arshline\Dashboard\UserGroupsPage;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -110,9 +113,12 @@ add_action('template_redirect', static function () {
 });
 
 add_action('plugins_loaded', static function () {
+    AccessControl::boot();
     Dashboard::boot();
     FormsModule::boot();
     Api::boot();
+    SettingsPage::boot();
+    UserGroupsPage::boot();
 });
 add_action('wp_enqueue_scripts', static function () {
     if (!arshline_is_dashboard_request()) {
@@ -121,7 +127,16 @@ add_action('wp_enqueue_scripts', static function () {
 
     $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? Dashboard::VERSION : '1.0.0';
 
-    wp_enqueue_style('arshline-dashboard', plugins_url('assets/css/dashboard.css', __FILE__), [], $version);
+    // Enqueue Vazir font globally for the plugin dashboard
+    wp_enqueue_style('arshline-font-vazir', 'https://cdn.jsdelivr.net/npm/vazir-font/dist/font-face.css', [], null);
+
+    // Enqueue modular CSS files in correct order for WordPress standards
+    wp_enqueue_style('arshline-variables', plugins_url('assets/css/modules/variables.css', __FILE__), [], $version);
+    wp_enqueue_style('arshline-layout', plugins_url('assets/css/modules/layout.css', __FILE__), ['arshline-variables'], $version);
+    wp_enqueue_style('arshline-components', plugins_url('assets/css/modules/components.css', __FILE__), ['arshline-variables', 'arshline-layout'], $version);
+    wp_enqueue_style('arshline-utilities', plugins_url('assets/css/modules/utilities.css', __FILE__), ['arshline-variables'], $version);
+    // Provide minimal wp-admin class compatibility (button, widefat, regular-text, notices)
+    wp_enqueue_style('arshline-wp-admin-compat', plugins_url('assets/css/modules/wp-admin-compat.css', __FILE__), ['arshline-components'], $version);
 
     wp_enqueue_script('arshline-ionicons', 'https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js', [], null, true);
 
@@ -177,6 +192,28 @@ add_action('wp_enqueue_scripts', static function () {
         'strings' => $strings,
         'publicBase' => esc_url_raw($public_base),
         'publicTokenBase' => esc_url_raw($public_token_base),
+    ]);
+
+    // Enqueue console capture module for dashboard only; gated by the option
+    $capture_enabled = (bool) get_option(SettingsPage::OPTION_CAPTURE, false);
+    wp_enqueue_script(
+        'arshline-console-capture',
+        plugins_url('assets/js/modules/console-capture.js', __FILE__),
+        [],
+        $version,
+        true
+    );
+    wp_localize_script('arshline-console-capture', 'ARSHLINE_CAPTURE', [
+        'enabled' => $capture_enabled,
+        'runTests' => isset($_GET['arsh_capture_test']) && current_user_can('manage_options'),
+        'strings' => [
+            'moduleEnabled' => __('ماژول ثبت رویداد فعال شد.', 'arshline'),
+            'moduleDisabled' => __('ماژول ثبت رویداد غیرفعال است.', 'arshline'),
+            'testStart' => __('آغاز تست واحد ماژول ثبت رویداد…', 'arshline'),
+            'testPass' => __('موفق', 'arshline'),
+            'testFail' => __('ناموفق', 'arshline'),
+            'testDone' => __('پایان تست‌ها', 'arshline'),
+        ],
     ]);
 });
 

@@ -13,9 +13,7 @@ if (!$form_id && !$token) { wp_die(__('Invalid form.', 'arshline')); }
 
 get_header();
 ?>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/vazir-font/dist/font-face.css" rel="stylesheet">
 <style>
 .arsh-public-wrap{max-width:800px;margin:40px auto;padding:16px}
 .arsh-public-card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 4px 24px rgba(0,0,0,.08)}
@@ -27,7 +25,7 @@ get_header();
 .ar-alert--ok{background:#ecfdf5;color:#065f46}
 .ar-alert--err{background:#fef2f2;color:#991b1b}
 /* font */
-html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"}
+html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"}
 /* validation styles */
 .ar-field.ar-invalid{border-color:#ef4444 !important;background:#fff7f7}
 .ar-field .ar-err{color:#b91c1c;font-size:12px;margin-top:4px;display:none}
@@ -63,7 +61,8 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
     document.head.appendChild(s);
   }
 
-  function h(html){ var d=document.createElement('div'); d.innerHTML=html; return d.firstChild; }
+    function h(html){ var d=document.createElement('div'); d.innerHTML=html; return d.firstChild; }
+    function esc(s){ s = String(s||''); return s.replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'})[c]; }); }
 
   // normalize Persian/Arabic digits to ASCII
   function normalizeDigits(s){
@@ -183,8 +182,16 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
   wrap.setAttribute('data-field-id', String(f.id));
   wrap.setAttribute('data-index', String(idx));
   var req = f.required ? ' <span style="color:#b91c1c">*</span>' : '';
-  var label = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '') + (f.question||'') + req;
-  wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+label+'</div>';
+  var labelNumber = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '');
+  var labelHtml = labelNumber + esc(f.question||'') + req;
+  wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+labelHtml+'</div>';
+  if (f.show_description && f.description) {
+    var desc = document.createElement('div');
+    desc.className = 'arsh-hint';
+    desc.style.marginBottom = '.3rem';
+    desc.textContent = f.description;
+    wrap.appendChild(desc);
+  }
     var body = document.createElement('div');
     // known types
     if (f.type === 'short_text' || f.type === 'long_text'){
@@ -193,14 +200,15 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
       inp.name = 'field_'+f.id;
       inp.required = !!f.required;
       inp.className = 'ar-input'; inp.style.cssText = 'width:100%';
+      if (f.placeholder) inp.placeholder = f.placeholder;
       body.appendChild(inp);
     } else if (f.type === 'multiple_choice'){
-      (f.options||[]).forEach(function(opt, i){ var id='f'+f.id+'_'+i; var row = h('<label for="'+id+'" style="display:flex;gap:.35rem;align-items:center;margin:.15rem 0"><input type="radio" name="field_'+f.id+'" id="'+id+'" value="'+String(opt.value||opt.label||'')+'" '+(i===0 && f.required?'required':'')+' /> <span>'+(opt.label||'')+'</span></label>'); body.appendChild(row); });
+  (f.options||[]).forEach(function(opt, i){ var id='f'+f.id+'_'+i; var row = document.createElement('label'); row.setAttribute('for', id); row.style.cssText='display:flex;gap:.35rem;align-items:center;margin:.15rem 0'; var input=document.createElement('input'); input.type='radio'; input.name='field_'+f.id; input.id=id; input.value=String(opt.value||opt.label||''); if (i===0 && f.required) input.required=true; var span=document.createElement('span'); span.textContent = String(opt.label||''); row.appendChild(input); row.appendChild(span); body.appendChild(row); });
     } else if (f.type === 'dropdown'){
       var sel = document.createElement('select'); sel.name='field_'+f.id; sel.required=!!f.required; sel.className='ar-select'; sel.style.cssText='width:100%';
-      var ph = (f.placeholder||'یک گزینه را انتخاب کنید'); var phOpt=document.createElement('option'); phOpt.value=''; phOpt.textContent=ph; phOpt.disabled=true; phOpt.selected=true; sel.appendChild(phOpt);
+  var ph = (f.placeholder||'یک گزینه را انتخاب کنید'); var phOpt=document.createElement('option'); phOpt.value=''; phOpt.textContent=String(ph); phOpt.disabled=true; phOpt.selected=true; sel.appendChild(phOpt);
       var opts = (f.options||[]).slice(); if (f.alpha_sort) opts.sort(function(a,b){ return String(a.label||'').localeCompare(String(b.label||''),'fa'); }); if (f.randomize) { for (let i=opts.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=opts[i]; opts[i]=opts[j]; opts[j]=t; } }
-      opts.forEach(function(o){ var op=document.createElement('option'); op.value = String(o.value||o.label||''); op.textContent = o.label||''; sel.appendChild(op); });
+  opts.forEach(function(o){ var op=document.createElement('option'); op.value = String(o.value||o.label||''); op.textContent = String(o.label||''); sel.appendChild(op); });
       body.appendChild(sel);
     } else if (f.type === 'rating'){
       var max = Math.max(1, Math.min(20, parseInt(f.max||5)));
@@ -218,6 +226,11 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
       }
       function paint(v){ Array.from(row.children).forEach(function(btn, i){ btn.style.color = i < v ? 'var(--ar-primary,#1e40af)' : '#94a3b8'; }); }
       for (var i=0;i<max;i++){ (function(ix){ var b=document.createElement('button'); b.type='button'; b.style.cssText='border:none;background:transparent;cursor:pointer;color:#94a3b8;padding:0;'; b.innerHTML = iconSvg(ic, false); b.addEventListener('mouseenter', function(){ paint(ix+1); }); b.addEventListener('mouseleave', function(){ paint(parseInt(hidden.value||0)); }); b.addEventListener('click', function(){ hidden.value = String(ix+1); paint(ix+1); }); row.appendChild(b); })(i); }
+      if (f.required) {
+        var reqStar = document.createElement('span');
+        reqStar.innerHTML = '<span style="color:#b91c1c;font-size:1.2em;margin-right:.3em">*</span>';
+        row.appendChild(reqStar);
+      }
       body.appendChild(row);
     } else {
       body.innerHTML = '<div class="arsh-hint">نوع پشتیبانی‌نشده</div>';
@@ -362,7 +375,17 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
   // fetch form definition
   var getUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN)) : (AR_REST + 'public/forms/' + FORM_ID);
   fetch(getUrl)
-    .then(function(r){ return r.json(); })
+    .then(function(r){
+      if (!r.ok){
+        // If form is not published/disabled, show a clear Persian message
+        if (r.status === 403){
+          mount.innerHTML = '<div class="ar-alert ar-alert--err">این فرم غیر فعال است.</div>';
+          throw new Error('forbidden');
+        }
+        return r.json();
+      }
+      return r.json();
+    })
     .then(function(data){
       state.def = data || {};
       var rows = Array.isArray(state.def.fields) ? state.def.fields : [];
@@ -389,7 +412,10 @@ html, body, .arsh-public-wrap{font-family:'Vazirmatn', system-ui, -apple-system,
       state.questions = flat.filter(function(f){ return supported[f.type]; });
       render();
     })
-    .catch(function(){ mount.innerHTML = '<div class="arsh-hint">فرم یافت نشد.</div>'; });
+    .catch(function(err){
+      if (String(err && err.message) === 'forbidden'){ return; }
+      mount.innerHTML = '<div class="arsh-hint">فرم یافت نشد.</div>';
+    });
 })();
 </script>
 

@@ -1,168 +1,341 @@
-<?php
-/**
- * Template Name: Arshline Dashboard Fullscreen
- * Description: قالب اختصاصی و تمام‌صفحه برای داشبورد عرشلاین (بدون هدر و فوتر پوسته)
- */
-
-// جلوگیری از بارگذاری مستقیم
-if (!defined('ABSPATH')) exit;
-
-// Block access for non-logged-in users or users without required capability
-if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_can('manage_options') )) {
-    wp_redirect( wp_login_url( get_permalink() ) );
-    exit;
-}
-
-?><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>داشبورد عرشلاین</title>
-    <link rel="icon" href="<?php echo esc_url( plugins_url('favicon.ico', dirname(__DIR__, 2).'/arshline.php') ); ?>" type="image/x-icon" />
-    <!-- Vazir font -->
-    <link href="https://cdn.jsdelivr.net/npm/vazir-font/dist/font-face.css" rel="stylesheet">
-    
-    <?php
-    // Manually enqueue and output modular CSS files since this template bypasses wp_head()
-    $plugin_url = plugins_url('', dirname(__DIR__, 2) . '/arshline.php');
-    $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? \Arshline\Dashboard\Dashboard::VERSION : '1.0.0';
-    ?>
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/dashboard.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/variables.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/layout.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/wp-admin-compat.css?ver=' . $version); ?>" />
-
-            <!-- Runtime config JSON (consumed by assets/js/core/runtime-config.js) -->
-            <script id="arshline-config" type="application/json">
-            {
-                "rest": "<?php echo esc_js( rest_url('arshline/v1/') ); ?>",
-                "nonce": "<?php echo esc_js( wp_create_nonce('wp_rest') ); ?>",
-                "sub_view_base": "<?php echo esc_js( add_query_arg('arshline_submission', '%ID%', home_url('/')) ); ?>",
-                "can_manage": <?php echo ( current_user_can('edit_posts') || current_user_can('manage_options') ) ? 'true' : 'false'; ?>,
-                "login_url": "<?php echo esc_js( wp_login_url( get_permalink() ) ); ?>"
-            }
-            </script>
-            <?php
-            // Provide ARSHLINE_ADMIN for panel context to reuse admin-post nonces (import/export) and endpoints
-            $ar_admin = [
-                'rest' => esc_url_raw(rest_url('arshline/v1/')),
-                'nonce' => wp_create_nonce('wp_rest'),
-                'nonces' => [
-                    'import' => wp_create_nonce('arshline_import_members'),
-                    'export' => wp_create_nonce('arshline_export_group_links'),
-                    'template' => wp_create_nonce('arshline_download_members_template'),
-                ],
-                'adminPostUrl' => admin_url('admin-post.php'),
-                'formsEndpoint' => esc_url_raw(rest_url('arshline/v1/forms')),
-                'strings' => [
-                    'add' => __('افزودن', 'arshline'),
-                    'edit' => __('ویرایش', 'arshline'),
-                    'delete' => __('حذف', 'arshline'),
-                    'save' => __('ذخیره', 'arshline'),
-                    'cancel' => __('انصراف', 'arshline'),
-                    'confirm_delete' => __('از حذف مطمئن هستید؟', 'arshline'),
-                    'import' => __('ایمپورت', 'arshline'),
-                    'export' => __('خروجی', 'arshline'),
-                    'search' => __('جستجو', 'arshline'),
-                    'name' => __('نام', 'arshline'),
-                    'phone' => __('شماره همراه', 'arshline'),
-                    'token' => __('توکن', 'arshline'),
-                    'link' => __('لینک', 'arshline'),
-                    'group' => __('گروه', 'arshline'),
-                    'members' => __('اعضا', 'arshline'),
-                    'groups' => __('گروه‌ها', 'arshline'),
-                    'mapping' => __('اتصال فرم‌ها', 'arshline'),
-                    'custom_fields' => __('فیلدهای سفارشی', 'arshline'),
-                    'loading' => __('در حال بارگذاری...', 'arshline'),
-                    'save_mapping' => __('ذخیره اتصال', 'arshline'),
-                    'form' => __('فرم', 'arshline'),
-                    'select_form' => __('انتخاب فرم', 'arshline'),
-                ],
-            ];
-            ?>
-            <script>
-            window.ARSHLINE_ADMIN = <?php echo wp_json_encode($ar_admin, JSON_UNESCAPED_UNICODE); ?>;
-            // Also expose simple aliases used by legacy scripts
-            window.ARSHLINE_REST = window.ARSHLINE_ADMIN.rest;
-            window.ARSHLINE_NONCE = window.ARSHLINE_ADMIN.nonce;
-            </script>
-            <!-- Extracted: runtime-config moved to external initializer -->
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/runtime-config.js?ver=' . $version ); ?>"></script>
-            <!-- Extracted: debug-logger -->
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/utils/debug.js?ver=' . $version ); ?>"></script>
-            <!-- Extracted: tools-registry and core defaults -->
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tools-registry.js?ver=' . $version ); ?>"></script>
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tool-defaults.js?ver=' . $version ); ?>"></script>
-            <!-- Core router -->
-            <!-- FULL mode is enabled below; external controller owns renderTab and routing. -->
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/router.js?ver=' . $version ); ?>"></script>
-            <!-- UI modules: notify, auth, input masks -->
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/notify.js?ver=' . $version ); ?>"></script>
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/auth.js?ver=' . $version ); ?>"></script>
-            <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/input-masks.js?ver=' . $version ); ?>"></script>
-    <!-- Load external tool modules (must come after Tools registry) -->
-    <!-- Load main dashboard JavaScript -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <!-- Load external tool modules (must come after Tools registry) -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/long_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/multiple_choice.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/short_text.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/dropdown.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/welcome.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/tools/thank_you.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <!-- Externalized controller (extracted from inline block) -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-        <?php
-    // Console-capture config and script (template bypasses wp_head, so we include manually)
-    $capture_enabled_wp = (bool) get_option('arshline_capture_console_events', false);
-    $gs = get_option('arshline_settings', []);
-    $capture_enabled_gs = is_array($gs) && !empty($gs['console_capture']);
-    $capture_enabled = $capture_enabled_wp || $capture_enabled_gs;
-        $run_tests = isset($_GET['arsh_capture_test']) && current_user_can('manage_options');
-        $cap_strings = [
-                'moduleEnabled' => __('ماژول ثبت رویداد فعال شد.', 'arshline'),
-                'moduleDisabled' => __('ماژول ثبت رویداد غیرفعال است.', 'arshline'),
-                'testStart' => __('آغاز تست واحد ماژول ثبت رویداد…', 'arshline'),
-                'testPass' => __('موفق', 'arshline'),
-                'testFail' => __('ناموفق', 'arshline'),
-                'testDone' => __('پایان تست‌ها', 'arshline'),
-        ];
-        ?>
-        <script>
-        // Provide ARSHLINE_CAPTURE config inline
-        window.ARSHLINE_CAPTURE = {
-            enabled: <?php echo $capture_enabled ? 'true' : 'false'; ?>,
-            runTests: <?php echo $run_tests ? 'true' : 'false'; ?>,
-            strings: <?php echo wp_json_encode($cap_strings, JSON_UNESCAPED_UNICODE); ?>
-        };
-        </script>
-<?php if ( current_user_can('manage_options') && ! get_option('arshline_capture_console_events', false) ) : ?>
-    <div style="direction:rtl;background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:10px 12px;margin:12px;border-radius:8px;font-size:13px">
-        <strong>راهنما:</strong> برای دیباگ رویدادهای سمت کلاینت،
-        <a href="<?php echo esc_url( admin_url('options-general.php?page=arshline-settings') ); ?>">به تنظیمات عرشلاین</a>
-        بروید و گزینه «فعال‌سازی ثبت رویدادهای کنسول» را روشن کنید.
-    </div>
-<?php endif; ?>
-        <script src="<?php echo esc_url( $plugin_url . '/assets/js/modules/console-capture.js?ver=' . $version ); ?>"></script>
+    <link rel="icon" href="http://arshline.test/wp-content/plugins/arshline/favicon.ico" type="image/x-icon" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Cyberpunk/Futuristic (light) */
+            --primary: #1e40af;     /* Indigo 800 (deeper) */
+            --primary-600: #1d4ed8;
+            --secondary: #0e7490;   /* Cyan 700 (deeper) */
+            --hot: #a21caf;         /* Fuchsia 700 (deeper) */
+            --accent: #047857;      /* Emerald 800 (deeper) */
+            --text: #0b1220;
+            --muted: #64748b;
+            --bg-surface: #f5f7fb;
+            --surface: #ffffff;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --sidebar: #ffffff;
+            --shadow-primary: 0 16px 36px rgba(30,64,175,.28);
+            --shadow-card: 0 8px 20px rgba(0,0,0,.10);
+            --grad-primary: #1e40af; /* solid */
+            --grad-accent: #047857;  /* solid */
+            /* Sporty solids for feature cards */
+            --grad-blue: #1e40af;
+            --grad-green: #047857;
+            --grad-pink: #a21caf;
+            --grad-cyan-magenta: #0e7490;
+            /* Glassmorphism (light) */
+            --glass-a: rgba(255,255,255,.6);
+            --glass-b: rgba(255,255,255,.22);
+            --glass-border: rgba(255,255,255,.55);
+            /* Glow */
+            --glow-primary: 0 0 0 3px rgba(37,99,255,.22), 0 10px 28px rgba(37,99,255,.28);
+            --glow-accent: 0 0 0 3px rgba(0,255,149,.18), 0 10px 28px rgba(0,229,255,.26);
+            /* Toast palette */
+            --toast-success: #16a34a;
+            --toast-error: #dc2626;
+            --toast-info: #2563eb;
+            --toast-warn: #d97706;
+        }
+        body.dark {
+            /* Cyberpunk (dark) */
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --bg-surface: #0c111f;
+            --surface: #0d1321;
+            --card: #121a2a;
+            --border: #1f2a44;
+            --sidebar: #0d1321; /* solid */
+            --shadow-primary: 0 18px 42px rgba(30,64,175,.35);
+            --shadow-card: 0 12px 28px rgba(0,0,0,.55);
+            --grad-primary: #1e40af; /* solid */
+            --grad-accent: #047857;  /* solid */
+            /* Glassmorphism (dark) */
+            --glass-a: rgba(255,255,255,.1);
+            --glass-b: rgba(255,255,255,.05);
+            --glass-border: rgba(255,255,255,.2);
+            /* Glow */
+            --glow-primary: 0 0 0 3px rgba(37,99,255,.28), 0 14px 34px rgba(37,99,255,.38);
+            --glow-accent: 0 0 0 3px rgba(0,255,149,.22), 0 14px 34px rgba(0,229,255,.34);
+        }
+        body {
+            margin: 0; padding: 0; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif; 
+            background: var(--bg-surface);
+            color: var(--text); transition: background .3s, color .3s;
+        }
+        .arshline-dashboard-root {
+            display: flex; min-height: 100vh; width: 100vw;
+        }
+        .arshline-sidebar {
+            width: 280px; background: var(--sidebar); border-inline-start: 1px solid var(--border);
+            backdrop-filter: blur(8px); display: flex; flex-direction: column; transition: width .3s ease; overflow: hidden;
+        }
+        .arshline-sidebar.closed { width: 72px; }
+        .arshline-sidebar .logo {
+            font-size: 1.4rem; font-weight: 700; color: var(--primary); padding: 1.75rem 1.25rem 1rem 1.25rem; text-align: right; display:flex; align-items:center; gap:.6rem;
+        }
+        .arshline-sidebar .logo .label { transition: opacity .2s ease, transform .2s ease; }
+        .arshline-sidebar.closed .logo .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
+        .arshline-sidebar nav {
+            flex: 1; display: flex; flex-direction: column; gap: 1rem; padding: 1rem .5rem; overflow-y: auto;
+        }
+        .arshline-sidebar nav a {
+            display: flex; align-items: center; gap: .75rem; color: var(--muted); text-decoration: none; padding: .7rem 1.1rem; border-radius: 12px; transition: background .2s, color .2s, transform .2s, box-shadow .2s;
+        }
+    .arshline-sidebar nav a .ic { width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center; }
+    /* Increase icon spacing to 50px (RTL uses margin-right) */
+    [dir='rtl'] .arshline-sidebar nav a .ic { margin-right: 50px; }
+    [dir='ltr'] .arshline-sidebar nav a .ic { margin-left: 50px; }
+        /* add extra breathing room from the right edge when collapsed (RTL) */
+        [dir='rtl'] .arshline-sidebar.closed nav { padding-inline-end: 12px; }
+        [dir='ltr'] .arshline-sidebar.closed nav { padding-inline-start: 12px; }
+    [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 50px; }
+    [dir='ltr'] .arshline-sidebar.closed nav a .ic { margin-left: 50px; }
+        .arshline-sidebar nav a .label { white-space: nowrap; transition: opacity .18s ease, transform .18s ease; }
+        .arshline-sidebar.closed nav a { justify-content: center; }
+        .arshline-sidebar.closed nav a .label { opacity: 0; transform: translateX(6px); pointer-events: none; }
+    .arshline-sidebar nav a svg { transition: transform .2s ease, filter .2s ease; }
+    .arshline-sidebar nav a:hover svg { transform: translateX(-4px) scale(1.02); filter: drop-shadow(0 6px 10px rgba(37,99,255,.3)); }
+	.arshline-sidebar nav a.active { background: var(--primary); color: #fff; border: 0; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+	.arshline-sidebar nav a:hover { background: rgba(37,99,255,.18); color: #0b1220; box-shadow: 0 8px 20px rgba(37,99,255,.18); }
+        .arshline-sidebar .toggle { 
+            margin: 0 1.25rem 1rem 1.25rem; cursor: pointer; color: var(--muted); font-size: 1rem; text-align: center; background: transparent; border: 1px solid var(--border); padding: .35rem .55rem; border-radius: 10px; display:flex; align-items:center; justify-content:center; gap:.4rem; font-family: 'Vazirmatn', system-ui, -apple-system, Segoe UI, Roboto, 'Inter', sans-serif;
+        }
+        .arshline-sidebar .toggle:hover { background: rgba(37,99,255,.08); }
+        .arshline-sidebar .toggle .chev { display:inline-block; transition: transform .2s ease; line-height: 1; font-size: 18px; }
+        .arshline-main {
+            flex: 1; padding: 2.2rem 2rem; min-height: 100vh; transition: background .3s;
+        }
+        .arshline-header {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;
+        }
+    /* Sun/Moon Toggle */
+    .theme-toggle { --w: 56px; --h: 30px; position: relative; width: var(--w); height: var(--h); border-radius: 999px; background: linear-gradient(135deg, #60a5fa, #0ea5e9); display:inline-flex; align-items:center; padding: 3px; cursor: pointer; box-shadow: var(--shadow-card); border:1px solid var(--border); }
+    .theme-toggle .knob { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s ease, background .25s ease; box-shadow: 0 4px 10px rgba(0,0,0,.15); }
+    .theme-toggle .sun, .theme-toggle .moon { font-size: 14px; color: #fff; opacity: .9; }
+    .theme-toggle .sun { margin-inline-start: 9px; }
+    .theme-toggle .moon { margin-inline-end: 9px; margin-inline-start: auto; }
+    body.dark .theme-toggle { background: linear-gradient(135deg, #312e81, #0f172a); }
+    /* knob translate differs in RTL */
+    [dir='rtl'] body:not(.dark) .theme-toggle .knob { transform: translateX(-0px); }
+    [dir='rtl'] body.dark .theme-toggle .knob { transform: translateX(26px); }
+    [dir='ltr'] body.dark .theme-toggle .knob { transform: translateX(-26px); }
+    .ar-btn { cursor:pointer; font-weight:700; border:0; border-radius:12px; background: var(--primary); color:#fff; padding:.55rem .95rem; box-shadow: 0 8px 18px rgba(0,0,0,.12); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; font-family: inherit; letter-spacing:.2px; text-decoration:none; display:inline-flex; align-items:center; gap:.35rem; line-height:1.1; }
+    .ar-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(0,0,0,.18); }
+    .ar-btn:disabled { opacity:.6; cursor:not-allowed; box-shadow:none; }
+    .ar-btn--muted { background:#64748b; }
+    .ar-btn--outline { background:transparent; color: var(--text); border:1px solid var(--border); }
+    .ar-btn--danger { background:#b91c1c; }
+    .ar-btn--soft { background: rgba(30,64,175,.1); color: var(--primary); }
+    .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    .ar-input::placeholder { color: var(--muted); opacity: .85; }
+    .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }
+    .ar-dnd-ghost { opacity:.6; transform: scale(.98); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+    .ar-dnd-over { outline: none; background: transparent; }
+    .ar-tool { font-family: inherit; font-size:.95rem; background: var(--accent); }
+    .ar-dnd-placeholder { border:2px dashed transparent; border-radius:10px; margin:.35rem 0; background: transparent; opacity:.0; padding:0; pointer-events:none; transition: height .14s ease, margin .14s ease, opacity .14s ease, border-color .14s ease; }
+    .ar-dnd-placeholder--dashed { opacity:1; border-color: var(--border); background: transparent; }
+    .ar-draggable { transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+    .ar-draggable:active { cursor: grabbing; }
+    .ar-dnd-ghost-proxy { position: fixed; top:-9999px; left:-9999px; pointer-events:none; padding:.3rem .6rem; border-radius:8px; background:var(--primary); color:#fff; font-family: inherit; font-size:.9rem; box-shadow: var(--shadow-card); }
+    /* Table styling with clear gridlines */
+    .ar-table { width:100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; table-layout: fixed; }
+    .ar-table thead th { position: sticky; top: 0; background: #f8fafc; color: #0b1220; font-weight: 700; font-size: .98rem; text-align: right; padding: .6rem .75rem; border-bottom: 1px solid var(--border); user-select: none; }
+        body.dark .ar-table thead th { background:#0f172a; color: #e5e7eb; }
+    .ar-table thead th, .ar-table tbody td { border-inline-end: 1px solid var(--border); }
+    .ar-table thead th:last-child, .ar-table tbody td:last-child { border-inline-end: none; }
+    .ar-table tbody td { font-size: .95rem; color: var(--text); padding: .55rem .75rem; border-bottom: 1px solid var(--border); }
+        .ar-table tbody tr:nth-child(even) { background: rgba(2, 6, 23, .02); }
+        body.dark .ar-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .03); }
+        .ar-table tbody tr:hover { background: rgba(30, 64, 175, .06); }
+        body.dark .ar-table tbody tr:hover { background: rgba(30, 64, 175, .14); }
+        .ar-table .actions { text-align: left; white-space: nowrap; }
+    /* Wrap toggle */
+    .ar-nowrap .ar-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ar-wrap .ar-table td { white-space: normal; overflow: visible; text-overflow: clip; }
+    /* Draggable headers (for question columns) */
+    .ar-th-draggable { cursor: move; }
+    .ar-th-drag-over { outline: 2px dashed var(--primary); }
+    /* Standard toggle switch */
+    .toggle-switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+    .toggle-switch input { display:none; }
+    .toggle-switch-background { position:absolute; inset:0; background: #cbd5e1; border-radius: 999px; transition: background .18s ease; }
+    .toggle-switch-handle { position:absolute; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform .18s ease; }
+    /* RTL and LTR handle placement */
+    [dir='rtl'] .toggle-switch-handle { left: 3px; }
+    [dir='rtl'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(22px); }
+    [dir='ltr'] .toggle-switch-handle { right: 3px; }
+    [dir='ltr'] .toggle-switch input:checked ~ .toggle-switch-handle { transform: translateX(-22px); }
+    .toggle-switch input:checked ~ .toggle-switch-background { background: #22c55e; }
+    /* Small type icon next to tools/questions */
+    .ar-type-ic { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; color: var(--muted); }
+    .ar-toolbtn { position: relative; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; width:100%; padding-inline-start: 40px; }
+    /* Pin toolbox icon to button corner with a cream color */
+    .ar-toolbtn .ar-type-ic { position:absolute; inset-inline-start:10px; inset-block-start:8px; color:#f5e6c8; pointer-events:none; }
+    /* Preview-only mode */
+    body.preview-only .arshline-sidebar, body.preview-only .arshline-header { display:none !important; }
+    body.preview-only .arshline-main { padding: 1.2rem; }
+        /* دارک مود */
+        body.dark { background: var(--bg-surface); color: var(--text); }
+    body.dark .arshline-main { color: var(--text); }
+    /* View transition */
+    #arshlineDashboardContent.view { animation: arViewIn .28s ease both; }
+    @keyframes arViewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    /* Modern solid cards (original design) */
+    .tagline { text-align:center; font-size:1.05rem; font-weight:700; color: var(--text); margin-bottom: 1rem; }
+    body.dark .tagline { color: #e5e7eb; }
+    .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:24px; padding: 10px 0 24px; }
+    .ar-card { position:relative; width:224px; height:315px; background:#1e40af; border-radius:20px; border-bottom-left-radius:112px; border-bottom-right-radius:112px; display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 12px 0 #fff, inset 0 -10px 0 rgba(255,255,255,.18), 0 36px 0 rgba(0,0,0,.12); }
+    .ar-card::before { content:""; position:absolute; top:-140px; left:-40%; width:100%; height:120%; background: rgba(255,255,255,.06); transform: rotate(35deg); pointer-events:none; filter: blur(5px); }
+    .ar-card .icon { position:relative; width:98px; height:84px; background:#0d1321; border-bottom-left-radius:70px; border-bottom-right-radius:70px; box-shadow: 0 12px 0 rgba(0,0,0,.1), inset 0 -8px 0 #fff; z-index:2; display:flex; justify-content:center; align-items:flex-start; }
+    .ar-card .icon::before { content:""; position:absolute; top:0; left:-50px; width:50px; height:50px; background:transparent; border-top-right-radius:50px; box-shadow: 15px -15px 0 15px #0d1321; }
+    .ar-card .icon::after { content:""; position:absolute; top:0; right:-50px; width:50px; height:50px; background:transparent; border-top-left-radius:50px; box-shadow: -15px -15px 0 15px #0d1321; }
+    .ar-card .icon ion-icon { color:#fff; position:relative; font-size:4.2em; --ionicon-stroke-width:24px; }
+    .ar-card .content { position:absolute; width:100%; padding:21px; padding-top:105px; text-align:center; z-index:1; }
+    .ar-card .content h2 { font-size:1.4rem; color:#fff; margin-bottom:12px; }
+    .ar-card .content p { color:#f1f5f9; line-height:1.6; font-size:.95rem; }
+    .ar-card--blue { background:#1e40af; }
+    .ar-card--amber { background:#b45309; }
+    .ar-card--violet { background:#6d28d9; }
+    .ar-card--teal { background:#0e7490; }
+    body.dark .ar-card { box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35); }
+    /* Toasts */
+    .ar-toast-wrap { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .6rem; z-index: 9999; }
+    .ar-toast { display:flex; align-items:center; gap:.6rem; padding:.6rem .8rem; border-radius:12px; background: var(--surface); color: var(--text); border:1px solid var(--border); border-inline-start: 4px solid var(--primary); box-shadow: var(--shadow-card); transition: opacity .25s ease, transform .25s ease; }
+    .ar-toast-ic { font-size: 18px; }
+    .ar-toast--success { border-inline-start-color: var(--toast-success); }
+    .ar-toast--error { border-inline-start-color: var(--toast-error); }
+    .ar-toast--info { border-inline-start-color: var(--toast-info); }
+    .ar-toast--warn { border-inline-start-color: var(--toast-warn); }
+    /* Editor columns separation */
+    .ar-settings { border-inline-end: 1px solid var(--border); padding-inline-end: 1rem; }
+    .ar-preview { padding-inline-start: 1rem; }
+    /* VC toggle switch styles (scoped) */
+    .vc-toggle-container { display:inline-block; }
+    .vc-small-switch { position: relative; display: inline-block; width: var(--vc-width,50px); height: var(--vc-height,25px); }
+    .vc-small-switch input { display:none; }
+    /* Floating AI Terminal */
+    .ar-ai-fab { position: fixed; left: 1rem; bottom: 1rem; z-index: 9998; border: 0; border-radius: 999px; padding: .7rem 1rem; background: var(--primary); color: #fff; box-shadow: 0 10px 20px rgba(0,0,0,.18); cursor: pointer; font-weight: 700; }
+    .ar-ai-fab:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(0,0,0,.22); }
+    .ar-ai-panel { position: fixed; left: 1rem; bottom: 4.2rem; width: min(92vw, 380px); max-height: 70vh; display: flex; flex-direction: column; gap: .6rem; padding: .8rem; border-radius: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-card); z-index: 9998; opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
+    .ar-ai-panel.open { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .ar-ai-header { display:flex; align-items:center; justify-content: space-between; gap:.6rem; }
+    .ar-ai-header .title { font-weight: 700; }
+    .ar-ai-close { background: transparent; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; }
+    .ar-ai-body textarea { width: 100%; min-height: 84px; resize: vertical; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-family: inherit; }
+    .ar-ai-body pre { background: rgba(2,6,23,.06); padding:.6rem; border-radius:8px; max-height: 200px; overflow: auto; direction: ltr; text-align: left; }
+    .vc-switch-label { position: absolute; inset: 0; cursor: pointer; background: var(--vc-off-color,#d1d3d4); border-radius: var(--vc-box-border-radius,18px); transition: background var(--vc-animation-speed,.15s ease-out); font-family: var(--vc-font-family,Arial); font-weight: var(--vc-font-weight,300); font-size: var(--vc-font-size,11px); color: var(--vc-off-font-color,#fff); }
+    .vc-switch-label:before { content: attr(data-off); position: absolute; right: var(--vc-label-position-off,12px); line-height: var(--vc-height,25px); }
+    .vc-switch-label:after  { content: attr(data-on); position: absolute; left: var(--vc-label-position-on,11px); line-height: var(--vc-height,25px); opacity: 0; }
+    .vc-switch-handle { position: absolute; top: var(--vc-handle-top,5px); right: 5px; width: var(--vc-handle-width,15px); height: var(--vc-handle-height,15px); background: var(--vc-handle-color,#fff); border-radius: var(--vc-handle-border-radius,20px); transition: all var(--vc-animation-speed,.15s ease-out); box-shadow: var(--vc-handle-shadow,1px 1px 5px rgba(0,0,0,.2)); }
+    .vc-small-switch input:checked ~ .vc-switch-label { background: var(--vc-on-color,#38cf5b); color: var(--vc-on-font-color,#fff); }
+    .vc-small-switch input:checked ~ .vc-switch-label:before { opacity: 0; }
+    .vc-small-switch input:checked ~ .vc-switch-label:after  { opacity: 1; }
+    .vc-small-switch input:checked ~ .vc-switch-handle { right: calc(100% - var(--vc-handle-width,15px) - 5px); }
+    /* RTL flip for Persian labels */
+    /* In RTL: OFF ("خیر") stays right, ON ("بله") stays left */
+    .vc-small-switch.vc-rtl .vc-switch-label:before { left: auto; right: var(--vc-label-position-off,12px); }
+    .vc-small-switch.vc-rtl .vc-switch-label:after  { right: auto; left: var(--vc-label-position-on,11px); }
+    .vc-small-switch.vc-rtl .vc-switch-handle { right: auto; left: 5px; }
+    .vc-small-switch.vc-rtl input:checked ~ .vc-switch-handle { left: calc(100% - var(--vc-handle-width,15px) - 5px); right: auto; }
+    .vc-small-switch.vc-rtl input:checked ~ .vc-switch-label:before { opacity: 0; }
+    .vc-small-switch.vc-rtl input:checked ~ .vc-switch-label:after  { opacity: 1; }
+    /* Validation helpers (minimal, scoped) */
+    .ar-input--invalid { border-color: #b91c1c !important; box-shadow: 0 0 0 3px rgba(185,28,28,.12); }
+    .ar-required { color:#b91c1c; margin: 0 .2rem; font-weight: 700; }
+    .ar-field-error { color:#b91c1c; margin-top:.3rem; display:none; }
+    /* Hide editor panels while initial data is loading to prevent UI flash */
+    #arBuilder.editor-loading .ar-settings, #arBuilder.editor-loading .ar-preview { visibility: hidden; opacity: 0; height: 0; overflow: hidden; }
+     </style>
     <script>
-    // Enable FULL mode so inline controller is skipped when external is present
-    try { window.ARSH_CTRL_FULL = true; } catch(_){ }
-    /* =========================================================================
-       BLOCK: dashboard-controller
-       Purpose: Orchestrates dashboard behavior: sidebar routing/tabs, theme &
-                sidebar toggles, results list, form builder, and preview flows.
-       Dependencies: runtime-config, tools-registry, external tool modules,
-                     assets/js/dashboard.js
-       Exports: none (DOM side-effects only)
-       Future extraction: assets/js/dashboard-controller.js
-       ========================================================================= */
-    // Guard: Skip inline when external controller is in FULL mode; otherwise allow inline to render tabs.
-    if (window.ARSH_CTRL_EXTERNAL && window.ARSH_CTRL_FULL) { try { console.debug('ARSH: external controller FULL; skipping inline dashboard-controller'); } catch(_){} } else {
-    try { console.debug('[ARSH] inline dashboard-controller active (FULL mode off)'); } catch(_){}
+    const ARSHLINE_REST = 'http://arshline.test/index.php?rest_route=/arshline/v1/';
+    const ARSHLINE_NONCE = '50a640473a';
+    const ARSHLINE_SUB_VIEW_BASE = 'http://arshline.test/?arshline_submission=%ID%';
+    const ARSHLINE_CAN_MANAGE = true;
+    const ARSHLINE_LOGIN_URL = 'http://arshline.test/wp-login.php?redirect_to=http%3A%2F%2Farshline.test%2F';
+    
+    // Regression guard: validate critical constants are properly escaped
+    if (typeof ARSHLINE_REST !== 'string' || typeof ARSHLINE_NONCE !== 'string' || 
+        typeof ARSHLINE_CAN_MANAGE !== 'boolean' || typeof ARSHLINE_LOGIN_URL !== 'string') {
+        console.error('ARSHLINE: Invalid configuration constants detected. Check PHP output escaping.');
+    }
+    </script>
+    <script>
+    // Lightweight debug logger (toggle via window.ARSHDBG = 0/1 in DevTools)
+    window.ARSHDBG = (typeof window.ARSHDBG === 'undefined') ? 1 : window.ARSHDBG; // default ON
+    function dlog(){ if (!window.ARSHDBG) return; try { console.log.apply(console, ['[ARSHDBG]'].concat(Array.from(arguments))); } catch(_){} }
+    </script>
+    <script>
+    // Lightweight Tools Registry (foundation for modular tools)
+    // Usage: ARSH.Tools.register({ type, defaults, renderEditor?, renderPreview? })
+    //        const d = ARSH.Tools.getDefaults('long_text')
+    window.ARSH = window.ARSH || {};
+    (function(ns){
+        var _defs = Object.create(null);
+        function register(def){ if (!def || !def.type) return; _defs[def.type] = def; }
+        function get(type){ return _defs[type] || null; }
+        function clone(obj){ try { return JSON.parse(JSON.stringify(obj)); } catch(_) { return obj; } }
+        function getDefaults(type){ var d = get(type); return d && d.defaults ? clone(d.defaults) : null; }
+        function renderEditor(type, field, ctx){
+            try {
+                var d = get(type);
+                if (!d || typeof d.renderEditor !== 'function') return false;
+                ctx = ctx || {}; ctx.field = ctx.field || field;
+                // Support both signatures: (field, ctx) and (ctx)
+                if (d.renderEditor.length >= 2) { return !!d.renderEditor(field, ctx); }
+                else { return !!d.renderEditor(ctx); }
+            } catch(_){ return false; }
+        }
+        function renderPreview(type, field, ctx){
+            try {
+                var d = get(type);
+                if (!d || typeof d.renderPreview !== 'function') return false;
+                ctx = ctx || {}; ctx.field = ctx.field || field;
+                if (d.renderPreview.length >= 2) { return !!d.renderPreview(field, ctx); }
+                else { return !!d.renderPreview(ctx); }
+            } catch(_){ return false; }
+        }
+        ns.Tools = { register: register, get: get, getDefaults: getDefaults, renderEditor: renderEditor, renderPreview: renderPreview };
+    })(window.ARSH);
+
+    // Register core tools with centralized defaults
+    ARSH.Tools.register({
+        type: 'short_text',
+        defaults: { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true }
+    });
+    ARSH.Tools.register({
+        type: 'long_text',
+        defaults: { type:'long_text', label:'پاسخ طولانی', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true, min_length:0, max_length:5000, media_upload:false }
+    });
+    ARSH.Tools.register({
+        type: 'multiple_choice',
+        defaults: { type:'multiple_choice', label:'سوال چندگزینه‌ای', options:[{ label:'گزینه 1', value:'opt_1', second_label:'', media_url:'' }], multiple:false, required:false, vertical:true, randomize:false, numbered:true }
+    });
+    ARSH.Tools.register({
+        type: 'dropdown',
+        defaults: { type:'dropdown', label:'لیست کشویی', question:'', required:false, numbered:true, show_description:false, description:'', placeholder:'', options:[{ label:'گزینه 1', value:'opt_1' }], randomize:false, alpha_sort:false }
+    });
+    ARSH.Tools.register({
+        type: 'rating',
+        defaults: { type:'rating', label:'امتیازدهی', question:'', required:false, numbered:true, show_description:false, description:'', max:5, icon:'star', media_upload:false }
+    });
+    </script>
+    <!-- Load external tool modules (must come after Tools registry) -->
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/long_text.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/multiple_choice.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/short_text.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/dropdown.js"></script>
+    <script src="http://arshline.test/wp-content/plugins/arshline/assets/js/tools/rating.js"></script>
+    <script>
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
@@ -340,14 +513,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var raw = (location.hash||'').replace('#','').trim();
             if (!raw){ renderTab('dashboard'); return; }
             var parts = raw.split('/');
-            var seg0 = (parts[0]||'').split('?')[0];
             // Backward-compat: if someone navigates to old #submissions, redirect to forms
-            if (seg0==='submissions'){ renderTab('forms'); return; }
-            if (['dashboard','forms','reports','users','settings','messaging'].includes(seg0)){ renderTab(seg0); return; }
-            if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
-            if (seg0==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
-            if (seg0==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
-            if (seg0==='results' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormResults(id); return; } }
+            if (parts[0]==='submissions'){ renderTab('forms'); return; }
+            if (['dashboard','forms','reports','users'].includes(parts[0])){ renderTab(parts[0]); return; }
+            if (parts[0]==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
+            if (parts[0]==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
+            if (parts[0]==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
+            if (parts[0]==='results' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormResults(id); return; } }
             renderTab('dashboard');
         }
         window.addEventListener('hashchange', function(){ if (_arNavSilence>0) return; routeFromHash(); });
@@ -369,18 +541,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function setActive(tab){
-            var hash = (location.hash||'').replace('#','');
-            var parts = hash.split('/');
-            var seg0 = (parts[0]||'').split('?')[0];
-            var seg1 = (parts[1]||'').split('?')[0];
             links.forEach(function(a){
-                var dt = a.getAttribute('data-tab');
-                var href = a.getAttribute('href') || '';
-                var isUG = (seg0==='users' && seg1==='ug');
-                var isActive = (dt ? (dt === tab) : false);
-                if (!isActive && dt === 'users' && tab && tab.indexOf('users') === 0) isActive = true;
-                if (!isActive && isUG && href.indexOf('#users/ug') === 0) isActive = true;
-                if (isActive) a.classList.add('active'); else a.classList.remove('active');
+                if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active');
             });
         }
         // Map type -> Ionicon name (we already load Ionicons)
@@ -1894,12 +2056,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '  <div class="card" style="padding:.8rem;display:flex;flex-direction:column;gap:.8rem;">'
                 + '    <div class="title" style="margin-bottom:.2rem;">تنظیمات فرم</div>'
                 + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
-                + '      <span class="hint">وضعیت فرم</span>'
-                + '      <select id="arFormStatus" class="ar-select"><option value="draft">پیش‌نویس</option><option value="published">منتشر شده (فعال)</option><option value="disabled">غیرفعال</option></select>'
-                + '      <button id="arSaveStatus" class="ar-btn">ذخیره وضعیت</button>'
-                + '      <span class="hint">لینک عمومی فقط در حالت «منتشر شده» فعال است.</span>'
-                + '    </div>'
-                + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
                 + '      <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;"><input type="checkbox" id="arSetHoneypot" /> <span>فعال‌سازی Honeypot (ضدربات ساده)</span></label>'
                 + '    </div>'
                 + '    <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">'
@@ -1925,11 +2081,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 + '  <div class="card" style="padding:.8rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">'
                 + '    <span class="hint">لینک عمومی فرم:</span><input id="arShareLink" class="ar-input" style="min-width:340px" readonly />'
                 + '    <button id="arCopyLink" class="ar-btn">کپی لینک</button>'
-                + '    <span id="arShareWarn" class="hint" style="color:#b91c1c;display:none;">برای اشتراک‌گذاری، فرم باید «منتشر شده» باشد.</span>'
-                + '  </div>'
-                + '  <div class="card" style="padding:.8rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-top:.6rem">'
-                + '    <span class="hint">دریافت فایل پیوند اختصاصی اعضا برای این فرم (تمام گروه‌های متصل):</span>'
-                + '    <a id="arExportMemberLinks" class="ar-btn ar-btn--outline" target="_blank">دانلود CSV لینک‌های اعضا</a>'
                 + '  </div>'
                 + '</div>'
                 + '<div id="arReportsPanel" style="display:none;">'
@@ -2008,23 +2159,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             // When entering Share panel, ensure input shows the latest URL
                             if (which === 'share'){
                                 try {
-                                    // If published but token not yet present, ensure token and refetch form, then update UI
-                                    var isPubNow = String(data.status||'') === 'published';
-                                    var hasTokNow = !!(data && data.token);
-                                    if (isPubNow && !hasTokNow){
-                                        fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                            .catch(function(){ /* ignore */ })
-                                            .finally(function(){
-                                                fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                                    .then(function(rr){ return rr.ok ? rr.json() : Promise.reject(new Error('HTTP '+rr.status)); })
-                                                    .then(function(d2){ try { data.token = (d2 && d2.token) ? String(d2.token) : (data.token||''); } catch(_){ }
-                                                        try { updateShareUI(); } catch(_){ }
-                                                    })
-                                                    .catch(function(){ try { updateShareUI(); } catch(_){ } });
-                                            });
-                                    } else {
-                                        try { updateShareUI(); } catch(_){ }
-                                    }
                                     var sl = document.getElementById('arShareLink');
                                     if (sl && typeof publicUrl === 'string' && publicUrl){ sl.value = publicUrl; sl.setAttribute('value', publicUrl); }
                                 } catch(_){ }
@@ -2055,66 +2189,9 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         // apply to builder preview area
                         try {
                             document.documentElement.style.setProperty('--ar-primary', dPrim.value);
-                            var side = document.getElementById('arFormSide');
-                            if (side){
-                                var isDark = document.body.classList.contains('dark');
-                                // If in dark theme, prefer themed surface; otherwise use chosen design bg
-                                if (isDark) {
-                                    side.style.background = '';
-                                } else {
-                                    side.style.background = dBg.value || '';
-                                }
-                            }
+                            var side = document.getElementById('arFormSide'); if (side) side.style.background = dBg.value;
                         } catch(_){ }
                         var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
-                        // Re-apply side background on theme toggle (avoid light flash in dark)
-                        try {
-                            var themeToggle = document.getElementById('arThemeToggle');
-                            if (themeToggle){ themeToggle.addEventListener('click', function(){ try {
-                                var side = document.getElementById('arFormSide');
-                                if (side){
-                                    var isDarkNow = document.body.classList.contains('dark');
-                                    side.style.background = isDarkNow ? '' : (dBg.value || '');
-                                }
-                            } catch(_){ } }); }
-                        } catch(_){ }
-                        // init status select
-                        var stSel = document.getElementById('arFormStatus'); if (stSel){ try { stSel.value = String(data.status||'draft'); } catch(_){ } }
-                        var saveStatus = document.getElementById('arSaveStatus'); if (saveStatus && stSel){ saveStatus.onclick = function(){
-                            var val = String(stSel.value||'draft');
-                            fetch(ARSHLINE_REST+'forms/'+id, {
-                                method:'PUT', credentials:'same-origin',
-                                headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE},
-                                body: JSON.stringify({ status: val })
-                            })
-                            .then(function(r){ if(!r.ok){ if (r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                            .then(function(obj){
-                                var ns = (obj&&obj.status)||val;
-                                notify('وضعیت فرم ذخیره شد: '+ns, 'success');
-                                try {
-                                    data.status = ns;
-                                    // If switched to published, ensure token is generated and refresh Share UI immediately
-                                    if (ns === 'published'){
-                                        // Step 1: ask server to ensure/generate token (idempotent)
-                                        fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                            .catch(function(){ /* ignore token generation network error here */ })
-                                            .finally(function(){
-                                                // Step 2: refetch form to get latest token and update UI
-                                                fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                                    .then(function(rr){ return rr.ok ? rr.json() : Promise.reject(new Error('HTTP '+rr.status)); })
-                                                    .then(function(d2){ try { data.token = (d2 && d2.token) ? String(d2.token) : (data.token||''); } catch(_){ }
-                                                        try { updateShareUI(); } catch(_){ }
-                                                    })
-                                                    .catch(function(){ try { updateShareUI(); } catch(_){ } });
-                                            });
-                                    } else {
-                                        // Not published: clear link UI immediately
-                                        try { updateShareUI(); } catch(_){ }
-                                    }
-                                } catch(_){ }
-                            })
-                            .catch(function(){ notify('ذخیره وضعیت ناموفق بود', 'error'); });
-                        } }
                         // init settings values from meta
                         try {
                             var hp = document.getElementById('arSetHoneypot'); if (hp) hp.checked = !!meta.anti_spam_honeypot;
@@ -2153,35 +2230,24 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                     .catch(function(){ notify('ذخیره تنظیمات ناموفق بود', 'error'); });
                             }; }
                         } catch(_){ }
-                        // share link (only for published forms)
+                        // share link (prefer token now that we ensured it exists)
                         var publicUrl = '';
                         try {
                             var token = (data && data.token) ? String(data.token) : '';
-                            if (String(data.status||'') === 'published' && token) {
+                            if (token) {
                                 if (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase) {
                                     publicUrl = ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', token);
                                 } else {
                                     publicUrl = window.location.origin + '/?arshline=' + encodeURIComponent(token);
                                 }
                             } else {
-                                publicUrl = '';
+                                var base = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicBase) || '';
+                                publicUrl = base ? base.replace('%ID%', String(id)) : (window.location.origin + '/?arshline_form='+id);
                             }
                         } catch(_){
-                            publicUrl = '';
+                            publicUrl = window.location.origin + '/?arshline_form='+id;
                         }
                         var shareLink = document.getElementById('arShareLink'); if (shareLink){ shareLink.value = publicUrl; shareLink.setAttribute('value', publicUrl); }
-                        // Wire export member links button
-                        try {
-                            var adminPost = (window.ARSHLINE_ADMIN && ARSHLINE_ADMIN.adminPostUrl) ? ARSHLINE_ADMIN.adminPostUrl : (window.location.origin + '/wp-admin/admin-post.php');
-                            var btn = document.getElementById('arExportMemberLinks');
-                            if (btn){
-                                var u = new URL(adminPost, window.location.origin);
-                                u.searchParams.set('action', 'arshline_export_group_links');
-                                u.searchParams.set('form_id', String(id));
-                                u.searchParams.set('_wpnonce', (window.ARSHLINE_ADMIN && ARSHLINE_ADMIN.nonces && ARSHLINE_ADMIN.nonces.export) ? ARSHLINE_ADMIN.nonces.export : '');
-                                btn.href = u.toString();
-                            }
-                        } catch(_){ }
                         function copyText(text){
                             if (navigator.clipboard && navigator.clipboard.writeText){
                                 return navigator.clipboard.writeText(text);
@@ -2197,33 +2263,22 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 } catch(e){ rej(e); }
                             });
                         }
-                        var shareWarn = document.getElementById('arShareWarn');
-                        function updateShareUI(){ try {
-                            var isPub = String(data.status||'') === 'published';
-                            var tok = (data && data.token) ? String(data.token) : '';
-                            var url = (isPub && tok) ? ((window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase) ? ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', tok) : (window.location.origin + '/?arshline=' + encodeURIComponent(tok))) : '';
-                            publicUrl = url;
-                            if (shareLink){ shareLink.value = url; shareLink.setAttribute('value', url); }
-                            var copyBtn = document.getElementById('arCopyLink');
-                            if (copyBtn){ copyBtn.disabled = !url; }
-                            if (shareWarn){ shareWarn.style.display = url ? 'none' : 'inline'; }
-                        } catch(_){ } }
-                        updateShareUI();
-                        var copyBtn = document.getElementById('arCopyLink'); if (copyBtn){ copyBtn.onclick = function(){ if (!publicUrl){ notify('ابتدا فرم را منتشر کنید', 'error'); return; } copyText(publicUrl).then(function(){ notify('کپی شد', 'success'); }).catch(function(){ notify('کپی ناموفق بود', 'error'); }); }; }
+                        var copyBtn = document.getElementById('arCopyLink'); if (copyBtn){ copyBtn.onclick = function(){ copyText(publicUrl).then(function(){ notify('کپی شد', 'success'); }).catch(function(){ notify('کپی ناموفق بود', 'error'); }); }; }
 
                         // Fallback: if token wasn't present initially, refetch once and update link if token appears
-                        if (!token && String(data.status||'') === 'published') {
+                        if (!token) {
                             setTimeout(function(){
                                 fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
                                    .then(function(r){ return r.json(); })
                                    .then(function(d2){
                                        try {
                                            var t2 = (d2 && d2.token) ? String(d2.token) : '';
-                                           if (t2 && String(d2.status||'') === 'published') {
+                                           if (t2) {
                                                var url2 = (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase)
                                                    ? ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', t2)
                                                    : (window.location.origin + '/?arshline=' + encodeURIComponent(t2));
-                                               data.token = t2; data.status = 'published'; publicUrl = url2; updateShareUI();
+                                               if (shareLink) { shareLink.value = url2; shareLink.setAttribute('value', url2); }
+                                               publicUrl = url2;
                                            }
                                        } catch(_){ }
                                    }).catch(function(){ /* ignore */ });
@@ -2724,13 +2779,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-            try {
-                if (['dashboard','forms','reports','users','settings','messaging'].includes(tab)){
-                    var _h = (location.hash||'').replace('#','');
-                    var _seg0 = (_h.split('/')[0]||'').split('?')[0];
-                    if (_seg0 !== tab) setHash(tab); // keep existing query if first segment matches
-                }
-            } catch(_){ }
+            try { if (['dashboard','forms','reports','users','settings'].includes(tab)) setHash(tab); } catch(_){ }
             try { setSidebarClosed(false, false); } catch(_){ }
             setActive(tab);
             var content = document.getElementById('arshlineDashboardContent');
@@ -2747,9 +2796,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
             }
             if (tab === 'dashboard') {
-                // Dashboard: Landing modern cards + KPIs + chart (keep original cards)
-                content.innerHTML = ''+
-                    '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
+                content.innerHTML = '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>' +
                     '<div class="ar-modern-cards">\
                         <div class="ar-card ar-card--blue">\
                             <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
@@ -2767,246 +2814,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             <div class="icon"><ion-icon name="settings-outline"></ion-icon></div>\
                             <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
                         </div>\
-                    </div>'+
-                    '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
-                      '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">همه فرم‌ها</div><div id="arKpiForms" class="title">0</div></div>'+
-                          '<ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
-                                                                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                                                                        '<div><div class="hint">فرم‌های فعال</div><div id="arKpiFormsActive" class="title">0</div></div>'+
-                                                    '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                                                                        '<div><div class="hint">فرم‌های غیرفعال</div><div id="arKpiFormsDisabled" class="title">0</div></div>'+
-                                                    '<ion-icon name="ban-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">پاسخ‌ها</div><div id="arKpiSubs" class="title">0</div></div>'+
-                          '<ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">کاربران</div><div id="arKpiUsers" class="title">0</div></div>'+
-                          '<ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                        '</div>'+
-                      '</div>'+
-                    '</div>'+
-                                        '<div class="card glass" style="padding:1rem;">'+
-                                            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
-                        '<span class="title">روند ارسال‌ها</span>'+
-                        '<span class="hint">۳۰ روز اخیر</span>'+
-                        '<span style="flex:1 1 auto"></span>'+
-                        '<select id="arStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
-                      '</div>'+
-                                            '<div style="display:flex; flex-wrap:wrap; gap:.8rem; align-items:stretch;">'+
-                                                '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChart"></canvas></div>'+
-                                                '<div style="width:160px; flex:0 0 160px; height:140px;"><canvas id="arFormsDonut"></canvas></div>'+
-                                            '</div>'+
-                    '</div>';
-
-                // Fetch stats and render chart
-                (function(){
-                    var daysSel = document.getElementById('arStatsDays');
-                    var ctx = document.getElementById('arSubsChart');
-                    var donutCtx = document.getElementById('arFormsDonut');
-                    var chart = null;
-                    var donut = null;
-                    function palette(){
-                        var dark = document.body.classList.contains('dark');
-                        return {
-                            grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)',
-                            text: dark ? '#e5e7eb' : '#374151',
-                            line: dark ? '#60a5fa' : '#2563eb',
-                            fill: dark ? 'rgba(96,165,250,.15)' : 'rgba(37,99,235,.12)',
-                            active: dark ? '#34d399' : '#10b981',
-                            disabled: dark ? '#f87171' : '#ef4444'
-                        };
-                    }
-                    function renderChart(labels, data){
-                        var pal = palette();
-                        if (!ctx) return;
-                        try {
-                            if (chart){ chart.destroy(); chart = null; }
-                        } catch(_){ }
-                        if (!window.Chart) { return; }
-                        chart = new window.Chart(ctx, {
-                            type: 'line',
-                            data: {
-                                labels: labels,
-                                datasets: [{
-                                    label: 'ارسال‌ها',
-                                    data: data,
-                                    borderColor: pal.line,
-                                    backgroundColor: pal.fill,
-                                    fill: true,
-                                    tension: .3,
-                                    pointRadius: 2,
-                                    borderWidth: 2,
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                layout: { padding: { top: 6, right: 8, bottom: 6, left: 8 } },
-                                scales: {
-                                    x: { grid: { color: pal.grid }, ticks: { color: pal.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
-                                    y: { grid: { color: pal.grid }, ticks: { color: pal.text, precision: 0 } }
-                                },
-                                plugins: {
-                                    legend: { labels: { color: pal.text } },
-                                    tooltip: { intersect: false, mode: 'index' }
-                                }
-                            }
-                        });
-                    }
-                    function renderDonut(activeCnt, disabledCnt){
-                        if (!donutCtx || !window.Chart) return;
-                        var pal = palette();
-                        try { if (donut) { donut.destroy(); donut = null; } } catch(_){ }
-                        donut = new window.Chart(donutCtx, {
-                            type: 'doughnut',
-                            data: {
-                                labels: ['فعال','غیرفعال'],
-                                datasets: [{
-                                    data: [activeCnt, disabledCnt],
-                                    backgroundColor: [pal.active, pal.disabled],
-                                    borderColor: [pal.active, pal.disabled],
-                                    borderWidth: 1
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { position: 'bottom', labels: { color: pal.text } },
-                                    tooltip: { callbacks: { label: function(ctx){ var v = ctx.parsed; var sum = (activeCnt+disabledCnt)||1; var pct = Math.round((v/sum)*100); return ctx.label+': '+v+' ('+pct+'%)'; } } }
-                                },
-                                cutout: '55%'
-                            }
-                        });
-                    }
-                    function applyCounts(c){
-                        function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v); }
-                        var total = c.forms || 0;
-                        var active = c.forms_active || 0;
-                        var disabled = Math.max(total - active, 0);
-                        set('arKpiForms', total);
-                        set('arKpiFormsActive', active);
-                        set('arKpiFormsDisabled', disabled);
-                        set('arKpiSubs', c.submissions || 0);
-                        set('arKpiUsers', c.users || 0);
-                        try { renderDonut(active, disabled); } catch(_){ }
-                    }
-                                        function load(days){
-                                                try {
-                                                        var url = new URL(ARSHLINE_REST + 'stats');
-                                                        url.searchParams.set('days', String(days||30));
-                                                        fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                                                            .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                                                            .then(function(data){ try { applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } })
-                                                            .catch(function(err){ console.error('[ARSH] stats failed', err); /* show zeros already present */ notify('دریافت آمار ناموفق بود', 'error'); });
-                                                } catch(e){ console.error(e); }
-                                        }
-                    if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
-                    // Initial
-                    load(30);
-                    // Re-render chart on theme toggle
-                    try {
-                        var themeToggle = document.getElementById('arThemeToggle');
-                        if (themeToggle){ themeToggle.addEventListener('click', function(){ try { 
-                            var l = chart && chart.config && chart.config.data && chart.config.data.labels;
-                            var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data;
-                            if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v);
-                            var a = parseInt((document.getElementById('arKpiFormsActive')||{}).textContent||'0')||0;
-                            var d = parseInt((document.getElementById('arKpiFormsDisabled')||{}).textContent||'0')||0;
-                            renderDonut(a, d);
-                        } catch(_){ } }); }
-                    } catch(_){ }
-                })();
-            } else if (tab === 'messaging') {
-                // Messaging: SMS settings + send to user groups
-                content.innerHTML = ''+
-                    '<div class="card glass" style="padding:1rem; margin-bottom:1rem">'
-                    + '  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
-                    + '    <span class="title">پیامک (SMS.IR)</span>'
-                    + '    <span class="hint">پیکربندی اتصال</span>'
-                    + '  </div>'
-                    + '  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem;margin-top:.6rem">'
-                    + '    <label class="ar-field"><span class="ar-label">فعال</span><input id="smsEnabled" type="checkbox" class="ar-input" /></label>'
-                    + '    <label class="ar-field"><span class="ar-label">کلید API</span><input id="smsApiKey" class="ar-input" placeholder="API Key" /></label>'
-                    + '    <label class="ar-field"><span class="ar-label">شماره خط</span><input id="smsLine" class="ar-input" placeholder="3000..." /></label>'
-                    + '  </div>'
-                    + '  <div style="display:flex;gap:.5rem;margin-top:.6rem">'
-                    + '    <button id="smsSave" class="ar-btn">ذخیره</button>'
-                    + '    <button id="smsTest" class="ar-btn ar-btn--soft">تست</button>'
-                    + '    <input id="smsTestPhone" class="ar-input" placeholder="شماره تست (اختیاری)" style="max-width:220px" />'
-                    + '  </div>'
-                    + '</div>'
-                    + '<div class="card glass" style="padding:1rem">'
-                    + '  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
-                    + '    <span class="title">ارسال به گروه‌های کاربری</span>'
-                    + '  </div>'
-                    + '  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem;margin-top:.6rem">'
-                    + '    <label class="ar-field"><span class="ar-label">گروه‌ها</span><select id="smsGroups" class="ar-select" multiple size="6"></select></label>'
-                    + '    <label class="ar-field"><span class="ar-label">فرم (اختیاری برای لینک شخصی)</span><select id="smsForm" class="ar-select"><option value="">— بدون لینک —</option></select></label>'
-                    + '  </div>'
-                    + '  <label class="ar-field" style="margin-top:.6rem"><span class="ar-label">متن پیام</span><textarea id="smsMessage" class="ar-input" rows="4" placeholder="مثال: سلام #name، لطفاً فرم زیر را تکمیل کنید: #link"></textarea></label>'
-                    + '  <div style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem;flex-wrap:wrap">'
-                    + '    <label class="ar-field"><span class="ar-label">زمان‌بندی (اختیاری)</span><input id="smsSchedule" class="ar-input" placeholder="YYYY-MM-DD HH:MM" /></label>'
-                    + '    <button id="smsSend" class="ar-btn">ارسال</button>'
-                    + '    <span class="hint">متغیرها: #name، #phone، #link و فیلدهای سفارشی گروه</span>'
-                    + '  </div>'
-                    + '</div>';
-
-                // Load settings
-                fetch(ARSHLINE_REST + 'sms/settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                    .then(function(r){ return r.json(); })
-                    .then(function(s){ try { document.getElementById('smsEnabled').checked = !!s.enabled; document.getElementById('smsApiKey').value = s.api_key||''; document.getElementById('smsLine').value = s.line_number||''; } catch(_){ } })
-                    .catch(function(){ /* ignore */ });
-
-                // Load groups
-                fetch(ARSHLINE_REST + 'user-groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-                    .then(function(gs){ var el = document.getElementById('smsGroups'); if (!el) return; el.innerHTML = (gs||[]).map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); })
-                    .catch(function(){ notify('بارگذاری گروه‌ها ناموفق بود', 'error'); });
-                // Load forms (for link)
-                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                    .then(function(r){ return r.json(); })
-                    .then(function(fs){ var el = document.getElementById('smsForm'); if (!el) return; (fs||[]).forEach(function(f){ el.insertAdjacentHTML('beforeend', '<option value="'+f.id+'">#'+f.id+' - '+escapeHtml(String(f.title||''))+'</option>'); }); })
-                    .catch(function(){ /* ignore */ });
-
-                // Save settings
-                var btnSave = document.getElementById('smsSave'); if (btnSave) btnSave.addEventListener('click', function(){
-                    var payload = { enabled: !!document.getElementById('smsEnabled').checked, api_key: String(document.getElementById('smsApiKey').value||''), line_number: String(document.getElementById('smsLine').value||'') };
-                    fetch(ARSHLINE_REST + 'sms/settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
-                        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-                        .then(function(){ notify('تنظیمات پیامک ذخیره شد', 'success'); })
-                        .catch(function(){ notify('ذخیره تنظیمات پیامک ناموفق بود', 'error'); });
-                });
-                // Test send
-                var btnTest = document.getElementById('smsTest'); if (btnTest) btnTest.addEventListener('click', function(){
-                    var ph = String(document.getElementById('smsTestPhone').value||'').trim();
-                    fetch(ARSHLINE_REST + 'sms/test', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ phone: ph }) })
-                        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-                        .then(function(){ notify('تست موفق بود', 'success'); })
-                        .catch(function(){ notify('تست ناموفق بود', 'error'); });
-                });
-                // Send to groups
-                var btnSend = document.getElementById('smsSend'); if (btnSend) btnSend.addEventListener('click', function(){
-                    var groupsSel = document.getElementById('smsGroups'); var formSel = document.getElementById('smsForm'); var msgEl = document.getElementById('smsMessage'); var schEl = document.getElementById('smsSchedule');
-                    var gids = []; try { gids = Array.from(groupsSel.selectedOptions||[]).map(function(o){ return parseInt(o.value||'0'); }).filter(function(x){ return x>0; }); } catch(_){ }
-                    var fid = parseInt((formSel && formSel.value)||'0')||0; var includeLink = fid>0;
-                    var message = (msgEl && msgEl.value)||''; var schedule_at = (schEl && schEl.value)||'';
-                    if (!gids.length){ notify('حداقل یک گروه را انتخاب کنید', 'warn'); return; }
-                    if (!message.trim()){ notify('متن پیام خالی است', 'warn'); return; }
-                    var payload = { group_ids: gids, message: message, include_link: includeLink, form_id: includeLink? fid: undefined, schedule_at: schedule_at||undefined };
-                    fetch(ARSHLINE_REST + 'sms/send', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
-                        .then(function(r){ return r.json().then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); })
-                        .then(function(res){ if (res.ok){ if (res.body && res.body.job_id){ notify('در صف ارسال قرار گرفت (#'+res.body.job_id+')', 'success'); } else { notify('ارسال انجام شد: '+(res.body && res.body.sent || 0), 'success'); } } else { notify('ارسال ناموفق بود', 'error'); } })
-                        .catch(function(){ notify('خطا در ارسال پیامک', 'error'); });
-                });
-            } else if (tab === 'forms') {
+                    </div>';
+                        } else if (tab === 'forms') {
                 // header button already rendered globally
                                 content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
                                         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">\
@@ -3015,12 +2824,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 <input id="arFormSearch" class="ar-input" placeholder="جستجو عنوان/شناسه" style="min-width:220px"/>\
                                                 <input id="arFormDateFrom" type="date" class="ar-input" title="از تاریخ"/>\
                                                 <input id="arFormDateTo" type="date" class="ar-input" title="تا تاریخ"/>\
-                                                <select id="arFormStatusFilter" class="ar-select" title="وضعیت">\
-                                                    <option value="">همه وضعیت‌ها</option>\
-                                                    <option value="published">فعال</option>\
-                                                    <option value="draft">پیش‌نویس</option>\
-                                                    <option value="disabled">غیرفعال</option>\
-                                                </select>\
                                                 <button id="arCreateFormBtn" class="ar-btn ar-btn--soft">+ فرم جدید</button>\
                                             </div>\
                                         </div>\
@@ -3039,7 +2842,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 var formSearch = document.getElementById('arFormSearch');
                                 var formDF = document.getElementById('arFormDateFrom');
                                 var formDT = document.getElementById('arFormDateTo');
-                                var formSF = document.getElementById('arFormStatusFilter');
                 if (!ARSHLINE_CAN_MANAGE && createBtn){ createBtn.style.display = 'none'; }
                 if (createBtn) createBtn.addEventListener('click', function(){
                     if (!inlineWrap) return; var showing = inlineWrap.style.display !== 'none'; inlineWrap.style.display = showing ? 'none' : 'flex';
@@ -3083,16 +2885,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
                     var all = Array.isArray(forms) ? forms : [];
                     var box = document.getElementById('arFormsList'); if (!box) return;
-                    function badge(status){
-                        var lab = status==='published'?'فعال':(status==='disabled'?'غیرفعال':'پیش‌نویس');
-                        var col = status==='published'?'#06b6d4':(status==='disabled'?'#ef4444':'#a3a3a3');
-                        return '<span class="hint" style="background:'+col+'20;color:'+col+';padding:.15rem .4rem;border-radius:999px;font-size:12px;">'+lab+'</span>';
-                    }
                     function applyFilters(){
                         var term = (formSearch && formSearch.value.trim()) || '';
                         var df = (formDF && formDF.value) || '';
                         var dt = (formDT && formDT.value) || '';
-                        var sf = (formSF && formSF.value) || '';
                         var list = all.filter(function(f){
                             var ok = true;
                             if (term){
@@ -3101,7 +2897,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             }
                             if (ok && df){ ok = String(f.created_at||'').slice(0,10) >= df; }
                             if (ok && dt){ ok = String(f.created_at||'').slice(0,10) <= dt; }
-                            if (ok && sf){ ok = String(f.status||'') === sf; }
                             return ok;
                         });
                         var isEmpty = list.length===0;
@@ -3110,7 +2905,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
                                 <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div>\
                                 <div style="display:flex;gap:.6rem;">\
-                                    '+badge(String(f.status||''))+'\
                                     <a href="#" class="arEditForm ar-btn ar-btn--soft" data-id="'+f.id+'">ویرایش</a>\
                                     <a href="#" class="arPreviewForm ar-btn ar-btn--outline" data-id="'+f.id+'">پیش‌نمایش</a>\
                                     <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
@@ -3130,93 +2924,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     if (formSearch) formSearch.addEventListener('input', function(){ clearTimeout(formSearch._t); formSearch._t = setTimeout(applyFilters, 200); });
                     if (formDF) formDF.addEventListener('change', applyFilters);
                     if (formDT) formDT.addEventListener('change', applyFilters);
-                    if (formSF) formSF.addEventListener('change', applyFilters);
                     // If header create was requested before arriving here, open inline create now
                     if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
                 }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
-                        } else if (tab === 'reports') {
-                                // Reports: reuse the same stats view for now (KPIs + chart)
-                                content.innerHTML = ''+
-                                        '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
-                                            '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">همه فرم‌ها</div><div id="arRptKpiForms" class="title">0</div></div>'+
-                                                    '<ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">فرم‌های فعال</div><div id="arRptKpiFormsActive" class="title">0</div></div>'+
-                                                    '<ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">فرم‌های غیرفعال</div><div id="arRptKpiFormsDisabled" class="title">0</div></div>'+
-                                                    '<ion-icon name="ban-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">پاسخ‌ها</div><div id="arRptKpiSubs" class="title">0</div></div>'+
-                                                    '<ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                                '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-                                                    '<div><div class="hint">کاربران</div><div id="arRptKpiUsers" class="title">0</div></div>'+
-                                                    '<ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
-                                                '</div>'+
-                                            '</div>'+
-                                        '</div>'+
-                                        '<div class="card glass" style="padding:1rem;">'+
-                                            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
-                                                '<span class="title">روند ارسال‌ها</span>'+
-                                                '<span class="hint">۳۰ روز اخیر</span>'+
-                                                '<span style="flex:1 1 auto"></span>'+
-                                                '<select id="arRptStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
-                                            '</div>'+
-                                            '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arRptSubsChart"></canvas></div>'+
-                                        '</div>';
-
-                                (function(){
-                                        var daysSel = document.getElementById('arRptStatsDays');
-                                        var ctx = document.getElementById('arRptSubsChart');
-                                        var chart = null;
-                                        function palette(){
-                                                var dark = document.body.classList.contains('dark');
-                                                return {
-                                                        grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)',
-                                                        text: dark ? '#e5e7eb' : '#374151',
-                                                        line: dark ? '#34d399' : '#059669',
-                                                        fill: dark ? 'rgba(52,211,153,.15)' : 'rgba(5,150,105,.12)'
-                                                };
-                                        }
-                                        function renderChart(labels, data){
-                                                var pal = palette();
-                                                if (!ctx) return;
-                                                try { if (chart){ chart.destroy(); chart = null; } } catch(_){ }
-                                                if (!window.Chart) { return; }
-                        chart = new window.Chart(ctx, {
-                            type: 'line',
-                            data: { labels: labels, datasets: [{ label: 'ارسال‌ها', data: data, borderColor: pal.line, backgroundColor: pal.fill, fill: true, tension: .3, pointRadius: 1.5, borderWidth: 1.5 }] },
-                            options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 6, right: 8, bottom: 6, left: 8 } }, scales: { x: { grid: { color: pal.grid }, ticks: { color: pal.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { grid: { color: pal.grid }, ticks: { color: pal.text, precision: 0 } } }, plugins: { legend: { labels: { color: pal.text } }, tooltip: { intersect: false, mode: 'index' } } }
-                        });
-                                        }
-                                        function applyCounts(c){
-                        function set(id, v){ var el = document.getElementById(id); if (el) el.textContent = String(v||0); }
-                                                set('arRptKpiForms', c.forms);
-                                                set('arRptKpiFormsActive', c.forms_active);
-                        set('arRptKpiFormsDisabled', c.forms_disabled);
-                                                set('arRptKpiSubs', c.submissions);
-                                                set('arRptKpiUsers', c.users);
-                                        }
-                    function load(days){
-                        try {
-                            var url = new URL(ARSHLINE_REST + 'stats');
-                            url.searchParams.set('days', String(days||30));
-                            fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                            .then(function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
-                            .then(function(data){ applyCounts(data.counts||{}); var ser = data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); })
-                            .catch(function(err){ console.error('[ARSH] stats failed', err); /* keep zeros */ notify('دریافت آمار ناموفق بود', 'error'); });
-                        } catch(e){ console.error(e); }
-                    }
-                                        if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
-                                        load(30);
-                                        try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart?.config?.data?.labels||[]; var v = chart?.config?.data?.datasets?.[0]?.data||[]; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
-                                })();
+            } else if (tab === 'reports') {
+                content.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:1.2rem;">' +
+                    card('نمودار نرخ تبدیل', 'به‌زودی') +
+                    card('منابع ترافیک', 'به‌زودی') +
+                    card('زمان‌های اوج', 'به‌زودی') +
+                '</div>';
                         } else if (tab === 'users') {
                 content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
                     <div class="card glass"><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها (Placeholder)</div></div>\
@@ -3261,7 +2977,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
                                                 <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
                                                 <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-5-mini">gpt-5-mini</option></select>\
-                                                <span class="hint">تحلیلگر</span><select id="gsAiParser" class="ar-select"><option value="internal">هوشیار داخلی</option><option value="hybrid">هیبرید (پیش‌فرض)</option><option value="llm">OpenAI LLM</option></select>\
                                                 <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
                                             </div>\
                                             <div class="field" style="display:flex;flex-direction:column;gap:.4rem;">\
@@ -3316,8 +3031,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             var c = resp && resp.config ? resp.config : {};
                             var bu = document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || '';
                             var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o-mini';
-                            var pa = document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid';
-                            var ak = document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || '';
+                            // Do not prefill API key for safety; user can paste to update
                         } catch(_){ } });
                     })
                                         .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
@@ -3354,8 +3068,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         enabled: ai_enabled,
                         base_url: String(document.getElementById('gsAiBaseUrl')?.value||''),
                         api_key: String(document.getElementById('gsAiApiKey')?.value||''),
-                        model: String(document.getElementById('gsAiModel')?.value||''),
-                        parser: String(document.getElementById('gsAiParser')?.value||'hybrid')
+                        model: String(document.getElementById('gsAiModel')?.value||'')
                     };
                     putSettings(payload)
                         .then(function(){ return putAiConfig(cfg); })
@@ -3502,7 +3215,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 } catch(e){ appendOut(String(e)); notify('خطا در اجرای دستور', 'error'); }
             }
             if (runBtn) runBtn.addEventListener('click', runAgent);
-            // Toolbar undo will be wired in the AI UI script
             if (cmdEl) cmdEl.addEventListener('keydown', function(e){ if (e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); runAgent(); }});
             // restore open state
             try { if ((sessionStorage.getItem('arAiOpen')||'')==='1') setOpen(true); } catch(_){ }
@@ -3510,7 +3222,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         // Allow other modules to trigger AI terminal
         try { window.ARSH_AI = { open: function(){ var p=document.getElementById('arAiPanel'); if(!p) return; p.classList.add('open'); p.setAttribute('aria-hidden','false'); }, run: function(cmd){ var t=document.getElementById('arAiCmd'); if(t){ t.value=String(cmd||''); } var b=document.getElementById('arAiRun'); if(b){ b.click(); } } }; } catch(_){ }
     });
-    }
     </script>
     </head>
     <body>
@@ -3519,13 +3230,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <div class="logo"><span class="label">عرشلاین</span></div>
             <button id="arSidebarToggle" class="toggle" aria-expanded="true" title="باز/بسته کردن منو"><span class="chev">❮</span></button>
             <nav>
-                <a href="#dashboard" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
-                <a href="#forms" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
-                <a href="#reports" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
-                <a href="#users" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
-                <a href="#users/ug?tab=groups"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">گروه‌های کاربری</span></a>
-                <a href="#messaging" data-tab="messaging"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span><span class="label">پیام‌رسانی</span></a>
-                <a href="#settings" data-tab="settings"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 7.8 7.8 0 0 1-2.6.9 1 1 0 0 0-.8.9V21a2 2 0 0 1-4 0v-.1a1 1 0 0 0-.8-.9 7.8 7.8 0 0 1-2.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1A7.8 7.8 0 0 1 3 12a7.8 7.8 0 0 1 .9-2.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 7.8 7.8 0 0 1 2.6-.9 1 1 0 0 0 .8-.9V3a2 2 0 0 1 4 0v.1a1 1 0 0 0 .8.9 7.8 7.8 0 0 1 2.6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 7.8 7.8 0 0 1 .9 2.6Z" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">تنظیمات</span></a>
+                <a href="#" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
+                <a href="#" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
+                <a href="#" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
+                <a href="#" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
+                <a href="#" data-tab="settings"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 7.8 7.8 0 0 1-2.6.9 1 1 0 0 0-.8.9V21a2 2 0 0 1-4 0v-.1a1 1 0 0 0-.8-.9 7.8 7.8 0 0 1-2.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1A7.8 7.8 0 0 1 3 12a7.8 7.8 0 0 1 .9-2.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 7.8 7.8 0 0 1 2.6-.9 1 1 0 0 0 .8-.9V3a2 2 0 0 1 4 0v.1a1 1 0 0 0 .8.9 7.8 7.8 0 0 1 2.6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 7.8 7.8 0 0 1 .9 2.6Z" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">تنظیمات</span></a>
             </nav>
         </aside>
         <main class="arshline-main">
@@ -3541,40 +3250,144 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         </main>
     </div>
     <!-- Floating AI Terminal -->
-    <button id="arAiFab" class="ar-ai-fab" title="ترمینال هوشیار">هوشیار ▷</button>
+    <button id="arAiFab" class="ar-ai-fab" title="ترمینال هوش مصنوعی">هوش مصنوعی ▷</button>
     <div id="arAiPanel" class="ar-ai-panel" aria-hidden="true">
         <div class="ar-ai-header">
-            <div class="title">ترمینال هوشیار</div>
+            <div class="title">ترمینال هوش مصنوعی</div>
             <button id="arAiClose" class="ar-ai-close" aria-label="بستن">✕</button>
         </div>
         <div class="ar-ai-body">
-            <input id="arAiCmd" type="text" class="ar-input" placeholder="مثلاً: ایجاد فرم با عنوان فرم تست" />
+            <textarea id="arAiCmd" placeholder="مثلاً: ایجاد فرم با عنوان فرم تست"></textarea>
             <div style="display:flex; gap:.5rem; align-items:center; justify-content:flex-start;">
                 <button id="arAiRun" class="ar-btn">اجرا</button>
                 <button id="arAiClear" class="ar-btn ar-btn--outline">پاک‌سازی</button>
-                <button id="arAiUndo" class="ar-btn ar-btn--soft" title="بازگردانی" style="display:inline-flex; align-items:center; gap:.4rem;">
-                    <span aria-hidden="true">↶</span>
-                    <span>بازگردانی</span>
-                </button>
             </div>
             <pre id="arAiOut"></pre>
         </div>
     </div>
-<script src="<?php echo esc_url( plugins_url('assets/js/ui/ai-terminal.js', dirname(__DIR__, 2).'/arshline.php') ); ?>?ver=<?php echo esc_attr($version); ?>"></script>
 <!-- Ionicons for modern solid cards -->
 <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
 <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
-<!-- Chart.js for charts -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Persian datepicker (optional) -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
-<!-- UI modules wired: notify/auth/input-masks -->
-
-<!-- Ionicons for modern cards -->
-<script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
-<script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+<script>
+// Toast notifications (polished, reusable)
+function ensureToastWrap(){
+    var w = document.getElementById('arToastWrap');
+    if (!w){
+        w = document.createElement('div');
+        w.id = 'arToastWrap';
+        w.className = 'ar-toast-wrap';
+        document.body.appendChild(w);
+    }
+    return w;
+}
+function notify(message, opts){
+    var wrap = ensureToastWrap();
+    var el = document.createElement('div');
+    var type = (typeof opts === 'string') ? opts : (opts && opts.type) || 'info';
+    var variant = ['success','error','info','warn'].includes(type) ? type : 'info';
+    el.className = 'ar-toast ar-toast--'+variant;
+    var icon = document.createElement('span');
+    icon.className = 'ar-toast-ic';
+    icon.textContent = (variant==='success') ? '✔' : (variant==='error') ? '✖' : (variant==='warn') ? '⚠' : 'ℹ';
+    var text = document.createElement('span');
+    text.textContent = message;
+    el.appendChild(icon);
+    el.appendChild(text);
+    var hasAction = opts && opts.actionLabel && typeof opts.onAction === 'function';
+    if (hasAction){
+        var btn = document.createElement('button');
+        btn.textContent = opts.actionLabel;
+        btn.style.cssText = 'margin-inline-start:.6rem;padding:.25rem .6rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;';
+        btn.addEventListener('click', function(){ opts.onAction(); el.remove(); });
+        el.appendChild(btn);
+    }
+    wrap.appendChild(el);
+    var duration = (opts && opts.duration) || 2800;
+    setTimeout(function(){ el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; }, Math.max(200, duration - 500));
+    setTimeout(function(){ el.remove(); }, duration);
+}
+// Centralized 401 handler
+function handle401(){
+    try {
+        notify('نشست شما منقضی شده یا دسترسی کافی ندارید.', { type:'error', duration: 5000, actionLabel: 'ورود', onAction: function(){ if (ARSHLINE_LOGIN_URL) location.href = ARSHLINE_LOGIN_URL; }});
+    } catch(_){ alert('401 Unauthorized: لطفاً وارد شوید.'); }
+}
+</script>
+<script>
+// Input masks for preview inputs
+function applyInputMask(inp, props){
+    var fmt = props.format || 'free_text';
+    function normalizeDigits(str){
+        var fa = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        var ar = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        return (str||'').replace(/[۰-۹٠-٩]/g, function(d){
+            var i = fa.indexOf(d); if (i>-1) return String(i);
+            var j = ar.indexOf(d); if (j>-1) return String(j);
+            return d;
+        });
+    }
+    function clampLen(){}
+    function digitsOnly(){ inp.value = normalizeDigits(inp.value).replace(/\D+/g,''); }
+    function allowChars(regex){ var s = normalizeDigits(inp.value); inp.value = (s.match(regex)||[]).join(''); }
+    function setInvalid(msg){ inp.style.borderColor = '#b91c1c'; if (msg) inp.title = msg; }
+    function clearInvalid(){ inp.style.borderColor = ''; inp.title = ''; }
+    inp.addEventListener('input', function(){
+        inp.value = normalizeDigits(inp.value);
+        switch(fmt){
+            case 'numeric': digitsOnly(); break;
+            case 'mobile_ir': inp.value = inp.value.replace(/[^\d]/g,''); if (/^9\d/.test(inp.value)) inp.value = '0'+inp.value; if (inp.value.startsWith('98')) inp.value = '0'+inp.value.slice(2); if (inp.value.length>11) inp.value = inp.value.slice(0,11); break;
+            case 'mobile_intl': inp.value = inp.value.replace(/(?!^)[^\d]/g,'').replace(/^([^+\d])+/,''); if (!inp.value.startsWith('+')) inp.value = '+'+inp.value.replace(/\+/g,''); inp.value = inp.value.replace(/(.*\d{15}).*$/, '$1'); break;
+            case 'tel': inp.value = inp.value.replace(/[^0-9\-\+\s\(\)]/g,''); break;
+            case 'ip': inp.value = inp.value.replace(/[^0-9\.]/g,'').replace(/\.\.+/g,'.'); break;
+                case 'rating': return 'امتیازدهی'; // Added label for rating
+            case 'fa_letters': allowChars(/[\u0600-\u06FF\s]/g); break;
+            case 'en_letters': allowChars(/[A-Za-z\s]/g); break;
+            case 'date_jalali': inp.value = inp.value.replace(/[^0-9/]/g,'').slice(0,10); break;
+            case 'national_id_ir': inp.value = inp.value.replace(/\D+/g,'').slice(0,10); break;
+            case 'postal_code_ir': inp.value = inp.value.replace(/\D+/g,'').slice(0,10); break;
+            default: break;
+        }
+        clampLen();
+    });
+    inp.addEventListener('blur', function(){
+        clearInvalid();
+        var v = inp.value.trim(); if (!v) return;
+        var msg = null;
+        switch(fmt){
+            case 'email': if (!/^\S+@\S+\.\S+$/.test(v)) setInvalid('ایمیل نامعتبر است'); break;
+            case 'mobile_ir': if (!/^(\+98|0)?9\d{9}$/.test(v)) setInvalid('شماره موبایل ایران نامعتبر است'); break;
+            case 'mobile_intl': if (!/^\+?[1-9]\d{7,14}$/.test(v)) setInvalid('شماره موبایل بین‌المللی نامعتبر است'); break;
+            case 'tel': if (!/^[0-9\-\+\s\(\)]{5,20}$/.test(v)) setInvalid('شماره تلفن نامعتبر است'); break;
+            case 'numeric': if (!/^\d+$/.test(v)) setInvalid('فقط عددی'); break;
+            case 'fa_letters': if (!/^[\u0600-\u06FF\s]+$/.test(v)) setInvalid('فقط حروف فارسی'); break;
+            case 'en_letters': if (!/^[A-Za-z\s]+$/.test(v)) setInvalid('فقط حروف انگلیسی'); break;
+            case 'ip': if (!/^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v)) setInvalid('IP نامعتبر است'); break;
+            case 'time': if (!/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(v)) setInvalid('زمان نامعتبر است'); break;
+            case 'date_jalali': if (!/^\d{4}\/(0[1-6]|1[0-2])\/(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ شمسی نامعتبر است'); break;
+            case 'date_greg': if (!/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/.test(v)) setInvalid('تاریخ میلادی نامعتبر است'); break;
+            case 'national_id_ir':
+                var nid = v.padStart(10,'0');
+                if (!/^\d{10}$/.test(nid)) { setInvalid('کد ملی نامعتبر است'); break; }
+                if (/^(\d)\1{9}$/.test(nid)) { setInvalid('کد ملی نامعتبر است'); break; }
+                var sum = 0; for (var i=0;i<9;i++){ sum += parseInt(nid[i]) * (10 - i); }
+                var r = sum % 11; var c = parseInt(nid[9]);
+                if (!((r<2 && c===r) || (r>=2 && c===(11-r)))) setInvalid('کد ملی نامعتبر است');
+                break;
+            case 'postal_code_ir':
+                var pc = v;
+                if (!/^\d{10}$/.test(pc)) { setInvalid('کد پستی نامعتبر است'); break; }
+                if (/^(\d)\1{9}$/.test(pc)) { setInvalid('کد پستی نامعتبر است'); break; }
+                break;
+            default: break;
+        }
+        inp.setAttribute('aria-invalid', inp.style.borderColor ? 'true' : 'false');
+    });
+}
+</script>
 </body>
 </html>

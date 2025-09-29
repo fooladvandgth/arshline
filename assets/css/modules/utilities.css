@@ -1,0 +1,925 @@
+/**
+ * Arshline Dashboard Utilities CSS
+ * Utility classes, responsive helpers, animations, and validation styles
+ */
+
+/* ============================================================================
+   Validation Helpers
+   ============================================================================ */
+.ar-input--invalid {
+    border-color: var(--error, #dc2626) !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.ar-required {
+    color: var(--error, #dc2626);
+    margin: 0 0.2rem;
+    font-weight: 700;
+}
+
+.ar-field-error {
+    color: var(--error, #dc2626);
+    margin-top: 0.3rem;
+    display: none;
+}
+
+/* ============================================================================
+   Responsive Utilities
+   ============================================================================ */
+.ar-hidden {
+    display: none !important;
+}
+
+.ar-visible {
+    display: block !important;
+}
+
+/* Text utilities */
+.ar-text-center {
+    text-align: center !important;
+}
+
+.ar-text-right {
+    text-align: right !important;
+}
+
+.ar-text-left {
+    text-align: left !important;
+}
+
+/* Spacing utilities */
+.ar-m-0 { margin: 0 !important; }
+.ar-mt-0 { margin-top: 0 !important; }
+.ar-mb-0 { margin-bottom: 0 !important; }
+.ar-ml-0 { margin-left: 0 !important; }
+.ar-mr-0 { margin-right: 0 !important; }
+
+.ar-m-1 { margin: 0.25rem !important; }
+.ar-mt-1 { margin-top: 0.25rem !important; }
+.ar-mb-1 { margin-bottom: 0.25rem !important; }
+.ar-ml-1 { margin-left: 0.25rem !important; }
+.ar-mr-1 { margin-right: 0.25rem !important; }
+
+.ar-m-2 { margin: 0.5rem !important; }
+.ar-mt-2 { margin-top: 0.5rem !important; }
+.ar-mb-2 { margin-bottom: 0.5rem !important; }
+.ar-ml-2 { margin-left: 0.5rem !important; }
+.ar-mr-2 { margin-right: 0.5rem !important; }
+
+.ar-m-3 { margin: 1rem !important; }
+.ar-mt-3 { margin-top: 1rem !important; }
+.ar-mb-3 { margin-bottom: 1rem !important; }
+.ar-ml-3 { margin-left: 1rem !important; }
+.ar-mr-3 { margin-right: 1rem !important; }
+
+.ar-m-4 { margin: 1.5rem !important; }
+.ar-mt-4 { margin-top: 1.5rem !important; }
+.ar-mb-4 { margin-bottom: 1.5rem !important; }
+.ar-ml-4 { margin-left: 1.5rem !important; }
+.ar-mr-4 { margin-right: 1.5rem !important; }
+
+/* Padding utilities */
+.ar-p-0 { padding: 0 !important; }
+.ar-pt-0 { padding-top: 0 !important; }
+.ar-pb-0 { padding-bottom: 0 !important; }
+.ar-pl-0 { padding-left: 0 !important; }
+.ar-pr-0 { padding-right: 0 !important; }
+
+.ar-p-1 { padding: 0.25rem !important; }
+.ar-pt-1 { padding-top: 0.25rem !important; }
+.ar-pb-1 { padding-bottom: 0.25rem !important; }
+.ar-pl-1 { padding-left: 0.25rem !important; }
+.ar-pr-1 { padding-right: 0.25rem !important; }
+
+.ar-p-2 { padding: 0.5rem !important; }
+.ar-pt-2 { padding-top: 0.5rem !important; }
+.ar-pb-2 { padding-bottom: 0.5rem !important; }
+.ar-pl-2 { padding-left: 0.5rem !important; }
+.ar-pr-2 { padding-right: 0.5rem !important; }
+
+.ar-p-3 { padding: 1rem !important; }
+.ar-pt-3 { padding-top: 1rem !important; }
+.ar-pb-3 { padding-bottom: 1rem !important; }
+.ar-pl-3 { padding-left: 1rem !important; }
+.ar-pr-3 { padding-right: 1rem !important; }
+
+/* Wrap utilities */
+.ar-wrap {
+    white-space: normal;
+    word-break: break-word;
+}
+
+.ar-nowrap {
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.ar-nowrap .ar-table {
+    table-layout: fixed;
+}
+
+.ar-nowrap .ar-table td,
+.ar-nowrap .ar-table th {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Dark theme utilities */
+body.dark {
+    color: var(--text, #f1f5f9);
+}
+
+body.dark .tagline {
+    color: #e5e7eb;
+}
+
+/* ============================================================================
+   Animation Utilities
+   ============================================================================ */
+.ar-fade-in {
+    animation: arFadeIn 0.3s ease-out;
+}
+
+@keyframes arFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ar-slide-in-right {
+    animation: arSlideInRight 0.3s ease-out;
+}
+
+@keyframes arSlideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ============================================================================
+   Flex Utilities
+   ============================================================================ */
+.ar-flex {
+    display: flex !important;
+}
+
+.ar-flex-col {
+    flex-direction: column !important;
+}
+
+.ar-flex-row {
+    flex-direction: row !important;
+}
+
+.ar-items-center {
+    align-items: center !important;
+}
+
+.ar-items-start {
+    align-items: flex-start !important;
+}
+
+.ar-items-end {
+    align-items: flex-end !important;
+}
+
+.ar-justify-center {
+    justify-content: center !important;
+}
+
+.ar-justify-between {
+    justify-content: space-between !important;
+}
+
+.ar-justify-end {
+    justify-content: flex-end !important;
+}
+
+.ar-justify-start {
+    justify-content: flex-start !important;
+}
+
+.ar-flex-1 {
+    flex: 1 1 0% !important;
+}
+
+.ar-flex-none {
+    flex: none !important;
+}
+
+/* ============================================================================
+   Grid Utilities
+   ============================================================================ */
+.ar-grid {
+    display: grid !important;
+}
+
+.ar-grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+}
+
+.ar-grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.ar-grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.ar-grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+.ar-gap-1 {
+    gap: 0.25rem !important;
+}
+
+.ar-gap-2 {
+    gap: 0.5rem !important;
+}
+
+.ar-gap-3 {
+    gap: 1rem !important;
+}
+
+.ar-gap-4 {
+    gap: 1.5rem !important;
+}
+
+/* ============================================================================
+   Responsive Breakpoints
+   ============================================================================ */
+@media (max-width: 640px) {
+    .ar-sm\:hidden {
+        display: none !important;
+    }
+    
+    .ar-sm\:block {
+        display: block !important;
+    }
+    
+    .ar-sm\:flex {
+        display: flex !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .ar-md\:hidden {
+        display: none !important;
+    }
+    
+    .ar-md\:block {
+        display: block !important;
+    }
+    
+    .ar-md\:flex {
+        display: flex !important;
+    }
+}
+
+@media (max-width: 1024px) {
+    .ar-lg\:hidden {
+        display: none !important;
+    }
+    
+    .ar-lg\:block {
+        display: block !important;
+    }
+    
+    .ar-lg\:flex {
+        display: flex !important;
+    }
+}
+
+.ar-visible {
+    display: block !important;
+}
+
+.ar-flex {
+    display: flex !important;
+}
+
+.ar-inline-flex {
+    display: inline-flex !important;
+}
+
+.ar-grid {
+    display: grid !important;
+}
+
+.ar-inline-block {
+    display: inline-block !important;
+}
+
+/* Mobile-first responsive display */
+@media (min-width: 640px) {
+    .ar-sm-hidden { display: none !important; }
+    .ar-sm-visible { display: block !important; }
+    .ar-sm-flex { display: flex !important; }
+    .ar-sm-grid { display: grid !important; }
+}
+
+@media (min-width: 768px) {
+    .ar-md-hidden { display: none !important; }
+    .ar-md-visible { display: block !important; }
+    .ar-md-flex { display: flex !important; }
+    .ar-md-grid { display: grid !important; }
+}
+
+@media (min-width: 1024px) {
+    .ar-lg-hidden { display: none !important; }
+    .ar-lg-visible { display: block !important; }
+    .ar-lg-flex { display: flex !important; }
+    .ar-lg-grid { display: grid !important; }
+}
+
+@media (min-width: 1280px) {
+    .ar-xl-hidden { display: none !important; }
+    .ar-xl-visible { display: block !important; }
+    .ar-xl-flex { display: flex !important; }
+    .ar-xl-grid { display: grid !important; }
+}
+
+/* ============================================================================
+   Flexbox Utilities
+   ============================================================================ */
+.ar-flex-row { flex-direction: row; }
+.ar-flex-col { flex-direction: column; }
+.ar-flex-row-reverse { flex-direction: row-reverse; }
+.ar-flex-col-reverse { flex-direction: column-reverse; }
+
+.ar-flex-wrap { flex-wrap: wrap; }
+.ar-flex-nowrap { flex-wrap: nowrap; }
+.ar-flex-wrap-reverse { flex-wrap: wrap-reverse; }
+
+.ar-items-start { align-items: flex-start; }
+.ar-items-end { align-items: flex-end; }
+.ar-items-center { align-items: center; }
+.ar-items-baseline { align-items: baseline; }
+.ar-items-stretch { align-items: stretch; }
+
+.ar-justify-start { justify-content: flex-start; }
+.ar-justify-end { justify-content: flex-end; }
+.ar-justify-center { justify-content: center; }
+.ar-justify-between { justify-content: space-between; }
+.ar-justify-around { justify-content: space-around; }
+.ar-justify-evenly { justify-content: space-evenly; }
+
+.ar-flex-1 { flex: 1 1 0%; }
+.ar-flex-auto { flex: 1 1 auto; }
+.ar-flex-initial { flex: 0 1 auto; }
+.ar-flex-none { flex: none; }
+
+.ar-grow { flex-grow: 1; }
+.ar-grow-0 { flex-grow: 0; }
+.ar-shrink { flex-shrink: 1; }
+.ar-shrink-0 { flex-shrink: 0; }
+
+/* ============================================================================
+   Grid Utilities
+   ============================================================================ */
+.ar-grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+.ar-grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ar-grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ar-grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ar-grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.ar-grid-cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+.ar-col-span-1 { grid-column: span 1 / span 1; }
+.ar-col-span-2 { grid-column: span 2 / span 2; }
+.ar-col-span-3 { grid-column: span 3 / span 3; }
+.ar-col-span-4 { grid-column: span 4 / span 4; }
+.ar-col-span-5 { grid-column: span 5 / span 5; }
+.ar-col-span-6 { grid-column: span 6 / span 6; }
+.ar-col-span-full { grid-column: 1 / -1; }
+
+.ar-gap-0 { gap: 0; }
+.ar-gap-1 { gap: var(--spacing-xs); }
+.ar-gap-2 { gap: var(--spacing-sm); }
+.ar-gap-3 { gap: 0.75rem; }
+.ar-gap-4 { gap: var(--spacing-md); }
+.ar-gap-6 { gap: var(--spacing-lg); }
+.ar-gap-8 { gap: var(--spacing-xl); }
+
+/* ============================================================================
+   Spacing Utilities
+   ============================================================================ */
+
+/* Margin utilities */
+.ar-m-0 { margin: 0; }
+.ar-m-1 { margin: var(--spacing-xs); }
+.ar-m-2 { margin: var(--spacing-sm); }
+.ar-m-4 { margin: var(--spacing-md); }
+.ar-m-6 { margin: var(--spacing-lg); }
+.ar-m-8 { margin: var(--spacing-xl); }
+.ar-m-auto { margin: auto; }
+
+.ar-mx-0 { margin-left: 0; margin-right: 0; }
+.ar-mx-1 { margin-left: var(--spacing-xs); margin-right: var(--spacing-xs); }
+.ar-mx-2 { margin-left: var(--spacing-sm); margin-right: var(--spacing-sm); }
+.ar-mx-4 { margin-left: var(--spacing-md); margin-right: var(--spacing-md); }
+.ar-mx-auto { margin-left: auto; margin-right: auto; }
+
+.ar-my-0 { margin-top: 0; margin-bottom: 0; }
+.ar-my-1 { margin-top: var(--spacing-xs); margin-bottom: var(--spacing-xs); }
+.ar-my-2 { margin-top: var(--spacing-sm); margin-bottom: var(--spacing-sm); }
+.ar-my-4 { margin-top: var(--spacing-md); margin-bottom: var(--spacing-md); }
+
+.ar-mt-0 { margin-top: 0; }
+.ar-mt-1 { margin-top: var(--spacing-xs); }
+.ar-mt-2 { margin-top: var(--spacing-sm); }
+.ar-mt-4 { margin-top: var(--spacing-md); }
+.ar-mt-6 { margin-top: var(--spacing-lg); }
+.ar-mt-8 { margin-top: var(--spacing-xl); }
+
+.ar-mr-0 { margin-right: 0; }
+.ar-mr-1 { margin-right: var(--spacing-xs); }
+.ar-mr-2 { margin-right: var(--spacing-sm); }
+.ar-mr-4 { margin-right: var(--spacing-md); }
+
+.ar-mb-0 { margin-bottom: 0; }
+.ar-mb-1 { margin-bottom: var(--spacing-xs); }
+.ar-mb-2 { margin-bottom: var(--spacing-sm); }
+.ar-mb-4 { margin-bottom: var(--spacing-md); }
+.ar-mb-6 { margin-bottom: var(--spacing-lg); }
+.ar-mb-8 { margin-bottom: var(--spacing-xl); }
+
+.ar-ml-0 { margin-left: 0; }
+.ar-ml-1 { margin-left: var(--spacing-xs); }
+.ar-ml-2 { margin-left: var(--spacing-sm); }
+.ar-ml-4 { margin-left: var(--spacing-md); }
+
+/* Padding utilities */
+.ar-p-0 { padding: 0; }
+.ar-p-1 { padding: var(--spacing-xs); }
+.ar-p-2 { padding: var(--spacing-sm); }
+.ar-p-4 { padding: var(--spacing-md); }
+.ar-p-6 { padding: var(--spacing-lg); }
+.ar-p-8 { padding: var(--spacing-xl); }
+
+.ar-px-0 { padding-left: 0; padding-right: 0; }
+.ar-px-1 { padding-left: var(--spacing-xs); padding-right: var(--spacing-xs); }
+.ar-px-2 { padding-left: var(--spacing-sm); padding-right: var(--spacing-sm); }
+.ar-px-4 { padding-left: var(--spacing-md); padding-right: var(--spacing-md); }
+.ar-px-6 { padding-left: var(--spacing-lg); padding-right: var(--spacing-lg); }
+
+.ar-py-0 { padding-top: 0; padding-bottom: 0; }
+.ar-py-1 { padding-top: var(--spacing-xs); padding-bottom: var(--spacing-xs); }
+.ar-py-2 { padding-top: var(--spacing-sm); padding-bottom: var(--spacing-sm); }
+.ar-py-4 { padding-top: var(--spacing-md); padding-bottom: var(--spacing-md); }
+.ar-py-6 { padding-top: var(--spacing-lg); padding-bottom: var(--spacing-lg); }
+
+/* ============================================================================
+   Typography Utilities
+   ============================================================================ */
+.ar-text-xs { font-size: var(--font-size-xs); }
+.ar-text-sm { font-size: var(--font-size-sm); }
+.ar-text-base { font-size: var(--font-size-base); }
+.ar-text-lg { font-size: var(--font-size-lg); }
+.ar-text-xl { font-size: var(--font-size-xl); }
+.ar-text-2xl { font-size: var(--font-size-2xl); }
+.ar-text-3xl { font-size: var(--font-size-3xl); }
+
+.ar-font-light { font-weight: 300; }
+.ar-font-normal { font-weight: 400; }
+.ar-font-medium { font-weight: 500; }
+.ar-font-semibold { font-weight: 600; }
+.ar-font-bold { font-weight: 700; }
+
+.ar-text-left { text-align: left; }
+.ar-text-center { text-align: center; }
+.ar-text-right { text-align: right; }
+.ar-text-justify { text-align: justify; }
+
+.ar-leading-tight { line-height: var(--line-height-tight); }
+.ar-leading-normal { line-height: var(--line-height-normal); }
+.ar-leading-relaxed { line-height: var(--line-height-relaxed); }
+
+.ar-uppercase { text-transform: uppercase; }
+.ar-lowercase { text-transform: lowercase; }
+.ar-capitalize { text-transform: capitalize; }
+
+.ar-underline { text-decoration: underline; }
+.ar-no-underline { text-decoration: none; }
+
+/* Text colors */
+.ar-text-primary { color: var(--primary); }
+.ar-text-success { color: var(--success); }
+.ar-text-error { color: var(--error); }
+.ar-text-warning { color: var(--warning); }
+.ar-text-info { color: var(--info); }
+.ar-text-muted { color: var(--muted); }
+.ar-text-light { color: var(--text-light); }
+
+/* ============================================================================
+   Width and Height Utilities
+   ============================================================================ */
+.ar-w-auto { width: auto; }
+.ar-w-full { width: 100%; }
+.ar-w-1\/2 { width: 50%; }
+.ar-w-1\/3 { width: 33.333333%; }
+.ar-w-2\/3 { width: 66.666667%; }
+.ar-w-1\/4 { width: 25%; }
+.ar-w-3\/4 { width: 75%; }
+
+.ar-h-auto { height: auto; }
+.ar-h-full { height: 100%; }
+.ar-h-screen { height: 100vh; }
+
+.ar-min-w-0 { min-width: 0; }
+.ar-min-w-full { min-width: 100%; }
+.ar-max-w-xs { max-width: 20rem; }
+.ar-max-w-sm { max-width: 24rem; }
+.ar-max-w-md { max-width: 28rem; }
+.ar-max-w-lg { max-width: 32rem; }
+.ar-max-w-xl { max-width: 36rem; }
+.ar-max-w-2xl { max-width: 42rem; }
+.ar-max-w-full { max-width: 100%; }
+
+.ar-min-h-0 { min-height: 0; }
+.ar-min-h-full { min-height: 100%; }
+.ar-min-h-screen { min-height: 100vh; }
+
+/* ============================================================================
+   Position Utilities
+   ============================================================================ */
+.ar-static { position: static; }
+.ar-fixed { position: fixed; }
+.ar-absolute { position: absolute; }
+.ar-relative { position: relative; }
+.ar-sticky { position: sticky; }
+
+.ar-top-0 { top: 0; }
+.ar-right-0 { right: 0; }
+.ar-bottom-0 { bottom: 0; }
+.ar-left-0 { left: 0; }
+
+.ar-z-0 { z-index: 0; }
+.ar-z-10 { z-index: 10; }
+.ar-z-20 { z-index: 20; }
+.ar-z-30 { z-index: 30; }
+.ar-z-40 { z-index: 40; }
+.ar-z-50 { z-index: 50; }
+
+/* ============================================================================
+   Background and Border Utilities
+   ============================================================================ */
+.ar-bg-transparent { background-color: transparent; }
+.ar-bg-primary { background-color: var(--primary); }
+.ar-bg-success { background-color: var(--success); }
+.ar-bg-error { background-color: var(--error); }
+.ar-bg-warning { background-color: var(--warning); }
+.ar-bg-surface { background-color: var(--surface); }
+.ar-bg-background { background-color: var(--background); }
+
+.ar-border { border: 1px solid var(--border); }
+.ar-border-0 { border: 0; }
+.ar-border-t { border-top: 1px solid var(--border); }
+.ar-border-r { border-right: 1px solid var(--border); }
+.ar-border-b { border-bottom: 1px solid var(--border); }
+.ar-border-l { border-left: 1px solid var(--border); }
+
+.ar-border-primary { border-color: var(--primary); }
+.ar-border-success { border-color: var(--success); }
+.ar-border-error { border-color: var(--error); }
+
+.ar-rounded { border-radius: var(--radius); }
+.ar-rounded-sm { border-radius: var(--radius-sm); }
+.ar-rounded-md { border-radius: var(--radius-md); }
+.ar-rounded-lg { border-radius: var(--radius-lg); }
+.ar-rounded-xl { border-radius: var(--radius-xl); }
+.ar-rounded-full { border-radius: var(--radius-full); }
+.ar-rounded-none { border-radius: 0; }
+
+/* ============================================================================
+   Shadow Utilities
+   ============================================================================ */
+.ar-shadow-none { box-shadow: none; }
+.ar-shadow-sm { box-shadow: var(--shadow-sm); }
+.ar-shadow { box-shadow: var(--shadow); }
+.ar-shadow-md { box-shadow: var(--shadow-md); }
+.ar-shadow-lg { box-shadow: var(--shadow-lg); }
+.ar-shadow-xl { box-shadow: var(--shadow-xl); }
+
+/* ============================================================================
+   Overflow Utilities
+   ============================================================================ */
+.ar-overflow-auto { overflow: auto; }
+.ar-overflow-hidden { overflow: hidden; }
+.ar-overflow-visible { overflow: visible; }
+.ar-overflow-scroll { overflow: scroll; }
+
+.ar-overflow-x-auto { overflow-x: auto; }
+.ar-overflow-x-hidden { overflow-x: hidden; }
+.ar-overflow-x-visible { overflow-x: visible; }
+.ar-overflow-x-scroll { overflow-x: scroll; }
+
+.ar-overflow-y-auto { overflow-y: auto; }
+.ar-overflow-y-hidden { overflow-y: hidden; }
+.ar-overflow-y-visible { overflow-y: visible; }
+.ar-overflow-y-scroll { overflow-y: scroll; }
+
+/* ============================================================================
+   Animation and Transition Utilities
+   ============================================================================ */
+.ar-transition-none { transition: none; }
+.ar-transition-all { transition: all var(--transition-normal); }
+.ar-transition-colors { transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal); }
+.ar-transition-opacity { transition: opacity var(--transition-normal); }
+.ar-transition-transform { transition: transform var(--transition-normal); }
+
+.ar-duration-75 { transition-duration: 75ms; }
+.ar-duration-100 { transition-duration: 100ms; }
+.ar-duration-150 { transition-duration: 150ms; }
+.ar-duration-200 { transition-duration: 200ms; }
+.ar-duration-300 { transition-duration: 300ms; }
+.ar-duration-500 { transition-duration: 500ms; }
+
+.ar-ease-linear { transition-timing-function: linear; }
+.ar-ease-in { transition-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+.ar-ease-out { transition-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+.ar-ease-in-out { transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+
+/* Transform utilities */
+.ar-transform { transform: var(--transform); }
+.ar-transform-none { transform: none; }
+
+.ar-translate-x-0 { --transform-translate-x: 0; }
+.ar-translate-x-1 { --transform-translate-x: 0.25rem; }
+.ar-translate-x-2 { --transform-translate-x: 0.5rem; }
+.ar-translate-x-4 { --transform-translate-x: 1rem; }
+
+.ar-translate-y-0 { --transform-translate-y: 0; }
+.ar-translate-y-1 { --transform-translate-y: 0.25rem; }
+.ar-translate-y-2 { --transform-translate-y: 0.5rem; }
+.ar-translate-y-4 { --transform-translate-y: 1rem; }
+
+.ar-scale-0 { --transform-scale: 0; }
+.ar-scale-50 { --transform-scale: 0.5; }
+.ar-scale-75 { --transform-scale: 0.75; }
+.ar-scale-90 { --transform-scale: 0.9; }
+.ar-scale-95 { --transform-scale: 0.95; }
+.ar-scale-100 { --transform-scale: 1; }
+.ar-scale-105 { --transform-scale: 1.05; }
+.ar-scale-110 { --transform-scale: 1.1; }
+.ar-scale-125 { --transform-scale: 1.25; }
+
+.ar-rotate-0 { --transform-rotate: 0deg; }
+.ar-rotate-1 { --transform-rotate: 1deg; }
+.ar-rotate-2 { --transform-rotate: 2deg; }
+.ar-rotate-3 { --transform-rotate: 3deg; }
+.ar-rotate-6 { --transform-rotate: 6deg; }
+.ar-rotate-12 { --transform-rotate: 12deg; }
+
+:root {
+    --transform: translateX(var(--transform-translate-x, 0)) translateY(var(--transform-translate-y, 0)) rotate(var(--transform-rotate, 0)) scaleX(var(--transform-scale-x, 1)) scaleY(var(--transform-scale-y, 1));
+}
+
+/* ============================================================================
+   Opacity and Visibility Utilities
+   ============================================================================ */
+.ar-opacity-0 { opacity: 0; }
+.ar-opacity-25 { opacity: 0.25; }
+.ar-opacity-50 { opacity: 0.5; }
+.ar-opacity-75 { opacity: 0.75; }
+.ar-opacity-100 { opacity: 1; }
+
+.ar-invisible { visibility: hidden; }
+.ar-visible { visibility: visible; }
+
+/* ============================================================================
+   Cursor Utilities
+   ============================================================================ */
+.ar-cursor-auto { cursor: auto; }
+.ar-cursor-default { cursor: default; }
+.ar-cursor-pointer { cursor: pointer; }
+.ar-cursor-wait { cursor: wait; }
+.ar-cursor-text { cursor: text; }
+.ar-cursor-move { cursor: move; }
+.ar-cursor-help { cursor: help; }
+.ar-cursor-not-allowed { cursor: not-allowed; }
+
+/* ============================================================================
+   User Select Utilities
+   ============================================================================ */
+.ar-select-none { user-select: none; }
+.ar-select-text { user-select: text; }
+.ar-select-all { user-select: all; }
+.ar-select-auto { user-select: auto; }
+
+/* ============================================================================
+   Pointer Events Utilities
+   ============================================================================ */
+.ar-pointer-events-none { pointer-events: none; }
+.ar-pointer-events-auto { pointer-events: auto; }
+
+/* ============================================================================
+   Screen Reader Only
+   ============================================================================ */
+.ar-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+.ar-not-sr-only {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+}
+
+/* ============================================================================
+   Focus Utilities
+   ============================================================================ */
+.ar-focus\:outline-none:focus {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+}
+
+.ar-focus\:ring:focus {
+    box-shadow: 0 0 0 3px rgba(67, 56, 202, 0.1);
+}
+
+.ar-focus\:ring-primary:focus {
+    box-shadow: 0 0 0 3px rgba(67, 56, 202, 0.1);
+}
+
+.ar-focus\:ring-error:focus {
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+/* ============================================================================
+   Hover Utilities
+   ============================================================================ */
+.ar-hover\:bg-primary:hover {
+    background-color: var(--primary);
+}
+
+.ar-hover\:text-primary:hover {
+    color: var(--primary);
+}
+
+.ar-hover\:border-primary:hover {
+    border-color: var(--primary);
+}
+
+.ar-hover\:shadow-md:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.ar-hover\:scale-105:hover {
+    transform: scale(1.05);
+}
+
+/* ============================================================================
+   Print Utilities
+   ============================================================================ */
+@media print {
+    .ar-print\:hidden {
+        display: none !important;
+    }
+    
+    .ar-print\:block {
+        display: block !important;
+    }
+    
+    .ar-print\:text-black {
+        color: #000 !important;
+    }
+    
+    .ar-print\:bg-white {
+        background-color: #fff !important;
+    }
+}
+
+/* ============================================================================
+   Dark Mode Utilities
+   ============================================================================ */
+.dark .ar-dark\:text-white {
+    color: #ffffff;
+}
+
+.dark .ar-dark\:bg-gray-800 {
+    background-color: #1f2937;
+}
+
+.dark .ar-dark\:border-gray-600 {
+    border-color: #4b5563;
+}
+
+/* ============================================================================
+   RTL Utilities
+   ============================================================================ */
+[dir="rtl"] .ar-rtl\:text-right {
+    text-align: right;
+}
+
+[dir="rtl"] .ar-rtl\:ml-auto {
+    margin-left: auto;
+}
+
+[dir="rtl"] .ar-rtl\:mr-0 {
+    margin-right: 0;
+}
+
+/* ============================================================================
+   Accessibility Utilities
+   ============================================================================ */
+.ar-focus-visible\:ring:focus-visible {
+    box-shadow: 0 0 0 2px var(--primary);
+}
+
+.ar-reduced-motion\:transition-none {
+    transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ar-reduced-motion\:transition-none {
+        transition: none;
+    }
+}
+
+/* ============================================================================
+   Form Input Size Adjustments
+   ============================================================================ */
+
+/* اندازه کوچکتر برای فیلترهای تاریخ */
+.ar-input[type="date"],
+.ar-input[type="datetime-local"],
+.ar-input--date {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.9rem;
+    width: auto;
+    max-width: 180px;
+    min-width: 140px;
+}
+
+/* تنظیم ویژه برای فیلترهای فرم */
+.ar-filter-date {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+    width: 150px;
+    max-width: 150px;
+}
+
+/* کاهش padding در فیلترها */
+.ar-filter-container .ar-input,
+.ar-filter-container .ar-select {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.9rem;
+    max-width: 200px;
+}
+
+/* تنظیم فیلترها در باکس مخصوص */
+.filters-container .ar-input,
+.filters-container .ar-select,
+.date-filters .ar-input {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+    width: auto;
+    max-width: 160px;
+}
+
+/* ============================================================================
+   Container Queries (Progressive Enhancement)
+   ============================================================================ */
+@supports (container-type: inline-size) {
+    .ar-container {
+        container-type: inline-size;
+    }
+    
+    @container (min-width: 640px) {
+        .ar-container\:sm\:flex {
+            display: flex;
+        }
+    }
+    
+    @container (min-width: 768px) {
+        .ar-container\:md\:grid {
+            display: grid;
+        }
+    }
+}
