@@ -54,12 +54,12 @@
         (groups||[]).forEach(function(g){
           html += '<tr data-id="'+g.id+'">';
           html += '<td>'+g.id+'</td>';
-          html += '<td><input class="ugName" type="text" value="'+esc(g.name)+'"/></td>';
+          html += '<td><span class="ugNameText">'+esc(g.name)+'</span></td>';
           html += '<td>'+(g.member_count||0)+'</td>';
           html += '<td>';
-          html += '<button class="button ugSave">'+esc(STR.save||'ذخیره')+'</button> ';
+          html += '<button class="button ugEdit">'+esc(STR.edit||'ویرایش')+'</button> ';
           html += '<button class="button button-link-delete ugDel">'+esc(STR.delete||'حذف')+'</button> ';
-          html += '<a class="button" href="#users/ug-fields?group_id='+g.id+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>';
+          html += '<a class="button" href="#users/ug?tab=custom_fields&group_id='+g.id+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>';
           html += '</td>';
           html += '</tr>';
         });
@@ -86,8 +86,25 @@
         $m.on('keydown', '#ugNewName', function(e){ if (e.key === 'Enter'){ e.preventDefault(); $('#ugAddConfirm').trigger('click'); } });
         // Cancel
         $m.on('click', '#ugAddCancel', function(){ $('#ugNewName').val(''); $('#ugAddBox').hide(); });
+        // Enter edit mode
+        $m.on('click', '.ugEdit', function(){
+          var $tr=$(this).closest('tr'); var id=+$tr.data('id');
+          var $nameCell = $tr.find('td').eq(1);
+          var current = $nameCell.find('.ugNameText').text();
+          $nameCell.data('orig', current);
+          $nameCell.html('<input class="ugName" type="text" value="'+esc(current)+'"/>' );
+          var gid = id;
+          var $btnCell = $tr.find('td').eq(3);
+          $btnCell.html('<button class="button ugSave">'+esc(STR.save||'ذخیره')+'</button> <button class="button ugCancel">'+esc(STR.cancel||'انصراف')+'</button> <a class="button" href="#users/ug?tab=custom_fields&group_id='+gid+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>');
+          try { $tr.find('.ugName').focus(); } catch(_){ }
+        });
+        // Cancel edit
+        $m.on('click', '.ugCancel', function(){ var $tr=$(this).closest('tr'); var $nameCell = $tr.find('td').eq(1); var orig = $nameCell.data('orig')||$nameCell.text(); $nameCell.html('<span class="ugNameText">'+esc(orig)+'</span>'); var gid=+$tr.data('id'); var $btnCell=$tr.find('td').eq(3); $btnCell.html('<button class="button ugEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete ugDel">'+esc(STR.delete||'حذف')+'</button> <a class="button" href="#users/ug?tab=custom_fields&group_id='+gid+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>'); });
+        // Save edit
+        function finishRowView($tr, newName){ var $nameCell = $tr.find('td').eq(1); $nameCell.html('<span class="ugNameText">'+esc(newName)+'</span>'); var gid=+$tr.data('id'); var $btnCell=$tr.find('td').eq(3); $btnCell.html('<button class="button ugEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete ugDel">'+esc(STR.delete||'حذف')+'</button> <a class="button" href="#users/ug?tab=custom_fields&group_id='+gid+'">'+esc(STR.custom_fields||'فیلدهای سفارشی')+'</a>'); }
+        $m.on('keydown', 'input.ugName', function(e){ if (e.key==='Enter'){ e.preventDefault(); $(this).closest('tr').find('.ugSave').trigger('click'); } });
         $m.on('click', '.ugSave', function(){ var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.ugName').val(); api('user-groups/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name }) })
-          .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); })
+          .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); finishRowView($tr, name); })
           .catch(function(){ if (window.notify) notify('ذخیره گروه ناموفق بود', 'error'); }); });
         $m.on('click', '.ugDel', function(){ if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+id, { credentials:'same-origin', method:'DELETE' })
           .then(function(){ if (window.notify) notify('گروه حذف شد', 'success'); renderGroups($m); })
@@ -148,7 +165,7 @@
       $m.on('change', '#ugSelCF', function(){
         try {
           var gidNew = parseInt(this.value,10)||0;
-          var h = (location.hash||'').split('?')[0] || '#users/ug-fields';
+          var h = (location.hash||'').split('?')[0] || '#users/ug?tab=custom_fields';
           var qs = new URLSearchParams((location.hash||'').split('?')[1]||'');
           qs.set('group_id', String(gidNew));
           location.hash = h + '?' + qs.toString();
@@ -157,13 +174,13 @@
         } catch(_){ }
       });
 
-      $m.on('click', '#ugFAdd', function(e){ e.preventDefault(); if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var name=$('#ugFName').val().trim(); var label=$('#ugFLabel').val().trim()||name; var type=$('#ugFType').val(); var req=$('#ugFReq').is(':checked'); if(!name) return; api('user-groups/'+gid+'/fields', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, label:label, type:type, required:req, sort:0 }) })
+      $m.on('click', '#ugFAdd', function(e){ e.preventDefault(); if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var name=$('#ugFName').val().trim(); var label=$('#ugFLabel').val().trim()||name; var type=$('#ugFType').val(); var req=$('#ugFReq').is(':checked'); if(!name) return; api('user-groups/'+gid+'/fields', { credentials:'same-origin', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, label:label, type:type, required:req, sort:0 }) })
         .then(function(){ if (window.notify) notify('فیلد افزوده شد', 'success'); $('#ugFName').val(''); $('#ugFLabel').val(''); $('#ugFReq').prop('checked', false); list(); })
         .catch(function(){ if (window.notify) notify('افزودن فیلد ناموفق بود', 'error'); }); });
-      $m.on('click', '.cfSave', function(e){ e.preventDefault(); if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.cfName').val(); var label=$tr.find('.cfLabel').val(); var type=$tr.find('.cfType').val(); var req=$tr.find('.cfReq').is(':checked'); var sort=parseInt($tr.find('.cfSort').val()||'0',10)||0; api('user-groups/'+gid+'/fields/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, label:label, type:type, required:req, sort:sort }) })
+      $m.on('click', '.cfSave', function(e){ e.preventDefault(); if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.cfName').val(); var label=$tr.find('.cfLabel').val(); var type=$tr.find('.cfType').val(); var req=$tr.find('.cfReq').is(':checked'); var sort=parseInt($tr.find('.cfSort').val()||'0',10)||0; api('user-groups/'+gid+'/fields/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, label:label, type:type, required:req, sort:sort }) })
         .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); })
         .catch(function(){ if (window.notify) notify('ذخیره فیلد ناموفق بود', 'error'); }); });
-      $m.on('click', '.cfDel', function(e){ e.preventDefault(); if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+gid+'/fields/'+id, { method:'DELETE' })
+      $m.on('click', '.cfDel', function(e){ e.preventDefault(); if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+gid+'/fields/'+id, { credentials:'same-origin', method:'DELETE' })
         .then(function(){ if (window.notify) notify('فیلد حذف شد', 'success'); list(); })
         .catch(function(){ if (window.notify) notify('حذف فیلد ناموفق بود', 'error'); }); });
     });
@@ -213,7 +230,7 @@
         var per = parseInt($('#ugPerPage').val()||'20',10)||20; var q = String($('#ugSearch').val()||'');
         var page = parseInt(getParam('page')||'1',10)||1; if (page<1) page=1;
         var url = 'user-groups/'+gid+'/members?per_page='+per+'&page='+page + (q?('&search='+encodeURIComponent(q)):'');
-        api(url, { credentials:'same-origin' }).then(function(resp){
+  api(url, { credentials:'same-origin' }).then(function(resp){
         var members = Array.isArray(resp) ? resp : (resp.items||[]);
         var t = '<div style="overflow:auto">';
         t += '<table class="widefat striped"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>'+esc(STR.phone||'شماره همراه')+'</th><th></th></tr></thead><tbody>';
@@ -244,7 +261,7 @@
       $m.on('change', '#ugSel', function(){
         try {
           var gidNew = parseInt(this.value,10)||0;
-          var h = (location.hash||'').split('?')[0] || '#users/ug-members';
+          var h = (location.hash||'').split('?')[0] || '#users/ug?tab=members';
           var qs = new URLSearchParams((location.hash||'').split('?')[1]||'');
           qs.set('group_id', String(gidNew));
           qs.delete('page'); // reset page on group change
@@ -256,7 +273,7 @@
       // Search and per-page change handlers
       $m.on('input', '#ugSearch', function(){
         try {
-          var h = (location.hash||'').split('?')[0] || '#users/ug-members';
+          var h = (location.hash||'').split('?')[0] || '#users/ug?tab=members';
           var qs = new URLSearchParams((location.hash||'').split('?')[1]||'');
           if (this.value) qs.set('search', this.value); else qs.delete('search');
           qs.delete('page');
@@ -265,7 +282,7 @@
         list();
       });
       $m.on('change', '#ugPerPage', function(){
-        try { var h = (location.hash||'').split('?')[0] || '#users/ug-members'; var qs = new URLSearchParams((location.hash||'').split('?')[1]||''); var v = parseInt(this.value,10)||20; if (v) qs.set('per_page', String(v)); else qs.delete('per_page'); qs.delete('page'); location.hash = h + '?' + qs.toString(); } catch(_){ }
+        try { var h = (location.hash||'').split('?')[0] || '#users/ug?tab=members'; var qs = new URLSearchParams((location.hash||'').split('?')[1]||''); var v = parseInt(this.value,10)||20; if (v) qs.set('per_page', String(v)); else qs.delete('per_page'); qs.delete('page'); location.hash = h + '?' + qs.toString(); } catch(_){ }
         list();
       });
       // Pager buttons
@@ -278,17 +295,17 @@
         else if ($(this).hasClass('ar-page-last')) cur = totalPages;
         if (cur<1) cur=1;
         qs.set('page', String(cur));
-        var h = (location.hash||'').split('?')[0] || '#users/ug-members';
+        var h = (location.hash||'').split('?')[0] || '#users/ug?tab=members';
         location.hash = h + '?' + qs.toString();
         list();
       });
 
       $m.on('click', '.mSave', function(){ if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.mName').val(); var phone=$tr.find('.mPhone').val();
-        api('user-groups/'+gid+'/members/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, phone:phone }) })
+        api('user-groups/'+gid+'/members/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, phone:phone }) })
           .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); })
           .catch(function(){ if (window.notify) notify('ذخیره عضو ناموفق بود', 'error'); });
       });
-      $m.on('click', '.mDel', function(){ if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+gid+'/members/'+id, { method:'DELETE' })
+      $m.on('click', '.mDel', function(){ if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+gid+'/members/'+id, { credentials:'same-origin', method:'DELETE' })
         .then(function(){ if (window.notify) notify('عضو حذف شد', 'success'); list(); })
         .catch(function(){ if (window.notify) notify('حذف عضو ناموفق بود', 'error'); }); });
 
@@ -328,7 +345,7 @@
   if (PANEL) { $m.on('submit', 'form.arsh-ug-filter', function(e){ e.preventDefault(); }); }
 
       function loadMap(){
-        api('forms/'+fid+'/access/groups', { credentials:'same-origin' }).then(function(resp){
+  api('forms/'+fid+'/access/groups', { credentials:'same-origin' }).then(function(resp){
           var selected = (resp && resp.group_ids) || [];
           var t = '<div>';
           t += '<ul style="list-style:none;padding:0">';
@@ -347,7 +364,7 @@
       $m.on('change', '#ugFormSel', function(){
         try {
           var fidNew = parseInt(this.value,10)||0;
-          var h = (location.hash||'').split('?')[0] || '#users/ug-mapping';
+          var h = (location.hash||'').split('?')[0] || '#users/ug?tab=mapping';
           var qs = new URLSearchParams((location.hash||'').split('?')[1]||'');
           qs.set('form_id', String(fidNew));
           location.hash = h + '?' + qs.toString();
@@ -357,7 +374,7 @@
 
       $m.on('click', '#ugSaveMap', function(){
         var ids = []; $('#ugMapBox .mapG:checked').each(function(){ ids.push(parseInt(this.value,10)); });
-        api('forms/'+fid+'/access/groups', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ group_ids: ids }) })
+        api('forms/'+fid+'/access/groups', { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ group_ids: ids }) })
           .then(function(){ if (window.notify) notify('اتصال فرم/گروه ذخیره شد', 'success'); })
           .catch(function(){ if (window.notify) notify('ذخیره اتصال ناموفق بود', 'error'); });
       });
