@@ -23,7 +23,9 @@ class UserGroupsPage
         if (function_exists('apply_filters')) {
             $enable_admin_ui = (bool) apply_filters('arshline_enable_wpadmin_ug', (bool) get_option('arshline_enable_wpadmin_ug', false));
         }
+        // رندر wp-admin برای UG را غیرفعال نگه می‌داریم (منوی مستقل در Dashboard.php اضافه شده است)
         if ($enable_admin_ui) {
+            // اگر کسی با فیلتر فعال کند، همچنان اسکریپت‌ها و منو را می‌تواند دریافت کند.
             add_action('admin_menu', [static::class, 'registerMenu']);
             add_action('admin_enqueue_scripts', [static::class, 'enqueueAssets']);
         }
@@ -35,6 +37,7 @@ class UserGroupsPage
 
     public static function registerMenu(): void
     {
+        // در حالت پیش‌فرض استفاده نمی‌شود؛ فقط اگر از طریق فیلتر فعال شود.
         add_submenu_page(
             'users.php',
             __('گروه‌های کاربری عرشلاین', 'arshline'),

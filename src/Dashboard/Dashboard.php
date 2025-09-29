@@ -5,7 +5,7 @@ class Dashboard {
     /**
      * نسخه فعلی داشبورد افزونه
      */
-    const VERSION = '3.0.0';
+    const VERSION = '4.0.0';
 
     /**
      * راه‌اندازی داشبورد اختصاصی افزونه
@@ -15,8 +15,8 @@ class Dashboard {
         add_action('admin_menu', [self::class, 'remove_wp_menus'], 999);
         // افزودن منوی اختصاصی افزونه
         add_action('admin_menu', [self::class, 'add_dashboard_menu']);
-        // افزودن زیرمنو در بخش کاربران: مدیریت گروه‌های کاربری
-        add_action('admin_menu', [self::class, 'add_users_submenu']);
+        // افزودن منوی مستقل «گروه‌های کاربری» به عنوان آیتم مجزا (نه زیر منوی کاربران)
+        add_action('admin_menu', [self::class, 'add_user_groups_menu']);
     }
 
     /**
@@ -47,13 +47,15 @@ class Dashboard {
     /**
      * افزودن زیرمنوی «مدیریت گروه‌های کاربری» زیر منوی اصلی «کاربران» وردپرس
      */
-    public static function add_users_submenu() {
-        add_users_page(
-            __('مدیریت گروه‌های کاربری', 'arshline'),
-            __('گروه‌های کاربری (عرشلاین)', 'arshline'),
-            'list_users',
+    public static function add_user_groups_menu() {
+        add_menu_page(
+            __('گروه‌های کاربری عرشلاین', 'arshline'),
+            __('گروه‌های کاربری', 'arshline'),
+            'manage_options',
             'arshline-user-groups',
-            [self::class, 'render_user_groups']
+            [self::class, 'render_user_groups'],
+            'dashicons-groups',
+            3
         );
     }
 
