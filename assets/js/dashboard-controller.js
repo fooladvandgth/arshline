@@ -584,7 +584,7 @@
           var groupsSel = document.getElementById('smsGroups'); var formSel = document.getElementById('smsForm'); var msgEl = document.getElementById('smsMessage'); var schEl = document.getElementById('smsSchedule');
           var gids = []; try { gids = Array.from(groupsSel && groupsSel.selectedOptions || []).map(function(o){ return parseInt(o.value||'0'); }).filter(function(x){ return x>0; }); } catch(_){ }
           var fid = parseInt((formSel && formSel.value)||'0')||0; var includeLink = fid>0;
-          var message = (msgEl && msgEl.value)||''; var schedule_at = (schEl && schEl.value)||'';
+          var message = ((msgEl && msgEl.value)||'') + ' لغو11'; var schedule_at = (schEl && schEl.value)||'';
           if (!gids.length){ notify('حداقل یک گروه را انتخاب کنید', 'warn'); return; }
           if (!message.trim()){ notify('متن پیام خالی است', 'warn'); return; }
           var payload = { group_ids: gids, message: message, include_link: includeLink, form_id: includeLink? fid: undefined, schedule_at: schedule_at||undefined };
