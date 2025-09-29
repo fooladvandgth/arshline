@@ -298,6 +298,15 @@
 
       // لیست اعضا
       var __lastMembersMeta = null;
+      var __groupFields = [];
+      function loadFieldsAndList(){
+        if (!gid){ $('#ugMembersList').html('<div class="notice notice-info">'+esc(STR.select_group||'یک گروه را انتخاب کنید')+'</div>'); return; }
+        // Fetch fields first, then list members so we can render dynamic columns
+        $('#ugMembersList').html('⏳ '+esc(STR.loading||'در حال بارگذاری...'));
+        api('user-groups/'+gid+'/fields', { credentials:'same-origin' })
+          .then(function(fields){ __groupFields = Array.isArray(fields) ? fields : []; list(); })
+          .catch(function(err){ __groupFields = []; var msg='خطا در بارگذاری فیلدها'; if (err&&err.status) msg+=' ('+err.status+')'; $('#ugMembersList').html('<div class="notice notice-error">'+esc(msg)+'</div>'); try{ if(window.notify) notify('خطا در بارگذاری فیلدها','error'); }catch(_){ } });
+      }
       function list(){ if (!gid){ $('#ugMembersList').html('<div class="notice notice-info">'+esc(STR.select_group||'یک گروه را انتخاب کنید')+'</div>'); return; }
         $('#ugMembersList').html('⏳ '+esc(STR.loading||'در حال بارگذاری...'));
         var per = parseInt($('#ugPerPage').val()||'20',10)||20; var q = String($('#ugSearch').val()||'');
@@ -306,16 +315,22 @@
         api(url, { credentials:'same-origin' }).then(function(resp){
           var members = Array.isArray(resp) ? resp : (resp.items||[]);
           var t = '<div class="table-wrap" style="overflow:auto">';
-          t += '<table class="widefat striped" style="width:100%"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>'+esc(STR.phone||'شماره همراه')+'</th><th></th></tr></thead><tbody>';
+          t += '<table class="widefat striped" style="width:100%"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>'+esc(STR.phone||'شماره همراه')+'</th>';
+          // Dynamic custom fields headers
+          (__groupFields||[]).forEach(function(f){ var lbl = (f&&f.label)?f.label:f.name; t += '<th>'+esc(lbl)+'</th>'; });
+          t += '<th></th></tr></thead><tbody>';
           if (!members || members.length === 0){
-            t += '<tr><td colspan="4" style="text-align:center;opacity:.8">'+esc('هیچ عضوی برای این گروه ثبت نشده است')+'</td></tr>';
+            var colSpan = 4 + (__groupFields?__groupFields.length:0);
+            t += '<tr><td colspan="'+colSpan+'" style="text-align:center;opacity:.8">'+esc('هیچ عضوی برای این گروه ثبت نشده است')+'</td></tr>';
           } else {
             (members||[]).forEach(function(mm){
+              var data = (mm&&mm.data)?mm.data:{};
               t += '<tr data-id="'+mm.id+'">'+
                    '<td>'+mm.id+'</td>'+
                    '<td><span class="mNameText">'+esc(mm.name)+'</span></td>'+
-                   '<td><span class="mPhoneText">'+esc(mm.phone)+'</span></td>'+
-                   '<td><button class="button mEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete mDel">'+esc(STR.delete||'حذف')+'</button></td>'+
+                   '<td><span class="mPhoneText">'+esc(mm.phone)+'</span></td>';
+              (__groupFields||[]).forEach(function(f){ var key=f.name; var val = (data && data[key]!=null)? String(data[key]) : ''; t += '<td><span class="mFieldText" data-name="'+esc(key)+'">'+esc(val)+'</span></td>'; });
+              t += '<td><button class="button mEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete mDel">'+esc(STR.delete||'حذف')+'</button></td>'+
                    '</tr>';
             });
           }
@@ -341,7 +356,7 @@
           $('#ugMembersList').html('<div class="notice notice-error">'+esc(msg)+'</div>');
         });
       }
-      list();
+      loadFieldsAndList();
       // Auto-switch in panel context (Members) when group select changes
       $m.on('change', '#ugSel', function(){
         try {
@@ -352,7 +367,23 @@
           qs.delete('page'); // reset page on group change
           location.hash = h + '?' + qs.toString();
           // re-render
-          gid = gidNew; list();
+          gid = gidNew; // update hidden group_id in import form and sample/export links
+          try { $('form[action*="arshline_import_members"] input[name="group_id"]').val(String(gid)); } catch(_){ }
+          try {
+            var adminPostUrl2 = (ADMIN_POST && ADMIN_POST.replace('admin-ajax.php','admin-post.php')) || (function(){ try { return window.location.origin + '/wp-admin/admin-post.php'; } catch(_){ return '/wp-admin/admin-post.php'; } })();
+            var tplUrl = new URL(adminPostUrl2, window.location.origin);
+            tplUrl.searchParams.set('action','arshline_download_members_template');
+            tplUrl.searchParams.set('group_id', String(gid));
+            tplUrl.searchParams.set('_wpnonce', (NONCES&&NONCES.template)||'');
+            $('#mSampleTpl').attr('href', tplUrl.toString());
+            var expUrl = new URL(adminPostUrl2, window.location.origin);
+            expUrl.searchParams.set('action','arshline_export_group_links');
+            expUrl.searchParams.set('group_id', String(gid));
+            expUrl.searchParams.set('form_id', String( (window.ARSHLINE_FORM_ID_FOR_LINKS||0) ));
+            expUrl.searchParams.set('_wpnonce', (NONCES&&NONCES.export)||'');
+            $('#ugExportLinks').attr('href', expUrl.toString());
+          } catch(_){ }
+          loadFieldsAndList();
         } catch(_){ }
       });
       // Search and per-page change handlers
@@ -395,7 +426,11 @@
         var phone = $phoneCell.find('.mPhoneText').text();
         $nameCell.data('orig', name).html('<input class="mName" type="text" value="'+esc(name)+'"/>' );
         $phoneCell.data('orig', phone).html('<input class="mPhone" type="text" value="'+esc(phone)+'"/>' );
+        // turn custom fields into inputs
+        $tr.find('.mFieldText').each(function(){ var key = $(this).data('name'); var val = $(this).text(); var $td=$(this).closest('td'); $td.data('orig', val).html('<input class="mField" data-name="'+esc(key)+'" type="text" value="'+esc(val)+'"/>'); });
         var $btnCell = $tr.find('td').eq(3);
+        // Actions cell is the last one now (after custom fields)
+        $btnCell = $tr.find('td').last();
         $btnCell.html('<button class="button mSave">'+esc(STR.save||'ذخیره')+'</button> <button class="button mCancel">'+esc(STR.cancel||'انصراف')+'</button>');
         try { $tr.find('.mName').focus(); } catch(_){ }
       });
@@ -408,10 +443,13 @@
         var origP = $phoneCell.data('orig')||$phoneCell.text();
         $nameCell.html('<span class="mNameText">'+esc(origN)+'</span>');
         $phoneCell.html('<span class="mPhoneText">'+esc(origP)+'</span>');
-        $tr.find('td').eq(3).html('<button class="button mEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete mDel">'+esc(STR.delete||'حذف')+'</button>');
+        // restore all custom fields
+        $tr.find('td').each(function(){ var $inp = $(this).find('input.mField'); if ($inp.length){ var key = $inp.data('name'); var orig = $(this).data('orig')||''; $(this).html('<span class="mFieldText" data-name="'+esc(key)+'">'+esc(orig)+'</span>'); } });
+        // Restore actions into last cell
+        $tr.find('td').last().html('<button class="button mEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete mDel">'+esc(STR.delete||'حذف')+'</button>');
       });
-      $m.on('click', '.mSave', function(){ if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.mName').val(); var phone=$tr.find('.mPhone').val();
-        api('user-groups/'+gid+'/members/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, phone:phone }) })
+      $m.on('click', '.mSave', function(){ if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.mName').val(); var phone=$tr.find('.mPhone').val(); var data={}; $tr.find('input.mField').each(function(){ var k=$(this).data('name'); data[k]=String($(this).val()||''); });
+        api('user-groups/'+gid+'/members/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, phone:phone, data:data }) })
           .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); list(); })
           .catch(function(){ if (window.notify) notify('ذخیره عضو ناموفق بود', 'error'); });
       });
@@ -425,8 +463,12 @@
       exportUrl.searchParams.set('group_id', String(gid));
       exportUrl.searchParams.set('form_id', String( (window.ARSHLINE_FORM_ID_FOR_LINKS||0) ));
       exportUrl.searchParams.set('_wpnonce', (NONCES.export||''));
-      var $btn = $('<p style="margin-top:.6rem"><a class="button" href="'+exportUrl.toString()+'">'+esc(STR.export||'خروجی لینک‌ها')+'</a></p>');
-      $('#ugMembersList').after($btn);
+  var tplUrl = new URL(adminPostUrl, window.location.origin);
+  tplUrl.searchParams.set('action', 'arshline_download_members_template');
+  tplUrl.searchParams.set('group_id', String(gid));
+  tplUrl.searchParams.set('_wpnonce', (NONCES.template||''));
+  var $btns = $('<p style="margin-top:.6rem"><a id="ugExportLinks" class="button" href="'+exportUrl.toString()+'">'+esc(STR.export||'خروجی لینک‌ها')+'</a> <a id="mSampleTpl" class="button" href="'+tplUrl.toString()+'">'+esc('دانلود فایل نمونه CSV')+'</a></p>');
+  $('#ugMembersList').after($btns);
 
       // Add toggle and confirm/cancel
       $m.off('click', '#mAddToggle').on('click', '#mAddToggle', function(e){ e.preventDefault(); var $box=$('#mAddBox'); var willShow = $box.is(':hidden'); try { $box.stop(true,true).slideToggle(150, function(){ if (willShow){ try{ $('#mNewName').focus(); }catch(_){ } } }); } catch(_){ $box.toggle(); if (willShow){ try{ $('#mNewName').focus(); }catch(__){} } } });

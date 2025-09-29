@@ -29,7 +29,8 @@ class UserGroupsPage
         }
         // اکشن‌های سروری برای ایمپورت/اکسپورت (admin-post)
         add_action('admin_post_arshline_export_group_links', [static::class, 'handleExportGroupLinks']);
-        add_action('admin_post_arshline_import_members', [static::class, 'handleImportMembers']);
+    add_action('admin_post_arshline_import_members', [static::class, 'handleImportMembers']);
+    add_action('admin_post_arshline_download_members_template', [static::class, 'handleDownloadMembersTemplate']);
     }
 
     public static function registerMenu(): void
@@ -61,6 +62,7 @@ class UserGroupsPage
             'nonces' => [
                 'import' => wp_create_nonce('arshline_import_members'),
                 'export' => wp_create_nonce('arshline_export_group_links'),
+                'template' => wp_create_nonce('arshline_download_members_template'),
             ],
             'adminPostUrl' => admin_url('admin-post.php'),
             'formsEndpoint' => esc_url_raw(rest_url('arshline/v1/forms')),
@@ -271,6 +273,11 @@ class UserGroupsPage
         $idxPhone = $findIdx(['شماره همراه','شماره تماس','شماره موبایل','موبایل','تلفن','phone','mobile']);
         if ($idxName === false || $idxPhone === false) { fclose($fh); wp_die(esc_html__('ستون‌های نام و شماره همراه الزامی است.', 'arshline')); }
         $rows = [];
+        // Build field name/label map to align custom columns with field name keys
+        $fields = \Arshline\Modules\UserGroups\FieldRepository::listByGroup($gid);
+        $fieldByLabel = [];
+        $fieldByName = [];
+        foreach ($fields as $f){ $fieldByName[$f->name] = $f; if ($f->label) $fieldByLabel[$f->label] = $f; }
         while (($cols = fgetcsv($fh, 0, $delim)) !== false) {
             if (!is_array($cols) || count($cols) === 0) { continue; }
             $name = isset($cols[$idxName]) ? sanitize_text_field($cols[$idxName]) : '';
@@ -280,8 +287,16 @@ class UserGroupsPage
             foreach ($header as $i => $colName) {
                 if ($i === $idxName || $i === $idxPhone) continue;
                 if (!array_key_exists($i, $cols)) continue;
-                $safeKey = preg_replace('/[^A-Za-z0-9_\-]/', '_', (string)$colName);
-                $data[$safeKey] = sanitize_text_field((string)$cols[$i]);
+                $col = $normalize((string)$colName);
+                // Prefer mapping by exact label or name to field->name key
+                $key = null;
+                if (isset($fieldByLabel[$col])) { $key = $fieldByLabel[$col]->name; }
+                elseif (isset($fieldByName[$col])) { $key = $fieldByName[$col]->name; }
+                else {
+                    // Fallback: sanitize to a safe key
+                    $key = preg_replace('/[^A-Za-z0-9_\-]/', '_', (string)$col);
+                }
+                $data[$key] = sanitize_text_field((string)($cols[$i] ?? ''));
             }
             $rows[] = [ 'name' => $name, 'phone' => $phone, 'data' => $data ];
         }
@@ -316,5 +331,34 @@ class UserGroupsPage
         $s = str_replace('"', '""', $s);
         // جداسازی با کاما، پس باید همیشه در کوت بیاید
         return '"'.$s.'"';
+    }
+
+    /**
+     * دانلود فایل نمونه CSV برای ایمپورت اعضا
+     * ستون‌ها: نام، شماره همراه + همه فیلدهای سفارشی گروه (به ترتیب sort)
+     */
+    public static function handleDownloadMembersTemplate(): void
+    {
+        if (!current_user_can('manage_options')) { wp_die(esc_html__('دسترسی مجاز نیست.', 'arshline')); }
+        check_admin_referer('arshline_download_members_template');
+        $gid = isset($_GET['group_id']) ? intval($_GET['group_id']) : 0;
+        if ($gid <= 0) { wp_die(esc_html__('شناسه گروه نامعتبر است.', 'arshline')); }
+
+        // Prepare dynamic headers
+        $headers = ['نام','شماره همراه'];
+        $fields = \Arshline\Modules\UserGroups\FieldRepository::listByGroup($gid);
+        foreach ($fields as $f) { $headers[] = ($f->label && is_string($f->label)) ? $f->label : $f->name; }
+
+        $filename = 'arshline_group_'.$gid.'_sample.csv';
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="'.$filename.'"');
+        $out = fopen('php://output', 'w');
+        // Header row
+        fputs($out, implode(',', array_map([static::class,'csvSafe'], $headers))."\n");
+        // Provide one sample row with placeholders
+        $row = ['مثال نام','09123456789'];
+        foreach ($fields as $f) { $row[] = ''; }
+        fputs($out, implode(',', array_map([static::class,'csvSafe'], $row))."\n");
+        fclose($out); exit;
     }
 }

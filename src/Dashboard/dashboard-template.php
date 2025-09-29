@@ -53,6 +53,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 'nonces' => [
                     'import' => wp_create_nonce('arshline_import_members'),
                     'export' => wp_create_nonce('arshline_export_group_links'),
+                    'template' => wp_create_nonce('arshline_download_members_template'),
                 ],
                 'adminPostUrl' => admin_url('admin-post.php'),
                 'formsEndpoint' => esc_url_raw(rest_url('arshline/v1/forms')),
