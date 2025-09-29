@@ -99,7 +99,11 @@
     }
     function logConsole(action, detail){ try { console.log(LOG_MARK+'[HOSHYAR]', action, detail||''); } catch(_){ } }
 
-    function humanizeTab(tab){ var map = { dashboard:'داشبورد', forms:'فرم‌ها', reports:'گزارشات', users:'کاربران', settings:'تنظیمات' }; return map[String(tab)] || String(tab); }
+    function humanizeTab(tab){
+      var map = { dashboard:'داشبورد', forms:'فرم‌ها', reports:'گزارشات', users:'کاربران', settings:'تنظیمات', 'users/ug':'گروه‌های کاربری' };
+      var key = String(tab||'');
+      return map[key] || map[key.split('/')[0]] || key;
+    }
     function extractSuggestions(sug){ try { if (!sug) return []; if (Array.isArray(sug)) return sug; if (Array.isArray(sug.samples)) return sug.samples; var persianKey = Object.keys(sug).find(function(k){ return /نمونه/.test(k); }); if (persianKey && Array.isArray(sug[persianKey])) return sug[persianKey]; } catch(_){ } return []; }
 
     function humanizeResponse(j, rawTxt, httpOk){
@@ -333,6 +337,28 @@
       if (cmdEl) { try { cmdEl.value = ''; } catch(_){ } }
       if (!cmd){ notify('دستور خالی است', 'warn'); return; }
       appendOut('> '+cmd);
+      // Client-side smart intents for common Persian routes
+      try {
+        var c = cmd.replace(/[\s\u200c\u200d]+/g,' ').trim();
+        // examples: "برو به گروه های کاربری" , "گروه‌های کاربری" , "کاربران/گروه‌ها"
+        var reUG = /(برو\s*به\s*)?(گروه[\u200c\u200d\s-]*های\s*کاربری|گروه\s*های\s*کاربری|گروه‌های\s*کاربری|گروه ها?ی کاربری|کاربران\s*\/\s*گروه‌ها?)/i;
+        if (reUG.test(c)){
+          // Show progressive feedback
+          appendOut('در حال باز کردن کاربران…');
+          // Navigate to users/ug in our hash router
+          try {
+            var next = 'users/ug';
+            if (typeof window.setHash === 'function') { setHash(next); } else { location.hash = '#'+next; }
+            if (typeof window.renderTab === 'function') { window.renderTab('users'); }
+            // If lazy UG loader is used, ask it to render current tab
+            if (typeof window.ARSH_UG_render === 'function') { try { window.ARSH_UG_render('groups'); } catch(_){ } }
+            appendOut('باز شد: کاربران');
+            saveHist(cmd, 'در حال باز کردن کاربران…\nباز شد: کاربران');
+            notify('باز شد', 'success');
+            return;
+          } catch(_){ }
+        }
+      } catch(_){ }
       try {
         var r = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) });
         var txt = ''; try { txt = await r.clone().text(); } catch(_){ }
