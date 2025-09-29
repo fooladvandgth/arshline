@@ -32,11 +32,20 @@
     api('user-groups', { credentials:'same-origin' })
       .then(function(groups){
         var html = '';
-        html += '<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:8px">';
-        html += '<input id="ugNewName" class="regular-text" placeholder="'+esc(STR.name||'نام')+'"/>';
-        html += '<button id="ugAdd" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
+        // Action bar with only Add button; add box appears on demand
+        html += '<div class="ar-ug-actions" style="display:flex;gap:.5rem;align-items:center;margin-bottom:8px">';
+        html += '  <button id="ugAddToggle" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
         html += '</div>';
-        html += '<table class="widefat striped"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>تعداد اعضا</th><th></th></tr></thead><tbody>';
+        // Hidden add box sits above the table
+        html += '<div id="ugAddBox" style="display:none;margin-bottom:8px;padding:.5rem;border:1px dashed var(--border, #d1d5db);border-radius:.5rem;background:var(--surface, #fff)">';
+        html += '  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">';
+        html += '    <input id="ugNewName" class="regular-text" placeholder="'+esc(STR.name||'نام')+'"/>';
+        html += '    <button id="ugAddConfirm" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
+        html += '    <button id="ugAddCancel" class="button">'+esc(STR.cancel||'انصراف')+'</button>';
+        html += '  </div>';
+        html += '</div>';
+        // Full-width table stays below
+        html += '<table class="widefat striped" style="width:100%"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>تعداد اعضا</th><th></th></tr></thead><tbody>';
         (groups||[]).forEach(function(g){
           html += '<tr data-id="'+g.id+'">';
           html += '<td>'+g.id+'</td>';
@@ -51,9 +60,25 @@
         });
         html += '</tbody></table>';
         $m.html(html);
-        $('#ugAdd').on('click', function(){ var name = $('#ugNewName').val().trim(); if(!name) return; api('user-groups', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name }) })
-          .then(function(){ if (window.notify) notify('گروه ایجاد شد', 'success'); renderGroups($m); })
-          .catch(function(){ if (window.notify) notify('ایجاد گروه ناموفق بود', 'error'); }); });
+        // Toggle add box visibility
+        $m.on('click', '#ugAddToggle', function(){
+          var box = document.getElementById('ugAddBox');
+          if (!box) return;
+          var show = box.style.display === 'none' || box.style.display === '';
+          box.style.display = show ? 'block' : 'none';
+          try { if (show) document.getElementById('ugNewName').focus(); } catch(_){ }
+        });
+        // Confirm add
+        $m.on('click', '#ugAddConfirm', function(){
+          var name = $('#ugNewName').val().trim(); if(!name){ try{ document.getElementById('ugNewName').focus(); }catch(_){ } return; }
+          api('user-groups', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name }) })
+            .then(function(){ if (window.notify) notify('گروه ایجاد شد', 'success'); renderGroups($m); })
+            .catch(function(){ if (window.notify) notify('ایجاد گروه ناموفق بود', 'error'); });
+        });
+        // Enter to confirm
+        $m.on('keydown', '#ugNewName', function(e){ if (e.key === 'Enter'){ e.preventDefault(); $('#ugAddConfirm').trigger('click'); } });
+        // Cancel
+        $m.on('click', '#ugAddCancel', function(){ $('#ugNewName').val(''); $('#ugAddBox').hide(); });
         $m.on('click', '.ugSave', function(){ var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.ugName').val(); api('user-groups/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name }) })
           .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); })
           .catch(function(){ if (window.notify) notify('ذخیره گروه ناموفق بود', 'error'); }); });
