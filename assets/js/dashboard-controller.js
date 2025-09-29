@@ -552,15 +552,59 @@
           .then(function(s){ try { var en=document.getElementById('smsEnabled'); if(en) en.checked = !!s.enabled; var ak=document.getElementById('smsApiKey'); if(ak) ak.value = s.api_key||''; var ln=document.getElementById('smsLine'); if(ln) ln.value = s.line_number||''; } catch(_){ } })
           .catch(function(){ /* ignore */ });
 
+        // Local state for SMS UI filtering
+        var _smsAllForms = [];
+        var _smsFormAccessCache = Object.create(null); // formId -> [groupIds]
+        var _smsFormAccessInFlight = Object.create(null); // formId -> Promise
+
+        function smsGetFormAllowedGroups(fid){
+          fid = parseInt(fid, 10) || 0; if (!fid) return Promise.resolve([]);
+          if (_smsFormAccessCache[fid]) return Promise.resolve(_smsFormAccessCache[fid]);
+          if (_smsFormAccessInFlight[fid]) return _smsFormAccessInFlight[fid];
+          var p = fetch(ARSHLINE_REST + 'forms/' + fid + '/access/groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+            .then(function(r){ return r.json(); })
+            .then(function(arr){ var ids = Array.isArray(arr) ? arr.map(function(x){ return parseInt(x,10)||0; }).filter(Boolean) : []; _smsFormAccessCache[fid] = ids; return ids; })
+            .finally(function(){ delete _smsFormAccessInFlight[fid]; });
+          _smsFormAccessInFlight[fid] = p; return p;
+        }
+
+        function updateSmsFormsOptions(){
+          var el = document.getElementById('smsForm'); if (!el) return;
+          var grpEl = document.getElementById('smsGroups'); var selGroups = [];
+          try { selGroups = Array.from((grpEl && grpEl.selectedOptions) ? grpEl.selectedOptions : []).map(function(o){ return parseInt(o.value,10)||0; }).filter(Boolean); } catch(_){ selGroups = []; }
+          var prevVal = el.value || '';
+          el.innerHTML = '<option value="">— بدون لینک —</option>';
+          var published = (_smsAllForms||[]).filter(function(f){ return String(f.status) === 'published'; });
+          if (!selGroups.length){
+            // No groups selected: show all published forms
+            published.forEach(function(f){ el.insertAdjacentHTML('beforeend', '<option value="'+f.id+'">#'+f.id+' - '+escapeHtml(String(f.title||''))+'</option>'); });
+            try { if (prevVal) el.value = prevVal; } catch(_){ }
+            return;
+          }
+          // With groups selected: only forms mapped to ALL selected groups
+          Promise.all(published.map(function(f){ return smsGetFormAllowedGroups(f.id).then(function(ids){ return { f: f, ids: ids }; }); }))
+            .then(function(list){
+              var allowed = list.filter(function(it){ return selGroups.every(function(g){ return it.ids.indexOf(g) !== -1; }); }).map(function(it){ return it.f; });
+              allowed.forEach(function(f){ el.insertAdjacentHTML('beforeend', '<option value="'+f.id+'">#'+f.id+' - '+escapeHtml(String(f.title||''))+'</option>'); });
+              // Preserve selection if still valid
+              if (allowed.some(function(f){ return String(f.id) === String(prevVal); })){
+                try { el.value = prevVal; } catch(_){ }
+              } else {
+                try { el.value = ''; } catch(_){ }
+              }
+            })
+            .catch(function(){ /* ignore filter errors, keep base option */ });
+        }
+
         // Load groups (for sms tab)
         fetch(ARSHLINE_REST + 'user-groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-          .then(function(gs){ var el = document.getElementById('smsGroups'); if (!el) return; el.innerHTML = (gs||[]).map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); })
+          .then(function(gs){ var el = document.getElementById('smsGroups'); if (!el) return; el.innerHTML = (gs||[]).map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); try { el.addEventListener('change', updateSmsFormsOptions); } catch(_){ } })
           .catch(function(){ notify('بارگذاری گروه‌ها ناموفق بود', 'error'); });
         // Load forms (for link)
         fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ return r.json(); })
-          .then(function(fs){ var el = document.getElementById('smsForm'); if (!el) return; (fs||[]).forEach(function(f){ el.insertAdjacentHTML('beforeend', '<option value="'+f.id+'">#'+f.id+' - '+escapeHtml(String(f.title||''))+'</option>'); }); })
+          .then(function(fs){ _smsAllForms = Array.isArray(fs) ? fs : []; updateSmsFormsOptions(); })
           .catch(function(){ /* ignore */ });
 
         // Save settings
@@ -1335,6 +1379,11 @@
               <div class="card" style="padding:.8rem;display:flex;flex-direction:column;gap:.8rem;">\
                 <div class="title" style="margin-bottom:.2rem;">تنظیمات فرم</div>\
                 <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">\
+                  <span class="hint">عنوان فرم</span>\
+                  <input id="arFormTitle" class="ar-input" placeholder="عنوان" style="min-width:220px" />\
+                  <button id="arSaveTitle" class="ar-btn">ذخیره عنوان</button>\
+                </div>\
+                <div class="field" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">\
                   <span class="hint">وضعیت فرم</span>\
                   <select id="arFormStatus" class="ar-select"><option value="draft">پیش‌نویس</option><option value="published">منتشر شده (فعال)</option><option value="disabled">غیرفعال</option></select>\
                   <button id="arSaveStatus" class="ar-btn">ذخیره وضعیت</button>\
@@ -1425,6 +1474,23 @@
             function setActive(btn){ tabs.forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); }); btn.classList.add('active'); btn.setAttribute('aria-selected','true'); }
             tabs.forEach(function(btn, idx){ btn.setAttribute('tabindex', idx===0? '0' : '-1'); btn.addEventListener('click', function(){ setActive(btn); showPanel(btn.getAttribute('data-tab')); }); btn.addEventListener('keydown', function(e){ var i = tabs.indexOf(btn); if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){ e.preventDefault(); var ni = (e.key==='ArrowRight') ? (i+1) % tabs.length : (i-1+tabs.length) % tabs.length; tabs[ni].focus(); } if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); setActive(btn); showPanel(btn.getAttribute('data-tab')); } }); }); var def = content.querySelector('.ar-tabs [data-tab="builder"]'); if (def){ setActive(def); } showPanel('builder');
             var meta = data.meta || {}; var dPrim = document.getElementById('arDesignPrimary'); if (dPrim) dPrim.value = meta.design_primary || '#1e40af'; var dBg = document.getElementById('arDesignBg'); if (dBg) dBg.value = meta.design_bg || '#f5f7fb'; var dTheme = document.getElementById('arDesignTheme'); if (dTheme) dTheme.value = meta.design_theme || 'light';
+            // Populate and wire Title editing
+            try {
+              var tInp = document.getElementById('arFormTitle'); if (tInp) tInp.value = (meta.title || '');
+              var tBtn = document.getElementById('arSaveTitle');
+              function applyHeaderTitle(newTitle){ try { var hdr = content.querySelector('.card .title'); if (hdr && hdr.textContent && hdr.textContent.indexOf('ویرایش فرم #'+id)===0){ hdr.textContent = 'ویرایش فرم #'+id + (newTitle?(' — '+newTitle):''); } } catch(_){} }
+              if (tBtn && tInp){
+                tBtn.onclick = function(){
+                  var val = String(tInp.value||'').trim();
+                  fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ meta: { title: val } }) })
+                    .then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); })
+                    .then(function(){ notify('عنوان فرم ذخیره شد', 'success'); applyHeaderTitle(val); })
+                    .catch(function(){ notify('ذخیره عنوان ناموفق بود', 'error'); });
+                };
+                // Enter key saves
+                tInp.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); if (tBtn) tBtn.click(); } });
+              }
+            } catch(_){ }
             try { document.documentElement.style.setProperty('--ar-primary', dPrim.value); var side = document.getElementById('arFormSide'); if (side){ var isDark = document.body.classList.contains('dark'); side.style.background = isDark ? '' : (dBg.value || ''); } } catch(_){ }
             var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
             try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var side = document.getElementById('arFormSide'); if (side){ var isDarkNow = document.body.classList.contains('dark'); side.style.background = isDarkNow ? '' : (dBg.value || ''); } } catch(_){ } }); } } catch(_){ }
