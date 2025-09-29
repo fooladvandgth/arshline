@@ -375,7 +375,17 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
   // fetch form definition
   var getUrl = TOKEN ? (AR_REST + 'public/forms/by-token/' + encodeURIComponent(TOKEN)) : (AR_REST + 'public/forms/' + FORM_ID);
   fetch(getUrl)
-    .then(function(r){ return r.json(); })
+    .then(function(r){
+      if (!r.ok){
+        // If form is not published/disabled, show a clear Persian message
+        if (r.status === 403){
+          mount.innerHTML = '<div class="ar-alert ar-alert--err">این فرم غیر فعال است.</div>';
+          throw new Error('forbidden');
+        }
+        return r.json();
+      }
+      return r.json();
+    })
     .then(function(data){
       state.def = data || {};
       var rows = Array.isArray(state.def.fields) ? state.def.fields : [];
@@ -402,7 +412,10 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
       state.questions = flat.filter(function(f){ return supported[f.type]; });
       render();
     })
-    .catch(function(){ mount.innerHTML = '<div class="arsh-hint">فرم یافت نشد.</div>'; });
+    .catch(function(err){
+      if (String(err && err.message) === 'forbidden'){ return; }
+      mount.innerHTML = '<div class="arsh-hint">فرم یافت نشد.</div>';
+    });
 })();
 </script>
 
