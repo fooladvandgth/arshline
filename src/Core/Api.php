@@ -1600,7 +1600,7 @@ class Api
             $tryInternalPlan = (!$llmReady0 || in_array($parserMode0, ['hybrid','internal'], true) || ($llmReady0 && $parserMode0==='llm' && !$hadPlan0));
             if ($tryInternalPlan){
                 $iplan = self::internal_parse_plan($cmd);
-                if (is_array($iplan) && !empty($iplan['steps']) && count($iplan['steps']) >= 2){
+                if (is_array($iplan) && !empty($iplan['steps']) && count($iplan['steps']) >= 1){
                     try {
                         $outPrev = Hoshyar::agent([ 'plan' => $iplan, 'confirm' => false ]);
                         if (is_array($outPrev) && !empty($outPrev['ok'])){
