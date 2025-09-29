@@ -497,8 +497,23 @@
         var rr = await fetch(buildRest('ai/audit', 'limit=10'), { method:'GET', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} });
         var tt = ''; try { tt = await rr.clone().text(); } catch(_){ }
         var jj = null; try { jj = tt ? JSON.parse(tt) : await rr.json(); } catch(_){ }
-        if (jj && jj.items){ appendOut('آخرین '+(Array.isArray(jj.items)?jj.items.length:0)+' اقدام قابل بازگردانی بازیابی شد.'); }
-        else { appendOut('تاریخی برای بازگردانی یافت نشد.'); }
+        if (jj && Array.isArray(jj.items) && jj.items.length){
+          try {
+            var wrap = document.createElement('div'); wrap.style.marginTop='.5rem';
+            var title = document.createElement('div'); title.textContent = 'آخرین '+jj.items.length+' مورد:'; title.style.marginBottom='.25rem'; wrap.appendChild(title);
+            jj.items.forEach(function(it){
+              var row = document.createElement('div'); row.style.display='flex'; row.style.alignItems='center'; row.style.gap='.5rem'; row.style.marginBottom='.25rem';
+              var label = document.createElement('span'); label.textContent = (it.action||'-')+' / '+(it.scope||'-')+(it.target_id?' #'+it.target_id:''); label.className='ar-badge';
+              var time = document.createElement('span'); time.textContent = it.created_at ? ('— '+String(it.created_at)) : ''; time.style.opacity='.7'; time.style.fontSize='.85em';
+              var b = document.createElement('button'); b.className='ar-btn ar-btn--soft'; b.textContent='بازگردانی'; if (it.undone) { b.disabled = true; b.textContent='بازگردانی شده'; }
+              b.addEventListener('click', async function(){ try { b.disabled=true; b.textContent='در حال بازگردانی…'; var r0 = await fetch(buildRest('ai/undo'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ token: String(it.undo_token||'') }) }); var t0 = ''; try { t0 = await r0.clone().text(); } catch(_){ } var j0 = null; try { j0 = t0 ? JSON.parse(t0) : await r0.json(); } catch(_){ } appendOut(humanizeResponse(j0, t0, r0.ok)); if (r0.ok && j0 && j0.ok){ notify('بازگردانی انجام شد', 'success'); b.textContent='بازگردانی شد'; try { if (typeof window.renderTab==='function') window.renderTab('forms'); } catch(_){ } } else { b.disabled=false; b.textContent='بازگردانی'; notify('بازگردانی ناموفق بود', 'error'); } } catch(e){ appendOut(String(e)); b.disabled=false; b.textContent='بازگردانی'; }});
+              row.appendChild(label); row.appendChild(time); row.appendChild(b); wrap.appendChild(row);
+            });
+            outEl.appendChild(wrap);
+          } catch(_){ }
+        } else {
+          appendOut('تاریخی برای بازگردانی یافت نشد.');
+        }
       } catch(e){ appendOut(String(e)); }
     });
 
