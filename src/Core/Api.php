@@ -2701,8 +2701,11 @@ class Api
     {
         $plain = trim($cmd);
         if ($plain === '') return null;
-        // Normalize Arabic/Persian punctuation variants
-        $sep = preg_replace('/[،,]+/u', '،', $plain);
+    // Normalize Arabic/Persian control chars and punctuation/whitespace
+    $sep = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $plain); // ZWNJ, RLM
+    $sep = preg_replace('/\s+/u', ' ', $sep);
+    $sep = preg_replace('/[،,]+/u', '،', $sep);
+    $sep = trim($sep);
         // Detect intent to create a new form — tolerate interleaving "با عنوان ..." before the verb
         $hasCreate =
             // "فرم جدید ... بساز/ایجاد کن"
