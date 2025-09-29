@@ -846,7 +846,7 @@ class Api
         if ($uid <= 0) return new WP_REST_Response(['message'=>'invalid_id'], 422);
         $reassign = null;
         $ok = wp_delete_user($uid, $reassign);
-        return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
+        return new WP_REST_Response(['ok' => (bool)$ok], $ok?200:404);
     }
     public static function ug_create_group(WP_REST_Request $r)
     {
@@ -1483,7 +1483,7 @@ class Api
             $scored = [];
             foreach ($forms as $f){
                 $s = $score_title($q, (string)($f['title'] ?? ''));
-                if ($s > 0){ $scored[] = [ 'id'=>(int)$f['id'], 'title'=>(string)$f['title'], 'score'=>$s ]; }
+                if ($s > 0){ $scored[] = [ 'id' => (int)$f['id'], 'title' => (string)$f['title'], 'score' => $s ]; }
             }
             usort($scored, function($x,$y){ return $y['score'] <=> $x['score']; });
             return array_slice($scored, 0, max(1, $limit));
@@ -1543,11 +1543,24 @@ class Api
                 $params = $request->get_param('params');
                 if (!is_array($params)) $params = [];
                 $out = Hoshyar::agent([ 'intent' => $intentName, 'params' => $params ]);
-                return new WP_REST_Response($out, 200);
+                return new \WP_REST_Response($out, 200);
             } catch (\Throwable $e) {
-                return new WP_REST_Response(['ok'=>false,'error'=>'hoshyar_error'], 200);
+                return new \WP_REST_Response(['ok'=>false,'error'=>'hoshyar_error'], 200);
             }
         }
+
+        // Plan-based flow: { plan: {...}, confirm?: bool }
+        $planPayload = $request->get_param('plan');
+        if (is_array($planPayload)){
+            try {
+                $confirm = (bool)$request->get_param('confirm');
+                $out = Hoshyar::agent([ 'plan' => $planPayload, 'confirm' => $confirm ]);
+                return new \WP_REST_Response($out, 200);
+            } catch (\Throwable $e) {
+                return new \WP_REST_Response(['ok'=>false,'error'=>'hoshyar_error'], 200);
+            }
+        }
+
         // Legacy command-based flow (backward-compat)
         $cmd = (string)($request->get_param('command') ?? '');
         $cmd = trim($cmd);
@@ -1605,11 +1618,11 @@ class Api
                     }
                     // Pass-through common actions
                     if (!empty($intent['action'])){
-                        if ($action === 'open_tab' && !empty($intent['tab'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_tab','tab'=>(string)$intent['tab']], 200);
-                        if ($action === 'open_builder' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_builder','id'=>(int)$intent['id']], 200);
-                        if ($action === 'open_results' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_results','id'=>(int)$intent['id']], 200);
-                        if ($action === 'open_editor' && !empty($intent['id'])){ $idx = isset($intent['index']) ? (int)$intent['index'] : 0; return new WP_REST_Response(['ok'=>true,'action'=>'open_editor','id'=>(int)$intent['id'],'index'=>$idx], 200); }
-                        if ($action === 'create_form' && !empty($intent['title'])) return new WP_REST_Response(['ok'=>true,'action'=>'confirm','message'=>'ایجاد فرم جدید با عنوان «'.(string)$intent['title'].'» تایید می‌کنید؟','confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>(string)$intent['title']] ]], 200);
+                        if ($action === 'open_tab' && !empty($intent['tab'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_tab','tab' => (string)$intent['tab']], 200);
+                        if ($action === 'open_builder' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_builder','id' => (int)$intent['id']], 200);
+                        if ($action === 'open_results' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_results','id' => (int)$intent['id']], 200);
+                        if ($action === 'open_editor' && !empty($intent['id'])){ $idx = isset($intent['index']) ? (int)$intent['index'] : 0; return new WP_REST_Response(['ok'=>true,'action'=>'open_editor','id' => (int)$intent['id'],'index'=>$idx], 200); }
+                        if ($action === 'create_form' && !empty($intent['title'])) return new WP_REST_Response(['ok'=>true,'action'=>'confirm','message'=>'ایجاد فرم جدید با عنوان «'.(string)$intent['title'].'» تایید می‌کنید؟','confirm_action'=> [ 'action'=>'create_form', 'params'=>['title' => (string)$intent['title']] ]], 200);
                         if ($action === 'delete_form' && !empty($intent['id'])){ $fid = (int)$intent['id']; return new WP_REST_Response(['ok'=>true,'action'=>'confirm','message'=>'حذف فرم شماره '.$fid.' تایید می‌کنید؟ این عمل قابل بازگشت نیست.','confirm_action'=> [ 'action'=>'delete_form', 'params'=>['id'=>$fid] ]], 200); }
                         if ($action === 'list_forms'){ $forms = self::get_forms_list(); return new WP_REST_Response(['ok'=>true, 'action'=>'list_forms', 'forms'=>$forms], 200); }
                     }
@@ -1649,7 +1662,7 @@ class Api
                 $req = new WP_REST_Request('GET', '/arshline/v1/forms');
                 $res = self::get_forms($req);
                 $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
-                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=> (int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
                 return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'سوال را به کدام فرم اضافه کنم؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'add_field','type'=>'short_text']], 200);
             }
             // Help / capabilities
@@ -1671,7 +1684,7 @@ class Api
                     'ok'=>true,
                     'action'=>'confirm',
                     'message'=>'ایجاد فرم جدید با عنوان «'.(string)$defTitle.'» تایید می‌کنید؟',
-                    'confirm_action'=> [ 'action'=>'create_form', 'params'=>['title'=>(string)$defTitle] ]
+                    'confirm_action'=> [ 'action'=>'create_form', 'params'=>['title' => (string)$defTitle] ]
                 ], 200);
             }
             // Create form: "ایجاد فرم با عنوان X"
@@ -1699,7 +1712,7 @@ class Api
                 $req = new WP_REST_Request('GET', '/arshline/v1/forms');
                 $res = self::get_forms($req);
                 $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
-                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=>(int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
+                $list = array_map(function($r){ return [ 'label'=> ((int)($r['id']??0)).' - '.((string)($r['title']??'')), 'value'=> (int)($r['id']??0) ]; }, is_array($rows)?$rows:[]);
                 return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را حذف کنم؟','param_key'=>'id','options'=>$list,'clarify_action'=>['action'=>'delete_form']], 200);
             }
             // Public link: "لینک عمومی فرم <id>"
@@ -1752,7 +1765,7 @@ class Api
                     'ok'=>true,
                     'action'=>'confirm',
                     'message'=>'عنوان فرم '.$fid.' به «'.$title.'» تغییر داده شود؟',
-                    'confirm_action'=> [ 'action'=>'update_form_title', 'params'=>['id'=>$fid, 'title'=>$title] ]
+                    'confirm_action'=>['action'=>'update_form_title','params'=>['id'=>$fid,'title'=>$title]]
                 ], 200);
             }
             // Title-based open builder: "ویرایش/ادیت فرم {title}" when no numeric id
@@ -1781,7 +1794,6 @@ class Api
                     $opts = array_map(function($r){ return [ 'label'=> $r['id'].' - '.$r['title'], 'value'=> (int)$r['id'] ]; }, $matches);
                     return new WP_REST_Response(['ok'=>true,'action'=>'clarify','kind'=>'options','message'=>'کدام فرم را ویرایش کنم؟','param_key'=>'id','options'=>$opts,'clarify_action'=>['action'=>'open_builder']], 200);
                 }
-                // fallthrough to unknown later
             }
             // Title-first open builder: "{title} رو باز کن/وا کن" (implicit form)
             if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:باز\s*کن|باز\s*کردن|وا\s*کن)$/iu', $cmd, $m)){
@@ -1860,13 +1872,15 @@ class Api
             // Title-only to edit (implicit "فرم" omitted): "{title} رو ادیت کن" | "{title} را ویرایش کن"
             if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:ویرایش|ادیت|edit)(?:\s*کن)?$/iu', $cmd, $m)){
                 $name = trim((string)$m[1]);
-                // Prevent treating known tab names as form titles in odd phrases like "داشبورد رو ادیت کن"
-                $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $name);
-                $raw = preg_replace('/\s+/u', ' ', $raw);
-                $tabSyns = ['داشبورد','خانه','فرم ها','فرم‌ها','فرمها','گزارشات','گزارش','آمار','کاربران','کاربر','اعضا','تنظیمات','تنظیم','ستینگ','پیکربندی'];
-                if (in_array($raw, $tabSyns, true)){
-                    // Do not match as a form title; let navigation handlers decide
-                } else if (!preg_match('/^(?:فرم|forms?)$/iu', $name)){
+                // If user meant a known tab name, ignore this rule to avoid confusion
+                $knownTabs = ['داشبورد','dashboard','settings','reports','users','فرم‌ها','فرمها','forms'];
+                $nl = function(string $s){ return mb_strtolower($s, 'UTF-8'); };
+                $nameNL = $nl($name);
+                foreach ($knownTabs as $t){ if ($nl($t) === $nameNL){ $name = ''; break; } }
+                if ($name !== ''){
+                    $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                    $num = (int) strtr(preg_replace('/\D+/u','', $name), $fa2en);
+                    if ($num > 0){ return new WP_REST_Response(['ok'=>true, 'action'=>'open_builder', 'id'=>$num], 200); }
                     $matches = $find_by_title($name, 5);
                     if (count($matches) === 1){
                         $m1 = $matches[0];

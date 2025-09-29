@@ -19,6 +19,22 @@ class Hoshyar
      */
     public static function agent(array $payload): array
     {
+        // Plan-based flow: { plan: {...}, confirm?: bool }
+        if (!empty($payload['plan']) && is_array($payload['plan'])){
+            $validated = PlanValidator::validate($payload['plan']);
+            if ($validated instanceof \WP_Error){
+                return [ 'ok'=>false, 'error'=>'invalid_plan', 'message'=>$validated->get_error_message() ];
+            }
+            $confirm = !empty($payload['confirm']);
+            if (!$confirm){
+                // Preview only
+                return [ 'ok'=>true, 'action'=>'preview', 'plan'=>$validated ];
+            }
+            // Execute
+            $exec = PlanExecutor::execute($validated);
+            return is_array($exec) ? $exec : [ 'ok'=>false, 'error'=>'exec_failed' ];
+        }
+
         // Confirm flow bypasses parsing
         if (!empty($payload['confirm_action']) && is_array($payload['confirm_action'])){
             return self::execute_confirmed($payload['confirm_action']);

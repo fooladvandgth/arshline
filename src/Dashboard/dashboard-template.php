@@ -3423,6 +3423,29 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             function handleAgentAction(j){
                 try {
                     if (!j) return;
+                    // Plan preview -> render summary and an Execute button
+                    if (j.action === 'preview' && j.plan && Array.isArray(j.plan.steps)){
+                        appendOut({ preview: 'طرح چندمرحله‌ای', plan: j.plan });
+                        try {
+                            var wrapP = document.createElement('div'); wrapP.style.marginTop='.5rem';
+                            var execBtn = document.createElement('button'); execBtn.className='ar-btn'; execBtn.textContent='اجرای طرح';
+                            var cancelBtn = document.createElement('button'); cancelBtn.className='ar-btn ar-btn--outline'; cancelBtn.textContent='لغو'; cancelBtn.style.marginInlineStart='.5rem';
+                            execBtn.addEventListener('click', async function(){
+                                try {
+                                    var rX = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ plan: j.plan, confirm: true }) });
+                                    var tX = ''; try { tX = await rX.clone().text(); } catch(_){ }
+                                    var jX = null; try { jX = tX ? JSON.parse(tX) : await rX.json(); } catch(_){ }
+                                    appendOut(jX || (tX || ('HTTP '+rX.status)));
+                                    if (rX.ok && jX && jX.ok !== false){ handleAgentAction(jX); notify('طرح اجرا شد', 'success'); }
+                                    else { notify('اجرای طرح ناموفق بود', 'error'); }
+                                } catch(e){ appendOut(String(e)); notify('خطا', 'error'); }
+                            });
+                            cancelBtn.addEventListener('click', function(){ notify('لغو شد', 'warn'); });
+                            wrapP.appendChild(execBtn); wrapP.appendChild(cancelBtn);
+                            if (outEl) outEl.appendChild(wrapP);
+                        } catch(_){ }
+                        return;
+                    }
                     // Confirmation flow: render a quick inline yes/no prompt in output
                     if (j.action === 'confirm' && j.confirm_action){
                         var msg = String(j.message||'تایید می‌کنید؟');
@@ -3492,7 +3515,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 if (!cmd){ notify('دستور خالی است', 'warn'); return; }
                 appendOut('> '+cmd);
                 try {
-                    var r = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) });
+                    var payload = null;
+                    try {
+                        var parsed = JSON.parse(cmd);
+                        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.steps)){
+                            // Treat as plan JSON. If confirm flag is provided, pass it through; default to preview
+                            payload = { plan: parsed, confirm: !!parsed.confirm };
+                        }
+                    } catch(_){ /* not JSON, treat as natural command */ }
+                    if (!payload) payload = { command: cmd };
+                    var r = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) });
                     var txt = ''; try { txt = await r.clone().text(); } catch(_){ }
                     var j = null; try { j = txt ? JSON.parse(txt) : await r.json(); } catch(_){ }
                     appendOut(j || (txt || ('HTTP '+r.status)));

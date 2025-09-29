@@ -62,19 +62,22 @@
 /* ============================================================================
    Base Layout Structure
    ============================================================================ */
-body {
+html, body {
     margin: 0;
     padding: 0;
     font-family: 'Vazir', system-ui, -apple-system, "Segoe UI", Roboto, 'Inter', sans-serif;
     background: var(--background, #f8fafc);
     color: var(--text, #1e293b);
     transition: background 0.3s, color 0.3s;
+    max-width: 100%;
+    overflow-x: hidden; /* prevent accidental horizontal scrollbars */
 }
 
 .arshline-dashboard-root {
     display: flex;
     min-height: 100vh;
-    width: 100vw;
+    width: 100%; /* avoid 100vw causing horizontal scrollbar when vertical scrollbar is present */
+    overflow-x: hidden; /* contain any slight overflows from children */
 }
 
 /* ============================================================================
@@ -88,7 +91,7 @@ body {
     display: flex;
     flex-direction: column;
     transition: width 0.3s ease;
-    overflow: hidden;
+    overflow: hidden; /* no inner horizontal overflow */
 }
 
 .arshline-sidebar.closed {
@@ -144,31 +147,31 @@ body {
     justify-content: center;
 }
 
-/* RTL icon spacing adjustments */
-[dir='rtl'] .arshline-sidebar nav a .ic {
-    margin-right: 0;
-}
+/* RTL/LTR icon spacing adjustments (neutral margins) */
+[dir='rtl'] .arshline-sidebar nav a .ic { margin-right: 0; }
+[dir='ltr'] .arshline-sidebar nav a .ic { margin-left: 0; }
 
-[dir='ltr'] .arshline-sidebar nav a .ic {
-    margin-left: 0;
+/* In closed state, remove horizontal gap/padding from items to prevent overflow,
+   then apply an inline-start padding to the anchor itself for icon inset. */
+.arshline-sidebar.closed nav { padding-inline: 0; }
+.arshline-sidebar.closed nav a {
+    gap: 0; /* no extra space next to hidden label */
+    padding-block: 0.7rem;
+    padding-inline: 0; /* we'll add inline-start below per direction */
 }
+[dir='rtl'] .arshline-sidebar.closed nav a { padding-inline-start: 14px; }
+[dir='ltr'] .arshline-sidebar.closed nav a { padding-inline-start: 14px; }
 
-[dir='rtl'] .arshline-sidebar.closed nav {
-    padding-inline-start: 14px;
-}
-
-[dir='ltr'] .arshline-sidebar.closed nav {
-    padding-inline-start: 14px;
-}
-
-[dir='rtl'] .arshline-sidebar.closed nav a .ic {
-    /* In collapsed state, center the icon without extra offset */
-    margin-right: 0;
-}
-
-[dir='ltr'] .arshline-sidebar.closed nav a .ic {
-    /* In collapsed state, center the icon without extra offset */
-    margin-left: 0;
+/* Hide label from layout in closed state to avoid contributing width */
+.arshline-sidebar.closed nav a .label {
+    opacity: 0;
+    transform: translateX(6px);
+    pointer-events: none;
+    width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    white-space: nowrap;
 }
 
 .arshline-sidebar nav a .label {
@@ -244,6 +247,7 @@ body {
     padding: 2.2rem 2rem;
     min-height: 100vh;
     transition: background 0.3s;
+    overflow-x: hidden; /* prevent horizontal scroll caused by inner views */
 }
 
 /* ============================================================================
@@ -369,11 +373,13 @@ body.preview-only .arshline-main {
 @media (max-width: 768px) {
     .arshline-sidebar {
         width: 0;
+        min-width: 0;
         overflow: hidden;
     }
     
     .arshline-sidebar.closed {
         width: 0;
+        min-width: 0;
     }
     
     .arshline-main {
@@ -401,17 +407,7 @@ body.preview-only .arshline-main {
     z-index: 40;
 }
 
-/* --------------------------------------------------------------------------
-     Desktop-specific tweak: ensure collapsed RTL icons have extra inset
-     Requested fix: [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 50px; }
-     Apply only on desktop to avoid crowding on smaller screens.
----------------------------------------------------------------------------- */
-@media (min-width: 1025px) {
-    /* Desktop: keep icons 50px away from the right edge in RTL when collapsed */
-    [dir='rtl'] .arshline-sidebar.closed nav {
-        padding-inline-start: 50px !important;
-    }
-}
+/* Desktop-specific 50px inset removed per user feedback to prevent overflow; using base 14px inset for all viewports. */
 
 .arshline-header-left {
     display: flex;
@@ -552,7 +548,9 @@ body.preview-only .arshline-main {
     }
     
     .arshline-sidebar.closed {
-        width: 0;
+        /* Keep collapsed sidebar visible on desktop so icons don't disappear */
+        width: 72px;
+        min-width: 72px;
         overflow: hidden;
         transform: none;
     }
