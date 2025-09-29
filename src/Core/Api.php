@@ -184,9 +184,11 @@ class Api
         return new \WP_REST_Response($saved, 200);
     }
 
-    /** Compose message from template and member data. Supports #name, #phone and #link placeholders. */
+    /** Compose message from template and member data. Supports #name/#نام, #phone, #link/#لینک placeholders. */
     protected static function compose_sms_template(string $tpl, array $member, string $link = ''): string
     {
+        // Normalize Persian synonyms to canonical placeholders
+        $tpl = str_replace(['#نام', '#لینک'], ['#name', '#link'], $tpl);
         $repl = [
             'name' => (string)($member['name'] ?? ''),
             'phone' => (string)($member['phone'] ?? ''),
@@ -280,8 +282,14 @@ class Api
         $groupIds = $r->get_param('group_ids'); if (!is_array($groupIds)) $groupIds = [];
         $groupIds = array_values(array_unique(array_map('intval', $groupIds)));
         $template = trim((string)($r->get_param('message') ?? ''));
+        // Normalize Persian synonyms in template for early validations
+        $templateNorm = str_replace(['#نام', '#لینک'], ['#name', '#link'], $template);
         if (empty($groupIds)) return new \WP_REST_Response(['error'=>'no_groups'], 422);
         if ($template === '') return new \WP_REST_Response(['error'=>'empty_message'], 422);
+        // If template uses #link but includeLink not requested (no form), abort
+        if (strpos($templateNorm, '#link') !== false && !$includeLink){
+            return new \WP_REST_Response(['error'=>'link_placeholder_without_form','message'=>'در متن از #لینک استفاده شده ولی فرمی انتخاب نشده است.'], 422);
+        }
 
         // Resolve recipients from DB
         global $wpdb; $t = \Arshline\Support\Helpers::tableName('user_group_members');
@@ -297,8 +305,12 @@ class Api
         $payload = [];
         foreach ($recipients as $m){
             $link = $includeLink ? self::build_member_form_link($formId, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ]) : '';
+            // If link placeholder is used but we couldn't build a link, abort
+            if ($includeLink && strpos($templateNorm, '#link') !== false && $link === ''){
+                return new \WP_REST_Response(['error'=>'link_build_failed','member_id'=>(int)$m['id']], 422);
+            }
             $msg = self::compose_sms_template($template, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ], $link);
-            $payload[] = [ 'phone'=>$m['phone'], 'message'=> self::ensure_sms_suffix($msg) ];
+            $payload[] = [ 'phone'=>$m['phone'], 'message'=> self::ensure_sms_suffix($msg), 'vars' => [ 'name'=>$m['name'], 'phone'=>$m['phone'], 'link'=>$link ] ];
         }
 
         // Schedule or send now
@@ -335,6 +347,14 @@ class Api
         foreach ($batch as $i=>$it){ self::smsir_send_single((string)$cfg['api_key'], (string)$cfg['line_number'], (string)$it['phone'], (string)$it['message'], null); }
         $cursor += count($batch);
         if ($cursor >= count($payload)){
+            // Persist a trimmed result for auditing
+            $result = [
+                'job_id' => (int)$jobId,
+                'finished_at' => time(),
+                'total' => count($payload),
+                'entries' => array_map(function($it){ return [ 'phone'=>$it['phone'], 'vars'=>($it['vars'] ?? []), 'message'=>$it['message'] ]; }, $payload),
+            ];
+            update_option('arsh_sms_result_'.(int)$jobId, $result, false);
             delete_option($key);
         } else {
             $job['cursor'] = $cursor; update_option($key, $job, false);
