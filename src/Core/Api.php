@@ -1580,9 +1580,11 @@ class Api
             $s0 = self::get_ai_settings();
             $parserMode0 = $s0['parser'] ?? 'hybrid';
             $llmReady0 = ($s0['enabled'] && !empty($s0['base_url']) && !empty($s0['api_key']));
+            $hadPlan0 = false;
             if ($llmReady0 && in_array($parserMode0, ['hybrid','llm'], true)){
                 $plan0 = self::llm_parse_plan($cmd, $s0, [ 'ui_tab' => $ui_tab, 'ui_route' => $ui_route, 'kb' => $kb ]);
                 if (is_array($plan0) && !empty($plan0['steps'])){
+                    $hadPlan0 = true;
                     // Validate/preview via Hoshyar (will refuse invalid/unknown actions)
                     try {
                         $out0 = Hoshyar::agent([ 'plan' => $plan0, 'confirm' => false ]);
@@ -1595,7 +1597,7 @@ class Api
             // 0.5) Internal heuristic multi-step parser as fallback (no external LLM required)
             // Handles phrases like: "فرم جدید بساز و دو سوال پاسخ کوتاه اضافه کن، اسمش را چکاپ سه بگذار"
             // Produces a plan: create_form (with extracted title) + N x add_field (inferred types)
-            $tryInternalPlan = (!$llmReady0 || in_array($parserMode0, ['hybrid','internal'], true));
+            $tryInternalPlan = (!$llmReady0 || in_array($parserMode0, ['hybrid','internal'], true) || ($llmReady0 && $parserMode0==='llm' && !$hadPlan0));
             if ($tryInternalPlan){
                 $iplan = self::internal_parse_plan($cmd);
                 if (is_array($iplan) && !empty($iplan['steps']) && count($iplan['steps']) >= 2){
