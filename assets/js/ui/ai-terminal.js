@@ -287,7 +287,7 @@
               var b = document.createElement('button'); b.className='ar-btn'; b.textContent=String(opt.label||opt.value); b.style.marginInlineEnd='.5rem';
               b.addEventListener('click', async function(){
                 if (j.clarify_action){
-                  var ca = j.clarify_action; var pa = {}; pa[j.param_key] = opt.value;
+                  var ca = j.clarify_action; var pa = Object.assign({}, (ca.params||{})); pa[j.param_key] = opt.value;
                   var r3 = await fetch(buildRest('ai/agent'), { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(Object.assign({ confirm_action: { action: ca.action, params: pa } }, getUiContext())) });
                   var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
                   var j3 = null; try { j3 = t3 ? JSON.parse(t3) : await r3.json(); } catch(_){ }

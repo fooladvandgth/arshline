@@ -3482,7 +3482,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                 b.addEventListener('click', async function(){
                                     // If clarify_action provided, send a confirm prompt next
                                     if (j.clarify_action){
-                                        const ca = j.clarify_action; const pa = {}; pa[j.param_key] = opt.value;
+                                        const ca = j.clarify_action; const pa = Object.assign({}, (ca.params||{})); pa[j.param_key] = opt.value;
                                         // Ask backend to execute direct by sending confirm_action to maintain consistency
                                         var r3 = await fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ confirm_action: { action: ca.action, params: pa } }) });
                                         var t3 = ''; try { t3 = await r3.clone().text(); } catch(_){ }
