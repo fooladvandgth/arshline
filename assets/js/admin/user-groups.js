@@ -181,6 +181,7 @@
   if (PANEL) { $m.on('submit', 'form.arsh-ug-filter', function(e){ e.preventDefault(); }); }
 
       function list(){ if (!gid){ $('#ugFieldsBox').html('<div class="notice notice-info">'+esc(STR.select_group||'یک گروه را انتخاب کنید')+'</div>'); return; }
+        $('#ugFieldsBox').html('⏳ '+esc(STR.loading||'در حال بارگذاری...'));
         api('user-groups/'+gid+'/fields', { credentials:'same-origin' }).then(function(fields){
         var t = '<div style="margin:8px 0;display:flex;gap:.4rem;align-items:center">'+
           '<input id="ugFName" class="regular-text" placeholder="کلید (مثل code)"/>'+ 
@@ -210,7 +211,7 @@
         });
         t += '</tbody></table>';
         $('#ugFieldsBox').html(t);
-      }); }
+      }).catch(function(err){ var msg = 'خطا در بارگذاری فیلدها'; if (err && err.status) msg += ' ('+err.status+')'; $('#ugFieldsBox').html('<div class="notice notice-error">'+esc(msg)+'</div>'); try { if (window.notify) notify('خطا در بارگذاری فیلدها', 'error'); } catch(_){ } }); }
       list();
       // Auto-switch in panel context when group select changes (Custom Fields)
       $m.on('change', '#ugSelCF', function(){
@@ -234,27 +235,46 @@
       $m.on('click', '.cfDel', function(e){ e.preventDefault(); if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+gid+'/fields/'+id, { credentials:'same-origin', method:'DELETE' })
         .then(function(){ if (window.notify) notify('فیلد حذف شد', 'success'); list(); })
         .catch(function(){ if (window.notify) notify('حذف فیلد ناموفق بود', 'error'); }); });
-    });
+    }).catch(function(err){ var msg = 'خطا در بارگذاری گروه‌ها'; if (err && err.status) msg += ' ('+err.status+')'; $m.html('<div class="notice notice-error">'+esc(msg)+'</div>'); try { if (window.notify) notify('خطا در بارگذاری گروه‌ها', 'error'); } catch(_){ } });
   }
 
   function renderMembers($m){
     // فیلتر بر اساس گروه + لیست اعضا + ایمپورت CSV
-    api('user-groups', { credentials:'same-origin' }).then(function(groups){
+    api('user-groups', { credentials:'same-origin' })
+    .then(function(groups){
       var gid = parseInt(getParam('group_id') || (groups[0] && groups[0].id) || 0, 10) || 0;
-  var html='';
-  html += '<form method="get" class="arsh-ug-filter" style="margin-bottom:12px;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">';
-      html += '<input type="hidden" name="page" value="arshline-user-groups"/>'; 
-      html += '<input type="hidden" name="tab" value="members"/>'; 
+      var html='';
+      // Card container + toolbar (align with Groups)
+      html += '<div class="card glass" style="padding:1rem;">';
+      html += '  <div class="ar-ug-toolbar" style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem">';
+      html += '    <span class="title">'+esc(STR.members||'اعضا')+'</span>';
+      html += '    <span style="flex:1 1 auto"></span>';
+      html += '    <button id="mAddToggle" type="button" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
+      html += '  </div>';
+      // Filters row
+      html += '<form method="get" class="arsh-ug-filter" style="margin-bottom:12px;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">';
+      html += '<input type="hidden" name="page" value="arshline-user-groups"/>';
+      html += '<input type="hidden" name="tab" value="members"/>';
       html += '<label>'+esc(STR.group||'گروه')+': <select name="group_id" id="ugSel" >';
       (groups||[]).forEach(function(g){ html += '<option value="'+g.id+'"'+(g.id===gid?' selected':'')+'>'+esc(g.name)+'</option>'; });
       html += '</select></label> ';
-  html += '<label>'+esc(STR.search||'جستجو')+': <input type="search" id="ugSearch" class="regular-text" placeholder="'+esc(STR.name||'نام')+'/'+esc(STR.phone||'شماره')+'" /></label>';
-  html += '<label>'+esc('در هر صفحه')+': <select id="ugPerPage"><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label>';
+      html += '<label>'+esc(STR.search||'جستجو')+': <input type="search" id="ugSearch" class="regular-text" placeholder="'+esc(STR.name||'نام')+'/'+esc(STR.phone||'شماره')+'" /></label>';
+      html += '<label>'+esc('در هر صفحه')+': <select id="ugPerPage"><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label>';
       html += '<button class="button">'+esc(STR.search||'برو')+'</button>';
       html += '</form>';
 
-    var adminPostUrl = (ADMIN_POST && ADMIN_POST.replace('admin-ajax.php','admin-post.php')) || (function(){ try { return window.location.origin + '/wp-admin/admin-post.php'; } catch(_){ return '/wp-admin/admin-post.php'; } })();
-    html += '<form method="post" action="'+esc(adminPostUrl)+'" enctype="multipart/form-data" style="margin:10px 0">';
+      // Add box (hidden by default)
+      html += '  <div id="mAddBox" style="display:none;margin-bottom:.6rem;padding:.5rem;border:1px dashed var(--border, #d1d5db);border-radius:.5rem;background:var(--surface, #fff)">';
+      html += '    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">';
+      html += '      <input id="mNewName" class="regular-text" placeholder="'+esc(STR.name||'نام')+'"/>';
+      html += '      <input id="mNewPhone" class="regular-text" placeholder="'+esc(STR.phone||'شماره همراه')+'"/>';
+      html += '      <button id="mAddConfirm" type="button" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
+      html += '      <button id="mAddCancel" type="button" class="button">'+esc(STR.cancel||'انصراف')+'</button>';
+      html += '    </div>';
+      html += '  </div>';
+
+      var adminPostUrl = (ADMIN_POST && ADMIN_POST.replace('admin-ajax.php','admin-post.php')) || (function(){ try { return window.location.origin + '/wp-admin/admin-post.php'; } catch(_){ return '/wp-admin/admin-post.php'; } })();
+      html += '<form method="post" action="'+esc(adminPostUrl)+'" enctype="multipart/form-data" style="margin:10px 0">';
       html += '<input type="hidden" name="action" value="arshline_import_members"/>';
       html += '<input type="hidden" name="group_id" value="'+gid+'"/>';
       (function(){ try {
@@ -263,55 +283,64 @@
         var redir = base + '?arshline_dashboard=1' + h; // route back into panel
         html += '<input type="hidden" name="redirect_to" value="'+esc(redir)+'"/>';
       } catch(_){ } })();
-    html += '<input type="hidden" name="_wpnonce" value="'+esc((NONCES&&NONCES.import)||'')+'"/>';
+      html += '<input type="hidden" name="_wpnonce" value="'+esc((NONCES&&NONCES.import)||'')+'"/>';
       html += '<label>'+esc(STR.import||'ایمپورت')+': <input type="file" name="csv" accept=".csv"/></label> ';
       html += '<button class="button button-primary">'+esc(STR.import||'ایمپورت')+'</button>';
       html += '</form>';
 
-      html += '<div id="ugMembersList">'+esc(STR.loading||'در حال بارگذاری...')+'</div>';
-  $m.html(html);
-  if (PANEL) { $m.on('submit', 'form.arsh-ug-filter', function(e){ e.preventDefault(); }); }
+      html += '<div id="ugMembersList">'+'⏳ '+esc(STR.loading||'در حال بارگذاری...')+'</div>';
+      html += '</div>'; // /card.glass
+      $m.html(html);
+      if (PANEL) { $m.on('submit', 'form.arsh-ug-filter', function(e){ e.preventDefault(); }); }
 
       // Initialize search/per_page from hash
       try { var q0 = getParam('search'); if (q0) $('#ugSearch').val(q0); var pp0 = parseInt(getParam('per_page')||'0',10)||0; if (pp0) $('#ugPerPage').val(String(pp0)); else $('#ugPerPage').val('20'); } catch(_){ $('#ugPerPage').val('20'); }
 
       // لیست اعضا
       var __lastMembersMeta = null;
-      function list(){ if (!gid){ $('#ugMembersList').html('<div class=\"notice notice-info\">'+esc(STR.select_group||'یک گروه را انتخاب کنید')+'</div>'); return; }
+      function list(){ if (!gid){ $('#ugMembersList').html('<div class="notice notice-info">'+esc(STR.select_group||'یک گروه را انتخاب کنید')+'</div>'); return; }
+        $('#ugMembersList').html('⏳ '+esc(STR.loading||'در حال بارگذاری...'));
         var per = parseInt($('#ugPerPage').val()||'20',10)||20; var q = String($('#ugSearch').val()||'');
         var page = parseInt(getParam('page')||'1',10)||1; if (page<1) page=1;
         var url = 'user-groups/'+gid+'/members?per_page='+per+'&page='+page + (q?('&search='+encodeURIComponent(q)):'');
-  api(url, { credentials:'same-origin' }).then(function(resp){
-        var members = Array.isArray(resp) ? resp : (resp.items||[]);
-        var t = '<div style="overflow:auto">';
-        t += '<table class="widefat striped"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>'+esc(STR.phone||'شماره همراه')+'</th><th></th></tr></thead><tbody>';
-        (members||[]).forEach(function(mm){
-          t += '<tr data-id="'+mm.id+'"><td>'+mm.id+'</td><td><input class="mName" type="text" value="'+esc(mm.name)+'"/></td><td><input class="mPhone" type="text" value="'+esc(mm.phone)+'"/></td><td>';
-          t += '<button class="button mSave">'+esc(STR.save||'ذخیره')+'</button> ';
-          t += '<button class="button button-link-delete mDel">'+esc(STR.delete||'حذف')+'</button>';
-          t += '</td></tr>';
-        });
-        t += '</tbody></table>';
-        // Pager
-        if (!Array.isArray(resp)){
-          var total = parseInt(resp.total||'0',10)||0; var cur = parseInt(resp.page||'1',10)||1; var perPage = parseInt(resp.per_page||per,10)||per; var totalPages = parseInt(resp.total_pages||'1',10)||1;
-          __lastMembersMeta = { total: total, page: cur, per_page: perPage, total_pages: totalPages };
-          t += '<div class="ar-pager" style="margin-top:10px;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">';
-          t += '<button class="button ar-page-first" '+(cur<=1?'disabled':'')+'>« اول</button>';
-          t += '<button class="button ar-page-prev" '+(cur<=1?'disabled':'')+'>‹ قبلی</button>';
-          t += '<span style="opacity:.8">صفحه '+cur+' از '+totalPages+' (کل: '+total+')</span>';
-          t += '<button class="button ar-page-next" '+(cur>=totalPages?'disabled':'')+'>بعدی ›</button>';
-          t += '<button class="button ar-page-last" '+(cur>=totalPages?'disabled':'')+'>آخر »</button>';
+        api(url, { credentials:'same-origin' }).then(function(resp){
+          var members = Array.isArray(resp) ? resp : (resp.items||[]);
+          var t = '<div class="table-wrap" style="overflow:auto">';
+          t += '<table class="widefat striped" style="width:100%"><thead><tr><th>ID</th><th>'+esc(STR.name||'نام')+'</th><th>'+esc(STR.phone||'شماره همراه')+'</th><th></th></tr></thead><tbody>';
+          if (!members || members.length === 0){
+            t += '<tr><td colspan="4" style="text-align:center;opacity:.8">'+esc('هیچ عضوی برای این گروه ثبت نشده است')+'</td></tr>';
+          } else {
+            (members||[]).forEach(function(mm){
+              t += '<tr data-id="'+mm.id+'">'+
+                   '<td>'+mm.id+'</td>'+
+                   '<td><span class="mNameText">'+esc(mm.name)+'</span></td>'+
+                   '<td><span class="mPhoneText">'+esc(mm.phone)+'</span></td>'+
+                   '<td><button class="button mEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete mDel">'+esc(STR.delete||'حذف')+'</button></td>'+
+                   '</tr>';
+            });
+          }
+          t += '</tbody></table>';
+          // Pager
+          if (!Array.isArray(resp)){
+            var total = parseInt(resp.total||'0',10)||0; var cur = parseInt(resp.page||'1',10)||1; var perPage = parseInt(resp.per_page||per,10)||per; var totalPages = parseInt(resp.total_pages||'1',10)||1;
+            __lastMembersMeta = { total: total, page: cur, per_page: perPage, total_pages: totalPages };
+            t += '<div class="ar-pager" style="margin-top:10px;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">';
+            t += '<button class="button ar-page-first" '+(cur<=1?'disabled':'')+'>« اول</button>';
+            t += '<button class="button ar-page-prev" '+(cur<=1?'disabled':'')+'>‹ قبلی</button>';
+            t += '<span style="opacity:.8">صفحه '+cur+' از '+totalPages+' (کل: '+total+')</span>';
+            t += '<button class="button ar-page-next" '+(cur>=totalPages?'disabled':'')+'>بعدی ›</button>';
+            t += '<button class="button ar-page-last" '+(cur>=totalPages?'disabled':'')+'>آخر »</button>';
+            t += '</div>';
+          }
           t += '</div>';
-        }
-        t += '</div>';
-        $('#ugMembersList').html(t);
-      }).catch(function(err){
-        try { if (window.notify) notify('خطا در بارگذاری اعضا', 'error'); } catch(_){ }
-        var msg = 'خطا در بارگذاری لیست اعضا';
-        if (err && err.status) { msg += ' ('+err.status+')'; }
-        $('#ugMembersList').html('<div class="notice notice-error">'+esc(msg)+'</div>');
-      }); }
+          $('#ugMembersList').html(t);
+        }).catch(function(err){
+          try { if (window.notify) notify('خطا در بارگذاری اعضا', 'error'); } catch(_){ }
+          var msg = 'خطا در بارگذاری لیست اعضا';
+          if (err && err.status) { msg += ' ('+err.status+')'; }
+          $('#ugMembersList').html('<div class="notice notice-error">'+esc(msg)+'</div>');
+        });
+      }
       list();
       // Auto-switch in panel context (Members) when group select changes
       $m.on('change', '#ugSel', function(){
@@ -356,9 +385,34 @@
         list();
       });
 
+      // Row edit workflow
+      $m.on('click', '.mEdit', function(){
+        var $tr=$(this).closest('tr');
+        var id=+$tr.data('id');
+        var $nameCell = $tr.find('td').eq(1);
+        var $phoneCell = $tr.find('td').eq(2);
+        var name = $nameCell.find('.mNameText').text();
+        var phone = $phoneCell.find('.mPhoneText').text();
+        $nameCell.data('orig', name).html('<input class="mName" type="text" value="'+esc(name)+'"/>' );
+        $phoneCell.data('orig', phone).html('<input class="mPhone" type="text" value="'+esc(phone)+'"/>' );
+        var $btnCell = $tr.find('td').eq(3);
+        $btnCell.html('<button class="button mSave">'+esc(STR.save||'ذخیره')+'</button> <button class="button mCancel">'+esc(STR.cancel||'انصراف')+'</button>');
+        try { $tr.find('.mName').focus(); } catch(_){ }
+      });
+      $m.on('keydown', 'input.mName, input.mPhone', function(e){ if (e.key==='Enter'){ e.preventDefault(); $(this).closest('tr').find('.mSave').trigger('click'); } });
+      $m.on('click', '.mCancel', function(){
+        var $tr=$(this).closest('tr');
+        var $nameCell = $tr.find('td').eq(1);
+        var $phoneCell = $tr.find('td').eq(2);
+        var origN = $nameCell.data('orig')||$nameCell.text();
+        var origP = $phoneCell.data('orig')||$phoneCell.text();
+        $nameCell.html('<span class="mNameText">'+esc(origN)+'</span>');
+        $phoneCell.html('<span class="mPhoneText">'+esc(origP)+'</span>');
+        $tr.find('td').eq(3).html('<button class="button mEdit">'+esc(STR.edit||'ویرایش')+'</button> <button class="button button-link-delete mDel">'+esc(STR.delete||'حذف')+'</button>');
+      });
       $m.on('click', '.mSave', function(){ if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } var $tr=$(this).closest('tr'); var id=+$tr.data('id'); var name=$tr.find('.mName').val(); var phone=$tr.find('.mPhone').val();
         api('user-groups/'+gid+'/members/'+id, { credentials:'same-origin', method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name, phone:phone }) })
-          .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); })
+          .then(function(){ if (window.notify) notify('ذخیره شد', 'success'); list(); })
           .catch(function(){ if (window.notify) notify('ذخیره عضو ناموفق بود', 'error'); });
       });
       $m.on('click', '.mDel', function(){ if(!gid){ if (window.notify) notify('ابتدا گروه را انتخاب کنید', 'warn'); return; } if(!confirm(STR.confirm_delete||'حذف؟')) return; var $tr=$(this).closest('tr'); var id=+$tr.data('id'); api('user-groups/'+gid+'/members/'+id, { credentials:'same-origin', method:'DELETE' })
@@ -366,19 +420,31 @@
         .catch(function(){ if (window.notify) notify('حذف عضو ناموفق بود', 'error'); }); });
 
       // خروجی لینک‌ها (CSV)
-    var exportUrl = new URL(adminPostUrl, window.location.origin);
+      var exportUrl = new URL(adminPostUrl, window.location.origin);
       exportUrl.searchParams.set('action', 'arshline_export_group_links');
       exportUrl.searchParams.set('group_id', String(gid));
       exportUrl.searchParams.set('form_id', String( (window.ARSHLINE_FORM_ID_FOR_LINKS||0) ));
-  exportUrl.searchParams.set('_wpnonce', (NONCES.export||''));
-      var $btn = $('<p><a class="button" href="'+exportUrl.toString()+'">'+esc(STR.export||'خروجی لینک‌ها')+'</a></p>');
-      $m.append($btn);
+      exportUrl.searchParams.set('_wpnonce', (NONCES.export||''));
+      var $btn = $('<p style="margin-top:.6rem"><a class="button" href="'+exportUrl.toString()+'">'+esc(STR.export||'خروجی لینک‌ها')+'</a></p>');
+      $('#ugMembersList').after($btn);
+
+      // Add toggle and confirm/cancel
+      $m.off('click', '#mAddToggle').on('click', '#mAddToggle', function(e){ e.preventDefault(); var $box=$('#mAddBox'); var willShow = $box.is(':hidden'); try { $box.stop(true,true).slideToggle(150, function(){ if (willShow){ try{ $('#mNewName').focus(); }catch(_){ } } }); } catch(_){ $box.toggle(); if (willShow){ try{ $('#mNewName').focus(); }catch(__){} } } });
+      $m.off('click', '#mAddConfirm').on('click', '#mAddConfirm', function(){ var name=$('#mNewName').val().trim(); var phone=$('#mNewPhone').val().trim(); if(!name||!phone){ if(window.notify) notify('نام و شماره لازم است', 'warn'); return; } var payload={ members:[{ name:name, phone:phone }]}; api('user-groups/'+gid+'/members', { credentials:'same-origin', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+        .then(function(){ if(window.notify) notify('عضو افزوده شد', 'success'); $('#mNewName').val(''); $('#mNewPhone').val(''); try{ $('#mAddBox').slideUp(120);}catch(_){ $('#mAddBox').hide(); } list(); })
+        .catch(function(){ if(window.notify) notify('افزودن عضو ناموفق بود', 'error'); }); });
+      $m.off('click', '#mAddCancel').on('click', '#mAddCancel', function(){ $('#mNewName').val(''); $('#mNewPhone').val(''); try{ $('#mAddBox').slideUp(120);}catch(_){ $('#mAddBox').hide(); } });
+    }).catch(function(err){
+      var msg = 'خطا در بارگذاری لیست گروه‌ها';
+      if (err && err.status) msg += ' ('+err.status+')';
+      $m.html('<div class="notice notice-error">'+esc(msg)+'</div>');
+      try { if (window.notify) notify('خطا در بارگذاری گروه‌ها', 'error'); } catch(_){ }
     });
   }
 
   function renderMapping($m){
     // Load forms and groups, then allow selecting groups per form
-    $m.html('<div>'+esc(STR.loading||'در حال بارگذاری...')+'</div>');
+    $m.html('<div>'+'⏳ '+esc(STR.loading||'در حال بارگذاری...')+'</div>');
     Promise.all([
       api('user-groups', { credentials:'same-origin' }),
       fetch(FORMS_ENDPOINT, { headers:{'X-WP-Nonce': NONCE}, credentials:'same-origin' }).then(function(r){ return r.json(); })
@@ -401,6 +467,7 @@
   if (PANEL) { $m.on('submit', 'form.arsh-ug-filter', function(e){ e.preventDefault(); }); }
 
       function loadMap(){
+  $('#ugMapBox').html('⏳ '+esc(STR.loading||'در حال بارگذاری...'));
   api('forms/'+fid+'/access/groups', { credentials:'same-origin' }).then(function(resp){
           var selected = (resp && resp.group_ids) || [];
           var t = '<div>';
@@ -413,7 +480,7 @@
           t += '<button id="ugSaveMap" class="button button-primary">'+esc(STR.save_mapping||'ذخیره اتصال')+'</button>';
           t += '</div>';
           $('#ugMapBox').html(t);
-        });
+        }).catch(function(err){ var msg='خطا در بارگذاری اتصال فرم/گروه'; if (err&&err.status) msg += ' ('+err.status+')'; $('#ugMapBox').html('<div class="notice notice-error">'+esc(msg)+'</div>'); try { if (window.notify) notify('خطا در بارگذاری اتصال', 'error'); } catch(_){ } });
       }
       loadMap();
       // Auto-switch in panel context for mapping form selector
@@ -434,7 +501,7 @@
           .then(function(){ if (window.notify) notify('اتصال فرم/گروه ذخیره شد', 'success'); })
           .catch(function(){ if (window.notify) notify('ذخیره اتصال ناموفق بود', 'error'); });
       });
-    });
+    }).catch(function(err){ var msg='خطا در بارگذاری داده‌ها'; if (err && err.status) msg += ' ('+err.status+')'; $m.html('<div class="notice notice-error">'+esc(msg)+'</div>'); try { if (window.notify) notify('خطا در بارگذاری داده‌ها', 'error'); } catch(_){ } });
   }
 
   // اکسپورت ورودی واحد برای رندر در داشبورد سفارشی
