@@ -1592,6 +1592,21 @@ class Api
                     } catch (\Throwable $e) { /* fall through to other parsers */ }
                 }
             }
+            // 0.5) Internal heuristic multi-step parser as fallback (no external LLM required)
+            // Handles phrases like: "فرم جدید بساز و دو سوال پاسخ کوتاه اضافه کن، اسمش را چکاپ سه بگذار"
+            // Produces a plan: create_form (with extracted title) + N x add_field (inferred types)
+            $tryInternalPlan = (!$llmReady0 || in_array($parserMode0, ['hybrid','internal'], true));
+            if ($tryInternalPlan){
+                $iplan = self::internal_parse_plan($cmd);
+                if (is_array($iplan) && !empty($iplan['steps']) && count($iplan['steps']) >= 2){
+                    try {
+                        $outPrev = Hoshyar::agent([ 'plan' => $iplan, 'confirm' => false ]);
+                        if (is_array($outPrev) && !empty($outPrev['ok'])){
+                            return new \WP_REST_Response($outPrev, 200);
+                        }
+                    } catch (\Throwable $e) { /* ignore */ }
+                }
+            }
             // Parser routing based on AI mode
             $s = self::get_ai_settings();
             $parserMode = $s['parser'] ?? 'hybrid';
@@ -2672,6 +2687,66 @@ class Api
             if (empty($outSteps)) return null;
             return [ 'version' => 1, 'steps' => $outSteps ];
         } catch (\Throwable $e) { return null; }
+    }
+
+    /**
+     * Internal heuristic multi-step plan builder for common Persian phrases.
+     * Targets commands like:
+     *  - "یک فرم جدید بساز و دو سوال پاسخ کوتاه اضافه کن، اسم فرم را چکاپ سه بگذار"
+     *  - "فرم جدید بساز، اسمش را \"فرم چکاپ 3\" بگذار و دو سوال کوتاه اضافه کن"
+     *  - "یک فرم جدید با عنوان X بساز و دو سوال کوتاه اضافه کن"
+     * Returns plan {version:1, steps:[...]} or null if not applicable.
+     */
+    protected static function internal_parse_plan(string $cmd)
+    {
+        $plain = trim($cmd);
+        if ($plain === '') return null;
+        // Normalize Arabic/Persian punctuation variants
+        $sep = preg_replace('/[،,]+/u', '،', $plain);
+        // Detect intent to create a new form
+        $hasCreate = preg_match('/\b(فرم\s*جدید\s*(?:بساز|ایجاد\s*کن)|بساز\s*فرم\s*جدید|یک\s*فرم\s*جدید\s*(?:میخوام|می\s*خوام|بساز))/u', $sep) === 1
+                   || preg_match('/\b(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید\b/u', $sep) === 1
+                   || preg_match('/^\s*فرم\s*جدید\b/u', $sep) === 1
+                   || preg_match('/\bایجاد\s*فرم\s*با\s*عنوان\b/u', $sep) === 1;
+        if (!$hasCreate) return null;
+        // Extract a title if present: patterns like "اسم(ش| فرم) را X بگذار/بذار" or "با عنوان X"
+        $title = '';
+        if (preg_match('/(?:اسم(?:\s*فرم)?|عنوان(?:\s*فرم)?)\s*(?:را|رو)?\s*(.+?)\s*(?:بگذار|بذار|قرار\s*ده|کن)/u', $sep, $m)){
+            $title = trim((string)$m[1]);
+        } elseif (preg_match('/با\s*عنوان\s*(.+?)(?:\s|،|,|$)/u', $sep, $m)){
+            $title = trim((string)$m[1]);
+        }
+        // Clean wrapping quotes/half-space
+        $title = trim($title, " \"'\x{200C}\x{200F}");
+        if ($title === ''){
+            $title = apply_filters('arshline_ai_new_form_default_title', 'فرم جدید');
+        }
+        // Count how many questions to add; support Persian digits and words for 1..5
+        $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+        $count = 0;
+        // Numeric like "دو سوال" or explicit digits
+        if (preg_match('/([0-9۰-۹]+)\s*(?:تا\s*)?\s*(?:سوال|پرسش)/u', $sep, $mm)){
+            $n = (int) strtr($mm[1], $fa2en);
+            if ($n > 0 && $n <= 20) $count = $n;
+        } else {
+            $mapWords = [ 'یک'=>1, 'یه'=>1, 'دو'=>2, 'سه'=>3, 'چهار'=>4, 'پنج'=>5 ];
+            foreach ($mapWords as $w=>$n){ if (preg_match('/\b'.$w.'\s*(?:تا\s*)?\s*(?:سوال|پرسش)/u', $sep)){ $count = $n; break; } }
+        }
+        // Recognize type: default short_text; allow long_text, rating
+        $type = 'short_text';
+        if (preg_match('/\b(پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)\b/iu', $sep)) $type = 'short_text';
+        elseif (preg_match('/\b(پاسخ\s*بلند|متن\s*بلند|long[_\s-]*text)\b/iu', $sep)) $type = 'long_text';
+        elseif (preg_match('/\b(امتیاز|ستاره|rating)\b/iu', $sep)) $type = 'rating';
+        // Only build a plan if it is multi-step: at least one field requested
+        if ($count <= 0) return null;
+        // Build the steps: create_form + count x add_field (id omitted to refer to last created form)
+        $steps = [ [ 'action'=>'create_form', 'params'=> [ 'title' => $title ] ] ];
+        $maxN = max(1, min(12, (int) apply_filters('arshline_ai_plan_internal_max_fields', 6)));
+        $n = min($count, $maxN);
+        for ($i=0; $i<$n; $i++){
+            $steps[] = [ 'action' => 'add_field', 'params' => [ 'type' => $type ] ];
+        }
+        return [ 'version' => 1, 'steps' => $steps ];
     }
 
     public static function get_form_by_token(WP_REST_Request $request)
