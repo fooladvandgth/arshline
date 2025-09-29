@@ -38,14 +38,14 @@
         html += '  <div class="ar-ug-toolbar" style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem">';
         html += '    <span class="title">'+esc(STR.groups||'گروه‌ها')+'</span>';
         html += '    <span style="flex:1 1 auto"></span>';
-        html += '    <button id="ugAddToggle" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
+  html += '    <button id="ugAddToggle" type="button" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
         html += '  </div>';
         // Hidden add box (appears within the same card, not above the table visually)
         html += '  <div id="ugAddBox" style="display:none;margin-bottom:.6rem;padding:.5rem;border:1px dashed var(--border, #d1d5db);border-radius:.5rem;background:var(--surface, #fff)">';
         html += '    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">';
         html += '      <input id="ugNewName" class="regular-text" placeholder="'+esc(STR.name||'نام')+'"/>';
-        html += '      <button id="ugAddConfirm" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
-        html += '      <button id="ugAddCancel" class="button">'+esc(STR.cancel||'انصراف')+'</button>';
+  html += '      <button id="ugAddConfirm" type="button" class="button button-primary">'+esc(STR.add||'افزودن')+'</button>';
+  html += '      <button id="ugAddCancel" type="button" class="button">'+esc(STR.cancel||'انصراف')+'</button>';
         html += '    </div>';
         html += '  </div>';
         // Table
@@ -68,24 +68,23 @@
         html += '</div>'; // card glass
         $m.html(html);
         // Toggle add box visibility
-        $m.on('click', '#ugAddToggle', function(){
-          var box = document.getElementById('ugAddBox');
-          if (!box) return;
-          var show = box.style.display === 'none' || box.style.display === '';
-          box.style.display = show ? 'block' : 'none';
-          try { if (show) document.getElementById('ugNewName').focus(); } catch(_){ }
+        $m.off('click', '#ugAddToggle').on('click', '#ugAddToggle', function(e){
+          e.preventDefault();
+          var $box = $('#ugAddBox'); if(!$box.length) return;
+          var willShow = $box.is(':hidden');
+          try { $box.stop(true,true).slideToggle(150, function(){ if (willShow) { try { document.getElementById('ugNewName').focus(); } catch(_){ } } }); } catch(_){ $box.toggle(); if (willShow) { try { document.getElementById('ugNewName').focus(); } catch(__){} } }
         });
-        // Confirm add
-        $m.on('click', '#ugAddConfirm', function(){
+        // Confirm add (avoid duplicate bind)
+        $m.off('click', '#ugAddConfirm').on('click', '#ugAddConfirm', function(){
           var name = $('#ugNewName').val().trim(); if(!name){ try{ document.getElementById('ugNewName').focus(); }catch(_){ } return; }
           api('user-groups', { credentials:'same-origin', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name }) })
-            .then(function(){ if (window.notify) notify('گروه ایجاد شد', 'success'); renderGroups($m); })
+            .then(function(){ if (window.notify) notify('گروه ایجاد شد', 'success'); $('#ugNewName').val(''); try { $('#ugAddBox').slideUp(120); } catch(_){ $('#ugAddBox').hide(); } renderGroups($m); })
             .catch(function(){ if (window.notify) notify('ایجاد گروه ناموفق بود', 'error'); });
         });
         // Enter to confirm
-        $m.on('keydown', '#ugNewName', function(e){ if (e.key === 'Enter'){ e.preventDefault(); $('#ugAddConfirm').trigger('click'); } });
+  $m.off('keydown', '#ugNewName').on('keydown', '#ugNewName', function(e){ if (e.key === 'Enter'){ e.preventDefault(); $('#ugAddConfirm').trigger('click'); } });
         // Cancel
-        $m.on('click', '#ugAddCancel', function(){ $('#ugNewName').val(''); $('#ugAddBox').hide(); });
+  $m.off('click', '#ugAddCancel').on('click', '#ugAddCancel', function(){ $('#ugNewName').val(''); try { $('#ugAddBox').slideUp(120); } catch(_){ $('#ugAddBox').hide(); } });
         // Enter edit mode
         $m.on('click', '.ugEdit', function(){
           var $tr=$(this).closest('tr'); var id=+$tr.data('id');
