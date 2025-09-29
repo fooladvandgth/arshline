@@ -1725,6 +1725,103 @@ class Api
                 $data = $caps instanceof WP_REST_Response ? $caps->get_data() : ['capabilities'=>[]];
                 return new WP_REST_Response(['ok'=>true, 'action'=>'help', 'capabilities'=>$data['capabilities'] ?? []], 200);
             }
+            // User Groups (UG) intents — lightweight internal parser
+            // 1) Open UG panel (optionally a specific tab)
+            if (preg_match('/^(?:برو\s*به\s*)?(?:کاربران\s*\/\s*)?(گروه(?:‌|\s|-)*های\s*کاربری)(?:\s*،?\s*(?:تب)?\s*(گروه(?:‌|\s|-)*ها|اعضا|اتصال|نقشه|فیلد(?:های)?\s*سفارشی))?$/iu', $cmd, $mUG)){
+                $tabWord = isset($mUG[2]) ? trim((string)$mUG[2]) : '';
+                $tab = 'groups';
+                if ($tabWord !== ''){
+                    $w = mb_strtolower($tabWord, 'UTF-8');
+                    if (preg_match('/^اعضا$/u', $w)) $tab = 'members';
+                    elseif (preg_match('/^(اتصال|نقشه)$/u', $w)) $tab = 'mapping';
+                    elseif (preg_match('/^فیلد/u', $w)) $tab = 'custom_fields';
+                    else $tab = 'groups';
+                }
+                return new WP_REST_Response(['ok'=>true,'action'=>'open_ug','tab'=>$tab], 200);
+            }
+            // Small helper: find groups by fuzzy name
+            $find_group_candidates = function(string $needle, int $limit = 5): array {
+                $needle = trim($needle);
+                if ($needle === '') return [];
+                try { $rows = \Arshline\Modules\UserGroups\GroupRepository::paginated($limit, 1, $needle, 'name', 'ASC'); }
+                catch (\Throwable $e) { $rows = []; }
+                $nl = function($s){ return function_exists('mb_strtolower') ? mb_strtolower((string)$s, 'UTF-8') : strtolower((string)$s); };
+                $n = $nl($needle);
+                $out = [];
+                foreach ($rows as $g){
+                    $name = (string)$g->name;
+                    $nameNL = $nl($name);
+                    $pos = ($n !== '' && $nameNL !== '' && ($p = mb_stripos($nameNL, $n, 0, 'UTF-8')) !== false) ? (int)$p : -1;
+                    $score = $pos >= 0 ? (0.9 - min(0.6, $pos*0.05)) : 0.4; // rough heuristic
+                    $out[] = [ 'id'=>(int)$g->id, 'name'=>$name, 'score'=>$score ];
+                }
+                usort($out, function($a,$b){ return $b['score'] <=> $a['score']; });
+                return array_slice($out, 0, max(1,$limit));
+            };
+            // 2) Create group by name
+            if (preg_match('/^(?:ایجاد|بساز|درست\s*کن|ساختن)\s*گروه\s*(?:جدید\s*)?(?:به\s*نام|با\s*نام)?\s*(.+)$/iu', $cmd, $mGCreate)){
+                $name = trim((string)$mGCreate[1]);
+                $name = trim($name, '\"\'\u{00AB}\u{00BB}'); // strip quotes if any
+                if ($name !== ''){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'ایجاد گروه کاربری با نام «'.$name.'» تایید می‌کنید؟',
+                        'confirm_action'=> [ 'action'=>'ug_create_group', 'params'=>['name'=>$name] ]
+                    ], 200);
+                }
+            }
+            // 3) Rename/update group name by id: "نام گروه 12 را به X تغییر بده"
+            if (preg_match('/^نام\s*گروه\s*(\d+)\s*(?:را|رو)?\s*(?:به|به\s*نام)\s*(.+)\s*(?:تغییر\s*بده|تغییر\s*ده|بگذار|بذار|قرار\s*ده|کن)$/iu', $cmd, $mGRename)){
+                $gid = (int)$mGRename[1]; $newName = trim((string)$mGRename[2]);
+                if ($gid > 0 && $newName !== ''){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'نام گروه '.$gid.' به «'.$newName.'» تغییر داده شود؟',
+                        'confirm_action'=> [ 'action'=>'ug_update_group', 'params'=>['id'=>$gid,'name'=>$newName] ]
+                    ], 200);
+                }
+            }
+            // 4) Ensure tokens for a group id
+            if (preg_match('/^(?:تولید|ایجاد|بساز)\s*(?:توکن|token)(?:\s*برای)?\s*اعضا(?:ی)?\s*گروه\s*(\d+)$/iu', $cmd, $mTok)){
+                $gid = (int)$mTok[1];
+                if ($gid > 0){
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'توکن اعضای گروه '.$gid.' تولید شود؟',
+                        'confirm_action'=> [ 'action'=>'ug_ensure_tokens', 'params'=>['group_id'=>$gid] ]
+                    ], 200);
+                }
+            }
+            // 5) Download members template for group id
+            if (preg_match('/^(?:دانلود|بگیر)\s*(?:فایل|نمونه|تمپلیت)\s*اعضا(?:ی)?\s*گروه\s*(\d+)$/iu', $cmd, $mTpl)){
+                $gid = (int)$mTpl[1];
+                if ($gid > 0){ return new WP_REST_Response(['ok'=>true,'action'=>'ug_download_members_template','group_id'=>$gid], 200); }
+            }
+            // 6) Export per-member links for a group id OR a form id
+            if (preg_match('/^(?:خروجی|دانلود)\s*(?:لینک(?:\s*های)?|پیوند(?:\s*ها)?)\s*اعضا(?:ی)?\s*(?:گروه\s*(\d+)|برای\s*فرم\s*(\d+))$/iu', $cmd, $mExp)){
+                $gid = isset($mExp[1]) ? (int)$mExp[1] : 0; $fid = isset($mExp[2]) ? (int)$mExp[2] : 0;
+                if ($gid > 0){ return new WP_REST_Response(['ok'=>true,'action'=>'ug_export_links','group_id'=>$gid], 200); }
+                if ($fid > 0){ return new WP_REST_Response(['ok'=>true,'action'=>'ug_export_links','form_id'=>$fid], 200); }
+            }
+            // 7) Set form access groups by numeric ids: "برای فرم 5 گروه‌های 2،3 را مجاز کن"
+            if (preg_match('/^برای\s*فرم\s*(\d+)\s*گروه(?:‌|\s|-)*های\s*([\d\s,،و]+)\s*(?:را)?\s*(?:مجاز|فعال)\s*کن$/iu', $cmd, $mMap)){
+                $fid = (int)$mMap[1]; $list = (string)$mMap[2];
+                if ($fid > 0){
+                    $fa2en = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                    $list = strtr($list, $fa2en);
+                    preg_match_all('/\d+/', $list, $mm);
+                    $gids = array_values(array_unique(array_map('intval', $mm[0] ?? [])));
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'confirm',
+                        'message'=>'دسترسی فرم '.$fid.' برای گروه‌ها ['.implode(', ', $gids).'] تنظیم شود؟',
+                        'confirm_action'=> [ 'action'=>'ug_set_form_access', 'params'=>['form_id'=>$fid, 'group_ids'=>$gids] ]
+                    ], 200);
+                }
+            }
             // New Form (natural phrases): e.g., "فرم جدید می خوام", "یک فرم جدید میخوام", "میخوام یک فرم جدید"
             // We treat these as a request to create a new form with a sensible default title.
             if (
