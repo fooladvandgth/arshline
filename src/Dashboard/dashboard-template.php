@@ -369,8 +369,18 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function setActive(tab){
+            var hash = (location.hash||'').replace('#','');
+            var parts = hash.split('/');
+            var seg0 = (parts[0]||'').split('?')[0];
+            var seg1 = (parts[1]||'').split('?')[0];
             links.forEach(function(a){
-                if (a.getAttribute('data-tab') === tab) a.classList.add('active'); else a.classList.remove('active');
+                var dt = a.getAttribute('data-tab');
+                var href = a.getAttribute('href') || '';
+                var isUG = (seg0==='users' && seg1==='ug');
+                var isActive = (dt ? (dt === tab) : false);
+                if (!isActive && dt === 'users' && tab && tab.indexOf('users') === 0) isActive = true;
+                if (!isActive && isUG && href.indexOf('#users/ug') === 0) isActive = true;
+                if (isActive) a.classList.add('active'); else a.classList.remove('active');
             });
         }
         // Map type -> Ionicon name (we already load Ionicons)

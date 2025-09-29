@@ -18,6 +18,7 @@ use Arshline\Modules\UserGroups\MemberRepository;
 use Arshline\Modules\UserGroups\FormGroupAccessRepository;
 use Arshline\Modules\UserGroups\FieldRepository as UGFieldRepo;
 use Arshline\Modules\UserGroups\Field as UGField;
+use Arshline\Core\AccessControl;
 
 class Api
 {
@@ -281,6 +282,8 @@ class Api
         $includeLink = !empty($r->get_param('include_link')) && $formId > 0;
         $groupIds = $r->get_param('group_ids'); if (!is_array($groupIds)) $groupIds = [];
         $groupIds = array_values(array_unique(array_map('intval', $groupIds)));
+        // Enforce group scope for current user
+        $groupIds = AccessControl::filterGroupIdsByCurrentUser($groupIds);
         $template = trim((string)($r->get_param('message') ?? ''));
         // Normalize Persian synonyms in template for early validations
         $templateNorm = str_replace(['#نام', '#لینک'], ['#name', '#link'], $template);
@@ -394,7 +397,24 @@ class Api
 
     public static function user_can_manage_forms(): bool
     {
-        return current_user_can('manage_options') || current_user_can('edit_posts');
+        return AccessControl::currentUserCanFeature('forms');
+    }
+
+    public static function user_can_manage_groups(): bool
+    {
+        return AccessControl::currentUserCanFeature('groups');
+    }
+    public static function user_can_send_sms(): bool
+    {
+        return AccessControl::currentUserCanFeature('sms');
+    }
+    public static function user_can_manage_settings(): bool
+    {
+        return AccessControl::currentUserCanFeature('settings');
+    }
+    public static function user_can_manage_users(): bool
+    {
+        return AccessControl::currentUserCanFeature('users');
     }
 
     public static function register_routes()
@@ -408,7 +428,7 @@ class Api
         register_rest_route('arshline/v1', '/stats', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_stats'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('reports'); },
             'args' => [
                 'days' => [ 'type' => 'integer', 'required' => false ],
             ],
@@ -418,12 +438,12 @@ class Api
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'get_settings'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_settings'],
             ],
             [
                 'methods' => 'PUT',
                 'callback' => [self::class, 'update_settings'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_settings'],
             ]
         ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
@@ -513,28 +533,28 @@ class Api
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'get_ai_config'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
             ],
             [
                 'methods' => 'PUT',
                 'callback' => [self::class, 'update_ai_config'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
             ]
         ]);
         register_rest_route('arshline/v1', '/ai/test', [
             'methods' => 'POST',
                 'callback' => [self::class, 'test_ai_connect'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
         ]);
         register_rest_route('arshline/v1', '/ai/capabilities', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_ai_capabilities'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
         ]);
         register_rest_route('arshline/v1', '/ai/agent', [
             'methods' => 'POST',
             'callback' => [self::class, 'ai_agent'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => function(){ return AccessControl::currentUserCanFeature('ai'); },
         ]);
         // Audit log and undo endpoints (admin-only)
         register_rest_route('arshline/v1', '/ai/audit', [
@@ -565,17 +585,17 @@ class Api
             ],
         ]);
 
-        // User Groups Management (admin-only)
+        // User Groups Management (feature-gated)
         register_rest_route('arshline/v1', '/user-groups', [
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'ug_list_groups'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
             [
                 'methods' => 'POST',
                 'callback' => [self::class, 'ug_create_group'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
                 'args' => [
                     'name' => [ 'type' => 'string', 'required' => true ],
                     'meta' => [ 'required' => false ],
@@ -586,24 +606,24 @@ class Api
             [
                 'methods' => 'PUT',
                 'callback' => [self::class, 'ug_update_group'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
             [
                 'methods' => 'DELETE',
                 'callback' => [self::class, 'ug_delete_group'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
         ]);
         register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members', [
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'ug_list_members'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
             [
                 'methods' => 'POST',
                 'callback' => [self::class, 'ug_add_members'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
                 'args' => [ 'members' => [ 'required' => true ] ]
             ],
         ]);
@@ -611,24 +631,24 @@ class Api
             [
                 'methods' => 'PUT',
                 'callback' => [self::class, 'ug_update_member'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
             [
                 'methods' => 'DELETE',
                 'callback' => [self::class, 'ug_delete_member'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
         ]);
         register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/(?P<member_id>\\d+)/token', [
             'methods' => 'POST',
             'callback' => [self::class, 'ug_ensure_member_token'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => [self::class, 'user_can_manage_groups'],
         ]);
         // Bulk ensure tokens for a group's members
         register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/members/ensure-tokens', [
             'methods' => 'POST',
             'callback' => [self::class, 'ug_bulk_ensure_tokens'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => [self::class, 'user_can_manage_groups'],
         ]);
 
         // Group custom fields
@@ -636,24 +656,24 @@ class Api
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'ug_list_fields'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
             [
                 'methods' => 'POST',
                 'callback' => [self::class, 'ug_create_field'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
         ]);
         register_rest_route('arshline/v1', '/user-groups/(?P<group_id>\\d+)/fields/(?P<field_id>\\d+)', [
             [
                 'methods' => 'PUT',
                 'callback' => [self::class, 'ug_update_field'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
             [
                 'methods' => 'DELETE',
                 'callback' => [self::class, 'ug_delete_field'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_manage_groups'],
             ],
         ]);
 
@@ -676,30 +696,85 @@ class Api
             [
                 'methods' => 'GET',
                 'callback' => [self::class, 'get_sms_settings'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_send_sms'],
             ],
             [
                 'methods' => 'PUT',
                 'callback' => [self::class, 'update_sms_settings'],
-                'permission_callback' => [self::class, 'user_can_manage_forms'],
+                'permission_callback' => [self::class, 'user_can_send_sms'],
             ],
         ]);
         register_rest_route('arshline/v1', '/sms/test', [
             'methods' => 'POST',
             'callback' => [self::class, 'test_sms_connect'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => [self::class, 'user_can_send_sms'],
         ]);
         register_rest_route('arshline/v1', '/sms/send', [
             'methods' => 'POST',
             'callback' => [self::class, 'sms_send'],
-            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'permission_callback' => [self::class, 'user_can_send_sms'],
+        ]);
+
+        // Role policies (super admin only)
+        register_rest_route('arshline/v1', '/roles/policies', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'get_role_policies'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_role_policies'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
+        ]);
+
+        // Roles info (list roles + feature caps) — super admin only
+        register_rest_route('arshline/v1', '/roles', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'get_roles_info'],
+            'permission_callback' => function(){ return current_user_can('manage_options'); },
+        ]);
+
+        // Users management (super admin only)
+        register_rest_route('arshline/v1', '/users', [
+            [
+                'methods' => 'GET',
+                'callback' => [self::class, 'list_users'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+                'args' => [ 'search' => [ 'required' => false ], 'role' => [ 'required' => false ] ],
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [self::class, 'create_user'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+                'args' => [ 'user_email' => [ 'required' => true ], 'user_login' => [ 'required' => true ], 'role' => [ 'required' => false ] ],
+            ],
+        ]);
+        register_rest_route('arshline/v1', '/users/(?P<user_id>\\d+)', [
+            [
+                'methods' => 'PUT',
+                'callback' => [self::class, 'update_user'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
+            [
+                'methods' => 'DELETE',
+                'callback' => [self::class, 'delete_user'],
+                'permission_callback' => function(){ return current_user_can('manage_options'); },
+            ],
         ]);
     }
 
     // ========== User Groups Handlers ==========
     public static function ug_list_groups(WP_REST_Request $r)
     {
-        $rows = GroupRepository::all();
+        // Enforce group scope for non-admins: filter returned groups to allowed set
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed === null) {
+            $rows = GroupRepository::all();
+        } else {
+            $rows = array_values(array_filter(GroupRepository::all(), function($g) use ($allowed){ return in_array((int)$g->id, $allowed, true); }));
+        }
         // Build member counts for listed groups in a single query
         $counts = [];
         try {
@@ -722,6 +797,56 @@ class Api
             'updated_at' => $g->updated_at,
         ]; }, $rows);
         return new WP_REST_Response($out, 200);
+    }
+
+    // ===== Roles/users helpers =====
+    public static function get_roles_info(WP_REST_Request $r)
+    {
+        global $wp_roles;
+        if (!isset($wp_roles)) $wp_roles = wp_roles();
+        $roles = [];
+        foreach ($wp_roles->roles as $k=>$v){ $roles[] = [ 'key'=>$k, 'name'=>$v['name'] ?? $k ]; }
+        return new WP_REST_Response(['roles'=>$roles, 'features'=>array_keys(AccessControl::featureCaps())], 200);
+    }
+    public static function list_users(WP_REST_Request $r)
+    {
+        $args = [ 'number' => 50 ];
+        $search = (string)($r->get_param('search') ?? ''); if ($search !== ''){ $args['search'] = '*'.esc_attr($search).'*'; }
+        $role = (string)($r->get_param('role') ?? ''); if ($role !== ''){ $args['role'] = $role; }
+        $users = get_users($args);
+        $items = array_map(function($u){ return [ 'id'=>$u->ID, 'user_login'=>$u->user_login, 'display_name'=>$u->display_name, 'email'=>$u->user_email, 'roles'=>$u->roles ]; }, $users);
+        return new WP_REST_Response([ 'items'=>$items, 'count'=>count($items) ], 200);
+    }
+    public static function create_user(WP_REST_Request $r)
+    {
+        $email = sanitize_email((string)$r->get_param('user_email'));
+        $login = sanitize_user((string)$r->get_param('user_login'));
+        $role = (string)($r->get_param('role') ?? '');
+        if (!$email || !$login) return new WP_REST_Response(['message'=>'invalid_input'], 422);
+        $pass = wp_generate_password(12, true);
+        $uid = wp_create_user($login, $pass, $email);
+        if (is_wp_error($uid)) return new WP_REST_Response(['message'=>$uid->get_error_message()], 400);
+        if ($role !== ''){ $u = new \WP_User($uid); $u->set_role($role); }
+        return new WP_REST_Response(['id'=>$uid], 201);
+    }
+    public static function update_user(WP_REST_Request $r)
+    {
+        $uid = (int)$r['user_id']; $u = get_user_by('id', $uid); if (!$u) return new WP_REST_Response(['message'=>'not_found'], 404);
+        $role = $r->get_param('role'); if (is_string($role) && $role!==''){ $u = new \WP_User($uid); $u->set_role($role); }
+        $roles = $r->get_param('roles'); if (is_array($roles)){
+            $u = new \WP_User($uid);
+            foreach ($u->roles as $r0){ $u->remove_role($r0); }
+            foreach ($roles as $r1){ if (is_string($r1) && $r1!=='') $u->add_role($r1); }
+        }
+        return new WP_REST_Response(['ok'=>true], 200);
+    }
+    public static function delete_user(WP_REST_Request $r)
+    {
+        $uid = (int)$r['user_id'];
+        if ($uid <= 0) return new WP_REST_Response(['message'=>'invalid_id'], 422);
+        $reassign = null;
+        $ok = wp_delete_user($uid, $reassign);
+        return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
     }
     public static function ug_create_group(WP_REST_Request $r)
     {
@@ -762,6 +887,11 @@ class Api
     public static function ug_list_members(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id'];
+        // Enforce group scope
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         // Support pagination and search for large datasets
         $per_page = (int)($r->get_param('per_page') ?? 20);
         if ($per_page <= 0) $per_page = 20; if ($per_page > 200) $per_page = 200;
@@ -794,6 +924,10 @@ class Api
     public static function ug_add_members(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         $members = $r->get_param('members');
         if (!is_array($members)) return new WP_REST_Response(['message' => 'members باید آرایه باشد.'], 422);
         $n = MemberRepository::addBulk($gid, $members);
@@ -802,12 +936,20 @@ class Api
     public static function ug_delete_member(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id']; $mid = (int)$r['member_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         $ok = MemberRepository::delete($gid, $mid);
         return new WP_REST_Response(['ok' => (bool)$ok], $ok?200:404);
     }
     public static function ug_update_member(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id']; $mid = (int)$r['member_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         $name = $r->get_param('name');
         $phone = $r->get_param('phone');
         $data = $r->get_param('data');
@@ -823,7 +965,15 @@ class Api
     public static function ug_ensure_member_token(WP_REST_Request $r)
     {
         $mid = (int)$r['member_id'];
-        $tok = MemberRepository::ensureToken($mid);
+        // Gate by member's group scope
+        $tok = null;
+        try {
+            $m = MemberRepository::find($mid);
+            $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+            if ($m && ($allowed === null || in_array((int)$m->group_id, $allowed, true))){
+                $tok = MemberRepository::ensureToken($mid);
+            }
+        } catch (\Throwable $e) { /* noop */ }
         if (!$tok) return new WP_REST_Response(['message' => 'عضو یافت نشد.'], 404);
         return new WP_REST_Response(['token' => $tok], 200);
     }
@@ -831,6 +981,10 @@ class Api
     public static function ug_bulk_ensure_tokens(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         $count = 0;
         try {
             $members = MemberRepository::list($gid, 50000);
@@ -843,6 +997,10 @@ class Api
     public static function ug_list_fields(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         $rows = UGFieldRepo::listByGroup($gid);
         $out = array_map(function($f){ return [
             'id' => $f->id,
@@ -859,6 +1017,10 @@ class Api
     public static function ug_create_field(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         $name = trim((string)$r->get_param('name'));
         $label = trim((string)$r->get_param('label'));
         $type = trim((string)($r->get_param('type') ?? 'text'));
@@ -873,6 +1035,10 @@ class Api
     public static function ug_update_field(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id']; $fid = (int)$r['field_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         $rows = UGFieldRepo::listByGroup($gid);
         $target = null; foreach ($rows as $f){ if ((int)$f->id === $fid) { $target = $f; break; } }
         if (!$target) return new WP_REST_Response(['message'=>'not_found'], 404);
@@ -889,10 +1055,28 @@ class Api
     public static function ug_delete_field(WP_REST_Request $r)
     {
         $gid = (int)$r['group_id']; $fid = (int)$r['field_id'];
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null && !in_array($gid, $allowed, true)){
+            return new WP_REST_Response(['message' => 'دسترسی مجاز نیست.'], 403);
+        }
         // Ensure it belongs to the group
         $rows = UGFieldRepo::listByGroup($gid);
         $ok = false; foreach ($rows as $f){ if ((int)$f->id === $fid) { $ok = UGFieldRepo::delete($fid); break; } }
         return new WP_REST_Response(['ok'=>(bool)$ok], $ok?200:404);
+    }
+
+    // ===== Roles/Policies endpoints (super admin) =====
+    public static function get_role_policies(WP_REST_Request $r)
+    {
+        $pol = AccessControl::getPolicies();
+        return new WP_REST_Response(['policies' => $pol], 200);
+    }
+    public static function update_role_policies(WP_REST_Request $r)
+    {
+        $body = $r->get_json_params(); if (!is_array($body)) $body = $r->get_params();
+        $pol = is_array($body['policies'] ?? null) ? $body['policies'] : [];
+        $saved = AccessControl::updatePolicies($pol);
+        return new WP_REST_Response(['ok'=>true, 'policies'=>$saved], 200);
     }
 
     // ========== Form ↔ Group access mapping (admin-only) ==========
@@ -901,6 +1085,10 @@ class Api
         $fid = (int)$r['form_id'];
         if ($fid <= 0) return new WP_REST_Response(['group_ids' => []], 200);
         $ids = FormGroupAccessRepository::getGroupIds($fid);
+        $allowed = AccessControl::allowedGroupIdsForCurrentUser();
+        if ($allowed !== null){
+            $ids = array_values(array_intersect(array_map('intval', $ids), array_map('intval', $allowed)));
+        }
         return new WP_REST_Response(['group_ids' => array_values($ids)], 200);
     }
     public static function set_form_access_groups(WP_REST_Request $r)
@@ -910,6 +1098,8 @@ class Api
         $arr = $r->get_param('group_ids');
         if (!is_array($arr)) $arr = [];
         $ids = array_values(array_unique(array_map('intval', $arr)));
+        // Enforce group scope: only allow mapping within current user's allowed groups
+        $ids = AccessControl::filterGroupIdsByCurrentUser($ids);
         FormGroupAccessRepository::setGroupIds($fid, $ids);
         return new WP_REST_Response(['ok'=>true, 'group_ids'=>$ids], 200);
     }

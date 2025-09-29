@@ -33,18 +33,22 @@
 
 /* فاصله آیکون در RTL */
 [dir='rtl'] .arshline-sidebar nav a .ic {
-    margin-right: 50px;
+    /* Remove excessive offset that pushed icons out; rely on nav padding + gap */
+    margin-right: 0;
 }
 [dir='ltr'] .arshline-sidebar nav a .ic {
-    margin-left: 50px;
+    /* Remove excessive offset that pushed icons out; rely on nav padding + gap */
+    margin-left: 0;
 }
 
 /* تنظیم فاصله در حالت بسته */
 [dir='rtl'] .arshline-sidebar.closed nav {
-    padding-inline-end: 12px;
+    /* Keep icons ~14px away from right edge when collapsed (RTL) */
+    padding-inline-start: 14px;
 }
 [dir='ltr'] .arshline-sidebar.closed nav {
-    padding-inline-start: 12px;
+    /* Keep icons ~14px away from left edge when collapsed (LTR) */
+    padding-inline-start: 14px;
 }
 
 [dir='rtl'] .arshline-sidebar.closed nav a .ic {
@@ -52,8 +56,8 @@
 }
 [dir='ltr'] .arshline-sidebar.closed nav a .ic {
     margin-left: 0;
-}* Layout structure, sidebar, main content area, and header
- */
+}
+/* Layout structure, sidebar, main content area, and header */
 
 /* ============================================================================
    Base Layout Structure
@@ -142,27 +146,29 @@ body {
 
 /* RTL icon spacing adjustments */
 [dir='rtl'] .arshline-sidebar nav a .ic {
-    margin-right: 50px;
+    margin-right: 0;
 }
 
 [dir='ltr'] .arshline-sidebar nav a .ic {
-    margin-left: 50px;
+    margin-left: 0;
 }
 
 [dir='rtl'] .arshline-sidebar.closed nav {
-    padding-inline-end: 12px;
+    padding-inline-start: 14px;
 }
 
 [dir='ltr'] .arshline-sidebar.closed nav {
-    padding-inline-start: 12px;
+    padding-inline-start: 14px;
 }
 
 [dir='rtl'] .arshline-sidebar.closed nav a .ic {
-    margin-right: 50px;
+    /* In collapsed state, center the icon without extra offset */
+    margin-right: 0;
 }
 
 [dir='ltr'] .arshline-sidebar.closed nav a .ic {
-    margin-left: 50px;
+    /* In collapsed state, center the icon without extra offset */
+    margin-left: 0;
 }
 
 .arshline-sidebar nav a .label {
@@ -171,7 +177,7 @@ body {
 }
 
 .arshline-sidebar.closed nav a {
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .arshline-sidebar.closed nav a .label {
@@ -393,6 +399,18 @@ body.preview-only .arshline-main {
     position: sticky;
     top: 0;
     z-index: 40;
+}
+
+/* --------------------------------------------------------------------------
+     Desktop-specific tweak: ensure collapsed RTL icons have extra inset
+     Requested fix: [dir='rtl'] .arshline-sidebar.closed nav a .ic { margin-right: 50px; }
+     Apply only on desktop to avoid crowding on smaller screens.
+---------------------------------------------------------------------------- */
+@media (min-width: 1025px) {
+    /* Desktop: keep icons 50px away from the right edge in RTL when collapsed */
+    [dir='rtl'] .arshline-sidebar.closed nav {
+        padding-inline-start: 50px !important;
+    }
 }
 
 .arshline-header-left {

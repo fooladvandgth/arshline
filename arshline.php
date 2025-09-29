@@ -20,6 +20,7 @@ use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\FormsModule;
 use Arshline\Core\Api;
+use Arshline\Core\AccessControl;
 use Arshline\Dashboard\SettingsPage;
 use Arshline\Dashboard\UserGroupsPage;
 
@@ -112,6 +113,7 @@ add_action('template_redirect', static function () {
 });
 
 add_action('plugins_loaded', static function () {
+    AccessControl::boot();
     Dashboard::boot();
     FormsModule::boot();
     Api::boot();

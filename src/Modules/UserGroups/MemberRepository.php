@@ -131,6 +131,15 @@ class MemberRepository
         return $tok;
     }
 
+    /** Find a member by ID. */
+    public static function find(int $memberId): ?Member
+    {
+        global $wpdb;
+        $t = Helpers::tableName('user_group_members');
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d", $memberId), ARRAY_A);
+        return $row ? new Member($row) : null;
+    }
+
     /**
      * Find a member by raw token (exact match) or by token hash.
      * Returns a hydrated Member model on success or null when not found.

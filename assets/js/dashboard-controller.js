@@ -199,11 +199,19 @@
     }
 
     function setActive(tab){
+      var hash = (location.hash||'').replace('#','');
+      var parts = hash.split('/');
+      var seg0 = (parts[0]||'').split('?')[0];
+      var seg1 = (parts[1]||'').split('?')[0];
       links.forEach(function(a){
-        var isActive = a.getAttribute('data-tab') === tab || (
-          // Treat nested routes like users/ug as users
-          (tab && tab.indexOf('users') === 0 && a.getAttribute('data-tab') === 'users')
-        );
+        var dt = a.getAttribute('data-tab');
+        var href = a.getAttribute('href') || '';
+        var isUG = (seg0==='users' && seg1==='ug');
+        var isActive = (dt ? (dt === tab) : false);
+        // Treat nested routes like users/ug as users
+        if (!isActive && dt === 'users' && tab && tab.indexOf('users') === 0) isActive = true;
+        // Explicitly highlight the UG anchor when on users/ug
+        if (!isActive && isUG && href.indexOf('#users/ug') === 0) isActive = true;
         if (isActive){
           a.classList.add('active');
           try { a.setAttribute('aria-current', 'page'); } catch(_){ }
@@ -730,15 +738,139 @@
           }
         });
       } else if (tab === 'users'){
-        // Users landing with subsection link to گروه‌های کاربری
-        var ugHref = '#users/ug?tab=groups';
-        content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\
-          <div class="card glass" style="padding:1rem;display:flex;align-items:center;justify-content:space-between;gap:.8rem;flex-wrap:wrap">\
-            <div><span class="title">کاربران</span><div class="hint">مدیریت نقش‌ها و دسترسی‌ها</div></div>\
-            <a class="ar-btn" href="'+ugHref+'">گروه‌های کاربری</a>\
-          </div>\
-          <div class="card glass"><span class="title">همکاری تیمی</span><div class="hint">دعوت هم‌تیمی‌ها (Placeholder)</div></div>\
-        </div>';
+        // Users: list/search/create + Roles/Policies editor (super admin)
+        var uqs = new URLSearchParams((location.hash.split('?')[1]||''));
+        var utab = uqs.get('tab') || 'list'; // list | policies
+        function setUsersHash(which){ try { setHash('users' + (which && which!=='list' ? ('?tab='+encodeURIComponent(which)) : '')); } catch(_){ } }
+        content.innerHTML = ''+
+          '<div class="card glass" style="padding:1rem;display:flex;flex-direction:column;gap:.8rem">'
+          + '  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
+          + '    <button class="ar-btn ar-btn--soft" data-u-tab="list">کاربران</button>'
+          + '    <button class="ar-btn ar-btn--soft" data-u-tab="policies">نقش‌ها و سیاست‌ها</button>'
+          + '    <span style="flex:1 1 auto"></span>'
+          + '    <a class="ar-btn ar-btn--outline" href="#users/ug">گروه‌های کاربری</a>'
+          + '  </div>'
+          + '  <div id="arU_List" class="u-panel" style="display:none">'
+          + '    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+          + '      <span class="title">کاربران</span>'
+          + '      <span style="flex:1 1 auto"></span>'
+          + '      <input id="uSearch" class="ar-input" placeholder="جستجو نام کاربری/ایمیل" style="min-width:220px" />'
+          + '      <select id="uRoleFilter" class="ar-select" style="min-width:180px"><option value="">همه نقش‌ها</option></select>'
+          + '      <button id="uReload" class="ar-btn ar-btn--soft">نوسازی</button>'
+          + '    </div>'
+          + '    <details id="uCreateWrap" style="margin-top:.6rem"><summary class="ar-btn ar-btn--outline">+ افزودن کاربر</summary>'
+          + '      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.6rem">'
+          + '        <input id="uNewLogin" class="ar-input" placeholder="نام کاربری" style="min-width:160px" />'
+          + '        <input id="uNewEmail" class="ar-input" placeholder="ایمیل" style="min-width:220px" />'
+          + '        <select id="uNewRole" class="ar-select" style="min-width:180px"><option value="">نقش (اختیاری)</option></select>'
+          + '        <button id="uCreate" class="ar-btn">ایجاد کاربر</button>'
+          + '      </div>'
+          + '      <div class="hint">رمز عبور به‌صورت خودکار تولید می‌شود؛ می‌توانید بعدا تغییر دهید.</div>'
+          + '    </details>'
+          + '    <div id="uList" class="card" style="margin-top:.6rem;padding:.6rem">'
+          + '      <div class="hint">در حال بارگذاری کاربران...</div>'
+          + '    </div>'
+          + '  </div>'
+          + '  <div id="arU_Policies" class="u-panel" style="display:none">'
+          + '    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+          + '      <span class="title">نقش‌ها و سیاست‌های دسترسی</span>'
+          + '      <span style="flex:1 1 auto"></span>'
+          + '      <button id="uPolSave" class="ar-btn">ذخیره سیاست‌ها</button>'
+          + '    </div>'
+          + '    <div id="uPolWrap" class="card" style="margin-top:.6rem;padding:.6rem">'
+          + '      <div class="hint">در حال بارگذاری نقش‌ها و سیاست‌ها...</div>'
+          + '    </div>'
+          + '  </div>'
+          + '</div>';
+
+        (function bindUsersTabs(){ var btns = content.querySelectorAll('[data-u-tab]'); function show(which){ btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-u-tab')===which); }); var L=document.getElementById('arU_List'); var P=document.getElementById('arU_Policies'); if (L) L.style.display = (which==='list')?'block':'none'; if (P) P.style.display = (which==='policies')?'block':'none'; setUsersHash(which); if (which==='list'){ __u_initList(); } else { __u_initPolicies(); } } btns.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-u-tab')||'list'); }); }); show(utab); })();
+
+        // Users List implementation
+        function __u_initList(){
+          var roleSelect = document.getElementById('uRoleFilter');
+          var newRoleSel = document.getElementById('uNewRole');
+          var listBox = document.getElementById('uList');
+          function loadRoles(){ return fetch(ARSHLINE_REST + 'roles', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+            .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+            .then(function(j){ var roles = Array.isArray(j.roles)? j.roles: []; var opts = '<option value="">همه نقش‌ها</option>' + roles.map(function(r){ return '<option value="'+escapeAttr(r.key)+'">'+escapeHtml(r.name||r.key)+'</option>'; }).join(''); if (roleSelect) roleSelect.innerHTML = opts; if (newRoleSel){ newRoleSel.innerHTML = '<option value="">نقش (اختیاری)</option>' + roles.map(function(r){ return '<option value="'+escapeAttr(r.key)+'">'+escapeHtml(r.name||r.key)+'</option>'; }).join(''); } return roles; })
+            .catch(function(e){ (roleSelect)&&(roleSelect.innerHTML='<option value="">همه نقش‌ها</option>'); return []; }); }
+          function renderUsers(items){ if (!listBox) return; if (!Array.isArray(items)||items.length===0){ listBox.innerHTML = '<div class="hint">کاربری یافت نشد.</div>'; return; } listBox.innerHTML = items.map(function(u){ var roles = Array.isArray(u.roles)?u.roles:[]; return '\
+            <div class="card glass" data-uid="'+u.id+'" style="padding:.6rem;margin-bottom:.5rem">\
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap">\
+                <div>\
+                  <div class="title" style="font-size:1rem">'+escapeHtml(u.user_login||('user#'+u.id))+'</div>\
+                  <div class="hint">'+escapeHtml(u.email||'')+'</div>\
+                </div>\
+                <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">\
+                  <span class="hint">نقش‌ها:</span>\
+                  <select class="uRoles ar-select" multiple size="3" style="min-width:180px"></select>\
+                  <button class="uSaveRoles ar-btn ar-btn--soft">ذخیره نقش‌ها</button>\
+                  <button class="uDelete ar-btn ar-btn--danger" title="حذف کاربر">حذف</button>\
+                </div>\
+              </div>\
+            </div>';
+          }).join('');
+          // populate role selects
+          fetch(ARSHLINE_REST + 'roles', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+            .then(function(r){ return r.json(); })
+            .then(function(j){ var all = Array.isArray(j.roles)? j.roles: []; var map = all.reduce(function(m,r){ m[r.key]=r.name||r.key; return m; }, {}); listBox.querySelectorAll('.card[data-uid]').forEach(function(card){ var uid = parseInt(card.getAttribute('data-uid')||'0'); var sel = card.querySelector('.uRoles'); if (!sel) return; var user = items.find(function(x){ return parseInt(x.id)===uid; }) || { roles: [] }; var html = all.map(function(r){ var selAttr = (user.roles||[]).indexOf(r.key)>=0 ? ' selected' : ''; return '<option value="'+escapeAttr(r.key)+'"'+selAttr+'>'+escapeHtml(r.name||r.key)+'</option>'; }).join(''); sel.innerHTML = html; });
+              // bind buttons
+              listBox.querySelectorAll('.uSaveRoles').forEach(function(btn){ btn.addEventListener('click', function(){ var card=btn.closest('.card[data-uid]'); if (!card) return; var uid=parseInt(card.getAttribute('data-uid')||'0'); var sel = card.querySelector('.uRoles'); var roles = []; try { roles = Array.from(sel.selectedOptions).map(function(o){ return o.value; }); } catch(_){ roles=[]; } fetch(ARSHLINE_REST + 'users/'+uid, { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ roles: roles }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('نقش‌های کاربر ذخیره شد', 'success'); __u_load(); }).catch(function(){ notify('ذخیره نقش‌ها ناموفق بود', 'error'); }); }); });
+              listBox.querySelectorAll('.uDelete').forEach(function(btn){ btn.addEventListener('click', function(){ var card=btn.closest('.card[data-uid]'); if (!card) return; var uid=parseInt(card.getAttribute('data-uid')||'0'); if (!uid) return; if (!confirm('حذف کاربر #'+uid+'؟')) return; fetch(ARSHLINE_REST + 'users/'+uid, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); }).then(function(res){ if (res.ok && res.body && res.body.ok){ notify('کاربر حذف شد', 'success'); __u_load(); } else { notify('حذف کاربر ناموفق بود', 'error'); } }).catch(function(){ notify('حذف کاربر ناموفق بود', 'error'); }); }); });
+            });
+          }
+          function __u_load(){ if (listBox) listBox.innerHTML = '<div class="hint">در حال بارگذاری...</div>'; var qs=new URLSearchParams(); var s=String(document.getElementById('uSearch')?.value||'').trim(); var rf=String(document.getElementById('uRoleFilter')?.value||'').trim(); if (s) qs.set('search', s); if (rf) qs.set('role', rf); fetch(ARSHLINE_REST + 'users' + (qs.toString()?('?'+qs.toString()):''), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if (r.status===403){ return r.json().then(function(){ throw new Error('forbidden'); }); } if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(obj){ renderUsers(obj.items||[]); }).catch(function(e){ if (listBox) listBox.innerHTML = '<div class="hint">دسترسی به مدیریت کاربران ندارید.</div>'; }); }
+          // Wire controls
+          var rBtn = document.getElementById('uReload'); if (rBtn) rBtn.addEventListener('click', __u_load);
+          var sInp = document.getElementById('uSearch'); if (sInp) sInp.addEventListener('input', function(){ clearTimeout(sInp._t); sInp._t = setTimeout(__u_load, 250); });
+          if (roleSelect) roleSelect.addEventListener('change', __u_load);
+          // Create user
+          var cBtn = document.getElementById('uCreate'); if (cBtn) cBtn.addEventListener('click', function(){ var login = String(document.getElementById('uNewLogin')?.value||'').trim(); var email = String(document.getElementById('uNewEmail')?.value||'').trim(); var role = String(document.getElementById('uNewRole')?.value||'').trim(); if (!login || !email){ notify('نام کاربری و ایمیل الزامی هستند', 'warn'); return; } fetch(ARSHLINE_REST + 'users', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ user_login: login, user_email: email, role: role||undefined }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('کاربر ایجاد شد', 'success'); try { document.getElementById('uCreateWrap').open = false; } catch(_){ } __u_load(); }).catch(function(){ notify('ایجاد کاربر ناموفق بود', 'error'); }); });
+          loadRoles().then(__u_load);
+        }
+
+        // Policies editor implementation (super admin only)
+        function __u_initPolicies(){
+          var wrap = document.getElementById('uPolWrap'); var saveBtn = document.getElementById('uPolSave'); if (wrap) wrap.innerHTML = '<div class="hint">در حال بارگذاری...</div>';
+          var rolesInv = []; var features = []; var groups = [];
+          function loadAll(){
+            return Promise.all([
+              fetch(ARSHLINE_REST + 'roles', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('roles:'+r.status); return r.json(); }).then(function(j){ rolesInv = Array.isArray(j.roles)? j.roles: []; features = Array.isArray(j.features)? j.features: []; }),
+              fetch(ARSHLINE_REST + 'roles/policies', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('pol:'+r.status); return r.json(); }),
+              fetch(ARSHLINE_REST + 'user-groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('groups:'+r.status); return r.json(); }).then(function(gs){ groups = Array.isArray(gs) ? gs : []; })
+            ]).then(function(results){ return results[1]; });
+          }
+          function featLabel(k){ switch(k){ case 'forms': return 'فرم‌ها'; case 'groups': return 'گروه‌ها'; case 'sms': return 'پیامک'; case 'reports': return 'گزارش‌ها'; case 'settings': return 'تنظیمات'; case 'users': return 'کاربران'; case 'ai': return 'هوش مصنوعی'; default: return k; } }
+          function renderPol(policies){ if (!wrap) return; var pol = (policies && policies.policies) ? policies.policies : policies; var byRole = (pol && pol.roles) ? pol.roles : {}; var roleKeys = Object.keys(byRole);
+            if (!roleKeys.length){ wrap.innerHTML = '<div class="hint">نقشی برای ویرایش یافت نشد.</div>'; return; }
+            wrap.innerHTML = roleKeys.map(function(rk){ var rpol = byRole[rk] || {}; var label = String(rpol.label||rk); var feats = rpol.features || {}; var gs = rpol.group_scope || { all:false, ids:[] }; var featHtml = features.map(function(fk){ var on = !!feats[fk]; return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin:.2rem .4rem">\
+                <input type="checkbox" class="uPolFeat" data-role="'+escapeAttr(rk)+'" value="'+escapeAttr(fk)+'"'+(on?' checked':'')+' /> '+featLabel(fk)+'\
+              </label>'; }).join('');
+              var grpOpts = groups.map(function(g){ var sel = Array.isArray(gs.ids) && gs.ids.indexOf(g.id)>=0 ? ' selected' : ''; return '<option value="'+String(g.id)+'"'+sel+'>#'+g.id+' — '+escapeHtml(g.name||('گروه #'+g.id))+'</option>'; }).join('');
+              return '\
+              <div class="card glass" data-role="'+escapeAttr(rk)+'" style="padding:.7rem;margin:.5rem 0">\
+                <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;justify-content:space-between">\
+                  <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">\
+                    <span class="title" style="font-size:1rem">'+escapeHtml(label)+'</span>\
+                    <span class="hint">('+escapeHtml(rk)+')</span>\
+                  </div>\
+                </div>\
+                <div style="margin:.4rem 0;display:flex;gap:.4rem;flex-wrap:wrap">'+featHtml+'</div>\
+                <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-top:.4rem">\
+                  <label style="display:inline-flex;align-items:center;gap:.35rem"><input type="checkbox" class="uPolAllGroups" '+(gs.all?'checked':'')+'> دسترسی به همه گروه‌ها</label>\
+                  <span class="hint">یا انتخاب گروه‌های مجاز:</span>\
+                  <select class="uPolGroups ar-select" multiple size="4" style="min-width:240px;'+(gs.all?'opacity:.5;pointer-events:none;':'')+'">'+grpOpts+'</select>\
+                </div>\
+              </div>';
+            }).join('');
+            // wire all-groups toggles
+            wrap.querySelectorAll('.card[data-role]').forEach(function(card){ var ag = card.querySelector('.uPolAllGroups'); var sel = card.querySelector('.uPolGroups'); if (ag){ ag.addEventListener('change', function(){ if (!sel) return; if (ag.checked){ sel.style.opacity = '.5'; sel.style.pointerEvents = 'none'; } else { sel.style.opacity = ''; sel.style.pointerEvents = ''; } }); } });
+          }
+          function collectPolicies(){ var out = { roles: {} }; if (!wrap) return out; wrap.querySelectorAll('.card[data-role]').forEach(function(card){ var rk = card.getAttribute('data-role'); var feats = {}; card.querySelectorAll('.uPolFeat').forEach(function(ch){ var key = ch.value; feats[key] = !!ch.checked; }); var allG = !!(card.querySelector('.uPolAllGroups')?.checked); var ids = []; if (!allG){ try { ids = Array.from(card.querySelector('.uPolGroups')?.selectedOptions||[]).map(function(o){ return parseInt(o.value)||0; }).filter(Boolean); } catch(_){ ids=[]; } } out.roles[rk] = { features: feats, group_scope: { all: allG, ids: ids } }; }); return out; }
+          function savePolicies(){ var payload = { policies: collectPolicies() }; fetch(ARSHLINE_REST + 'roles/policies', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('سیاست‌ها ذخیره شد', 'success'); }).catch(function(e){ if (String(e&&e.message||'').indexOf('403')>=0){ notify('فقط مدیر سایت می‌تواند سیاست‌ها را ویرایش کند.', 'warn'); } else { notify('ذخیره سیاست‌ها ناموفق بود', 'error'); } }); }
+          if (saveBtn) { saveBtn.onclick = savePolicies; }
+          loadAll().then(function(pol){ renderPol(pol); }).catch(function(e){ if (wrap) wrap.innerHTML = '<div class="hint">دسترسی به ویرایش سیاست‌ها ندارید.</div>'; });
+        }
       } else if (tab === 'settings'){
         content.innerHTML = '\
           <div class="card glass" style="padding:1rem;display:flex;flex-direction:column;gap:.8rem;">\
