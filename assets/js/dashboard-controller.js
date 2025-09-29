@@ -580,18 +580,56 @@
             .catch(function(){ notify('تست ناموفق بود', 'error'); });
         });
         // Send to groups
-        var btnSend = document.getElementById('smsSend'); if (btnSend) btnSend.addEventListener('click', function(){
+        var btnSend = document.getElementById('smsSend'); if (btnSend) btnSend.addEventListener('click', async function(){
           var groupsSel = document.getElementById('smsGroups'); var formSel = document.getElementById('smsForm'); var msgEl = document.getElementById('smsMessage'); var schEl = document.getElementById('smsSchedule');
           var gids = []; try { gids = Array.from(groupsSel && groupsSel.selectedOptions || []).map(function(o){ return parseInt(o.value||'0'); }).filter(function(x){ return x>0; }); } catch(_){ }
           var fid = parseInt((formSel && formSel.value)||'0')||0; var includeLink = fid>0;
-          var message = ((msgEl && msgEl.value)||'') + ' لغو11'; var schedule_at = (schEl && schEl.value)||'';
+          var messageRaw = (msgEl && msgEl.value)||''; var schedule_at = (schEl && schEl.value)||'';
+          // Preflight: if message uses #link/#لینک but no form selected, block
+          var usesLink = /(#link|#لینک)/i.test(messageRaw);
+          if (usesLink && !includeLink){ notify('در متن از #لینک استفاده شده ولی فرمی انتخاب نشده است.', 'warn'); return; }
+          // Additional preflight: if a form is selected for personal link, ensure it is published and has a public token
+          if (includeLink){
+            try {
+              var fRes = await fetch(ARSHLINE_REST + 'forms/' + fid, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} });
+              var fJson = await fRes.json().catch(function(){ return {}; });
+              if (!fRes.ok){ notify('عدم دسترسی به فرم انتخابی یا خطا در بارگذاری فرم.', 'error'); return; }
+              var fStatus = (fJson && fJson.status) || '';
+              if (String(fStatus) !== 'published'){
+                notify('فرم انتخابی باید «فعال/منتشر» باشد تا لینک اختصاصی ساخته شود.', 'warn');
+                return;
+              }
+              // Ensure public token exists (server auto-generates for published forms, but we ensure explicitly if needed)
+              if (!fJson.token){
+                try { await fetch(ARSHLINE_REST + 'forms/' + fid + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }); } catch(_){ }
+              }
+            } catch(_){ /* network/preflight failure */ }
+          }
+          var message = messageRaw + ' لغو11';
           if (!gids.length){ notify('حداقل یک گروه را انتخاب کنید', 'warn'); return; }
           if (!message.trim()){ notify('متن پیام خالی است', 'warn'); return; }
           var payload = { group_ids: gids, message: message, include_link: includeLink, form_id: includeLink? fid: undefined, schedule_at: schedule_at||undefined };
-          fetch(ARSHLINE_REST + 'sms/send', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) })
-            .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); })
-            .then(function(res){ if (res.ok){ if (res.body && res.body.job_id){ notify('در صف ارسال قرار گرفت (#'+res.body.job_id+')', 'success'); } else { notify('ارسال انجام شد: '+(res.body && res.body.sent || 0), 'success'); } } else { notify('ارسال ناموفق بود', 'error'); } })
-            .catch(function(){ notify('خطا در ارسال پیامک', 'error'); });
+          try {
+            var r = await fetch(ARSHLINE_REST + 'sms/send', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) });
+            var body = await r.json().catch(function(){ return {}; });
+            if (r.ok){
+              if (body && body.job_id){ notify('در صف ارسال قرار گرفت (#'+body.job_id+')', 'success'); }
+              else { notify('ارسال انجام شد: '+(body && body.sent || 0), 'success'); }
+            } else {
+              var code = body && body.error;
+              var errMsg = (body && (body.message || body.error)) || 'ارسال ناموفق بود';
+              if (code === 'sms_disabled') errMsg = 'ارسال پیامک غیرفعال است. لطفاً تنظیمات پیامک را فعال کنید.';
+              else if (code === 'missing_config') errMsg = 'تنظیمات پیامک ناقص است (API Key یا شماره خط). لطفاً در «تنظیمات پیامک» تکمیل کنید.';
+              else if (code === 'no_groups') errMsg = 'حداقل یک گروه را انتخاب کنید.';
+              else if (code === 'empty_message') errMsg = 'متن پیام خالی است.';
+              else if (code === 'no_recipients') errMsg = 'هیچ مخاطبی با شماره معتبر در گروه‌های انتخابی یافت نشد.';
+              else if (code === 'link_placeholder_without_form') errMsg = 'در متن از #لینک استفاده شده ولی فرمی انتخاب نشده است.';
+              else if (code === 'link_build_failed') errMsg = 'ساخت لینک اختصاصی برای یکی از اعضا ناموفق بود' + (body && body.member_id ? ' (عضو #'+body.member_id+')' : '') + '. مطمئن شوید فرم فعال است و توکن عمومی دارد.';
+              notify(errMsg, 'error');
+            }
+          } catch(e){
+            notify('خطا در ارسال پیامک', 'error');
+          }
         });
       } else if (tab === 'users'){
         // Users landing with subsection link to گروه‌های کاربری

@@ -273,9 +273,9 @@ class Api
     /** POST /sms/send — create a job or send immediately. */
     public static function sms_send(\WP_REST_Request $r)
     {
-        $cfg = self::get_sms_settings_store();
-        if (!$cfg['enabled']) return new \WP_REST_Response(['error'=>'sms_disabled'], 422);
-        if ($cfg['api_key'] === '' || $cfg['line_number'] === '') return new \WP_REST_Response(['error'=>'missing_config'], 422);
+    $cfg = self::get_sms_settings_store();
+    if (!$cfg['enabled']) return new \WP_REST_Response(['error'=>'sms_disabled','message'=>'ارسال پیامک غیرفعال است. لطفاً در تنظیمات پیامک فعال کنید.'], 422);
+    if ($cfg['api_key'] === '' || $cfg['line_number'] === '') return new \WP_REST_Response(['error'=>'missing_config','message'=>'تنظیمات پیامک ناقص است (API Key یا شماره خط).'], 422);
 
         $formId = (int)($r->get_param('form_id') ?? 0);
         $includeLink = !empty($r->get_param('include_link')) && $formId > 0;
@@ -284,8 +284,8 @@ class Api
         $template = trim((string)($r->get_param('message') ?? ''));
         // Normalize Persian synonyms in template for early validations
         $templateNorm = str_replace(['#نام', '#لینک'], ['#name', '#link'], $template);
-        if (empty($groupIds)) return new \WP_REST_Response(['error'=>'no_groups'], 422);
-        if ($template === '') return new \WP_REST_Response(['error'=>'empty_message'], 422);
+    if (empty($groupIds)) return new \WP_REST_Response(['error'=>'no_groups','message'=>'حداقل یک گروه را انتخاب کنید.'], 422);
+    if ($template === '') return new \WP_REST_Response(['error'=>'empty_message','message'=>'متن پیام خالی است.'], 422);
         // If template uses #link but includeLink not requested (no form), abort
         if (strpos($templateNorm, '#link') !== false && !$includeLink){
             return new \WP_REST_Response(['error'=>'link_placeholder_without_form','message'=>'در متن از #لینک استفاده شده ولی فرمی انتخاب نشده است.'], 422);
@@ -299,7 +299,7 @@ class Api
         $byPhone = [];
         foreach ($rows as $row){ $ph = preg_replace('/[^0-9]/', '', (string)$row['phone']); if ($ph==='') continue; $row['phone'] = $ph; $row['data'] = json_decode($row['data'] ?: '[]', true) ?: []; $byPhone[$ph] = $row; }
         $recipients = array_values($byPhone);
-        if (empty($recipients)) return new \WP_REST_Response(['error'=>'no_recipients'], 422);
+    if (empty($recipients)) return new \WP_REST_Response(['error'=>'no_recipients','message'=>'هیچ مخاطبی با شماره معتبر در گروه‌های انتخابی یافت نشد.'], 422);
 
         // Build messages with optional personal link
         $payload = [];
@@ -307,7 +307,7 @@ class Api
             $link = $includeLink ? self::build_member_form_link($formId, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ]) : '';
             // If link placeholder is used but we couldn't build a link, abort
             if ($includeLink && strpos($templateNorm, '#link') !== false && $link === ''){
-                return new \WP_REST_Response(['error'=>'link_build_failed','member_id'=>(int)$m['id']], 422);
+                return new \WP_REST_Response(['error'=>'link_build_failed','member_id'=>(int)$m['id'], 'message'=>'ساخت لینک اختصاصی برای یکی از اعضا ناموفق بود. فرم باید فعال و دارای توکن عمومی باشد.'], 422);
             }
             $msg = self::compose_sms_template($template, [ 'id'=>(int)$m['id'], 'name'=>$m['name'], 'phone'=>$m['phone'], 'data'=>$m['data'] ], $link);
             $payload[] = [ 'phone'=>$m['phone'], 'message'=> self::ensure_sms_suffix($msg), 'vars' => [ 'name'=>$m['name'], 'phone'=>$m['phone'], 'link'=>$link ] ];
