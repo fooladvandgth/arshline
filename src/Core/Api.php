@@ -2703,17 +2703,24 @@ class Api
         if ($plain === '') return null;
         // Normalize Arabic/Persian punctuation variants
         $sep = preg_replace('/[،,]+/u', '،', $plain);
-        // Detect intent to create a new form
-        $hasCreate = preg_match('/\b(فرم\s*جدید\s*(?:بساز|ایجاد\s*کن)|بساز\s*فرم\s*جدید|یک\s*فرم\s*جدید\s*(?:میخوام|می\s*خوام|بساز))/u', $sep) === 1
-                   || preg_match('/\b(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید\b/u', $sep) === 1
-                   || preg_match('/^\s*فرم\s*جدید\b/u', $sep) === 1
-                   || preg_match('/\bایجاد\s*فرم\s*با\s*عنوان\b/u', $sep) === 1;
+        // Detect intent to create a new form — tolerate interleaving "با عنوان ..." before the verb
+        $hasCreate =
+            // "فرم جدید ... بساز/ایجاد کن"
+            preg_match('/\bفرم\s*جدید(?:\s*با\s*(?:عنوان|نام)\s*.+?)?\s*(?:را|رو)?\s*(?:بساز|ایجاد\s*کن)\b/u', $sep) === 1
+            // "یک فرم جدید ... بساز/ایجاد کن"
+            || preg_match('/\b(?:یه|یک)\s*فرم\s*جدید(?:\s*با\s*(?:عنوان|نام)\s*.+?)?\s*(?:را|رو)?\s*(?:بساز|ایجاد\s*کن)\b/u', $sep) === 1
+            // Verb-first
+            || preg_match('/\b(?:ایجاد|ساختن|بساز)\s*(?:یه|یک)?\s*فرم\s*جدید\b/u', $sep) === 1
+            // Minimal: just "فرم جدید"
+            || preg_match('/(^|\s)فرم\s*جدید($|\s)/u', $sep) === 1
+            // Explicit: "ایجاد فرم با عنوان X"
+            || preg_match('/\bایجاد\s*فرم\s*با\s*(?:عنوان|نام)\b/u', $sep) === 1;
         if (!$hasCreate) return null;
         // Extract a title if present: patterns like "اسم(ش| فرم) را X بگذار/بذار" or "با عنوان X"
         $title = '';
-        if (preg_match('/(?:اسم(?:\s*فرم)?|عنوان(?:\s*فرم)?)\s*(?:را|رو)?\s*(.+?)\s*(?:بگذار|بذار|قرار\s*ده|کن)/u', $sep, $m)){
+        if (preg_match('/(?:اسم(?:\s*فرم)?|عنوان(?:\s*فرم)?|نام(?:\s*فرم)?)\s*(?:را|رو)?\s*(.+?)\s*(?:بگذار|بذار|قرار\s*ده|کن)/u', $sep, $m)){
             $title = trim((string)$m[1]);
-        } elseif (preg_match('/با\s*عنوان\s*(.+?)(?:\s|،|,|$)/u', $sep, $m)){
+        } elseif (preg_match('/با\s*(?:عنوان|نام)\s*(.+?)(?:\s|،|,|$)/u', $sep, $m)){
             $title = trim((string)$m[1]);
         }
         // Clean wrapping quotes/half-space
@@ -2737,12 +2744,10 @@ class Api
         if (preg_match('/\b(پاسخ\s*کوتاه|کوتاه|short[_\s-]*text)\b/iu', $sep)) $type = 'short_text';
         elseif (preg_match('/\b(پاسخ\s*بلند|متن\s*بلند|long[_\s-]*text)\b/iu', $sep)) $type = 'long_text';
         elseif (preg_match('/\b(امتیاز|ستاره|rating)\b/iu', $sep)) $type = 'rating';
-        // Only build a plan if it is multi-step: at least one field requested
-        if ($count <= 0) return null;
-        // Build the steps: create_form + count x add_field (id omitted to refer to last created form)
+        // Build the steps. Always include create_form even if no fields requested.
         $steps = [ [ 'action'=>'create_form', 'params'=> [ 'title' => $title ] ] ];
         $maxN = max(1, min(12, (int) apply_filters('arshline_ai_plan_internal_max_fields', 6)));
-        $n = min($count, $maxN);
+        $n = min(max(0, $count), $maxN);
         for ($i=0; $i<$n; $i++){
             $steps[] = [ 'action' => 'add_field', 'params' => [ 'type' => $type ] ];
         }
