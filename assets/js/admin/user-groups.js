@@ -20,9 +20,44 @@
   }
 
   function api(path, opts){
+    // Robust URL joiner that supports both /wp-json/... and index.php?rest_route=... bases
     opts = opts || {}; opts.headers = opts.headers || {};
     opts.headers['X-WP-Nonce'] = NONCE;
-    return fetch(REST + path, opts).then(function(r){ if(!r.ok) throw r; return r.json(); });
+    var url = '';
+    try {
+      var base = String(REST || '');
+      // Build using URL to correctly merge search params
+      var u = new URL(base, window.location.origin);
+      var parts = String(path || '').split('?');
+      var pth = parts[0] || '';
+      var q = parts[1] || '';
+      if (u.searchParams && u.searchParams.has('rest_route')){
+        // index.php?rest_route=/arshline/v1/...
+        var rr = String(u.searchParams.get('rest_route') || '');
+        rr = rr.replace(/\/+$/, '');
+        pth = String(pth || '').replace(/^\/+/, '');
+        var joined = ('/' + rr + '/' + pth).replace(/\/{2,}/g, '/');
+        u.searchParams.set('rest_route', joined);
+        if (q){
+          var qs = new URLSearchParams(q);
+          qs.forEach(function(v,k){ u.searchParams.append(k, v); });
+        }
+      } else {
+        // /wp-json/arshline/v1/...
+        var cleanBasePath = (u.pathname || '').replace(/\/+$/, '');
+        pth = String(pth || '').replace(/^\/+/, '');
+        u.pathname = (cleanBasePath + '/' + pth).replace(/\/{2,}/g, '/');
+        if (q){
+          var qs2 = new URLSearchParams(q);
+          qs2.forEach(function(v,k){ u.searchParams.append(k, v); });
+        }
+      }
+      url = u.toString();
+    } catch(_){
+      // Fallback: naive concatenation
+      url = String(REST || '') + String(path || '');
+    }
+    return fetch(url, opts).then(function(r){ if(!r.ok) throw r; return r.json(); });
   }
 
   function esc(s){ return String(s||''); }
@@ -271,6 +306,11 @@
         }
         t += '</div>';
         $('#ugMembersList').html(t);
+      }).catch(function(err){
+        try { if (window.notify) notify('خطا در بارگذاری اعضا', 'error'); } catch(_){ }
+        var msg = 'خطا در بارگذاری لیست اعضا';
+        if (err && err.status) { msg += ' ('+err.status+')'; }
+        $('#ugMembersList').html('<div class="notice notice-error">'+esc(msg)+'</div>');
       }); }
       list();
       // Auto-switch in panel context (Members) when group select changes
