@@ -1377,7 +1377,10 @@ class Api
         $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'gpt-4o-mini';
     $parser = isset($arr['ai_parser']) && is_scalar($arr['ai_parser']) ? (string)$arr['ai_parser'] : 'hybrid'; // 'internal' | 'hybrid' | 'llm'
     $parser = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid';
-        return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'parser' => $parser ];
+        // New: allowlist for AI-accessible menus/actions
+        $allowedMenus = isset($arr['ai_allowed_menus']) && is_array($arr['ai_allowed_menus']) ? array_values(array_unique(array_filter(array_map('strval', $arr['ai_allowed_menus'])))) : ['dashboard','forms'];
+        $allowedActions = isset($arr['ai_allowed_actions']) && is_array($arr['ai_allowed_actions']) ? array_values(array_unique(array_filter(array_map('strval', $arr['ai_allowed_actions'])))) : [];
+        return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'parser' => $parser, 'allowed_menus' => $allowedMenus, 'allowed_actions' => $allowedActions ];
     }
     public static function get_ai_config(WP_REST_Request $request)
     {
@@ -1392,6 +1395,8 @@ class Api
         $enabled = (bool)($cfg['enabled'] ?? false);
         $model = is_scalar($cfg['model'] ?? '') ? trim((string)$cfg['model']) : '';
     $parser = is_scalar($cfg['parser'] ?? '') ? trim((string)$cfg['parser']) : '';
+        $allowedMenus = isset($cfg['allowed_menus']) && is_array($cfg['allowed_menus']) ? array_values(array_unique(array_filter(array_map('strval', $cfg['allowed_menus'])))) : null;
+        $allowedActions = isset($cfg['allowed_actions']) && is_array($cfg['allowed_actions']) ? array_values(array_unique(array_filter(array_map('strval', $cfg['allowed_actions'])))) : null;
         $cur = get_option('arshline_settings', []);
         $arr = is_array($cur) ? $cur : [];
         $arr['ai_base_url'] = substr($base, 0, 500);
@@ -1399,6 +1404,8 @@ class Api
         $arr['ai_enabled']  = $enabled;
         if ($model !== ''){ $arr['ai_model'] = substr(preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $model), 0, 100); }
     if ($parser !== ''){ $arr['ai_parser'] = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid'; }
+        if ($allowedMenus !== null){ $arr['ai_allowed_menus'] = $allowedMenus; }
+        if ($allowedActions !== null){ $arr['ai_allowed_actions'] = $allowedActions; }
         update_option('arshline_settings', $arr, false);
         return new WP_REST_Response(['ok'=>true, 'config'=> self::get_ai_settings()], 200);
     }
@@ -1578,6 +1585,8 @@ class Api
         try {
             // 0) Prefer LLM plan parsing when configured — this enables multi-step flows
             $s0 = self::get_ai_settings();
+            $allowedMenus0 = array_map('strval', $s0['allowed_menus'] ?? []);
+            $allowedActions0 = array_map('strval', $s0['allowed_actions'] ?? []);
             $parserMode0 = $s0['parser'] ?? 'hybrid';
             $llmReady0 = ($s0['enabled'] && !empty($s0['base_url']) && !empty($s0['api_key']));
             $hadPlan0 = false;
@@ -1587,6 +1596,10 @@ class Api
                     $hadPlan0 = true;
                     // Validate/preview via Hoshyar (will refuse invalid/unknown actions)
                     try {
+                        // If allowlist of actions is configured, filter/deny before preview
+                        if (!empty($allowedActions0)){
+                            foreach (($plan0['steps'] ?? []) as $st){ $aa = (string)($st['action'] ?? ''); if ($aa && !in_array($aa, $allowedActions0, true)) { return new \WP_REST_Response(['ok'=>false,'error'=>'forbidden','message'=>'این عملیات مجاز نیست: '.$aa], 403); } }
+                        }
                         $out0 = Hoshyar::agent([ 'plan' => $plan0, 'confirm' => false ]);
                         if (is_array($out0) && !empty($out0['ok'])){
                             return new \WP_REST_Response($out0, 200);
@@ -1602,6 +1615,9 @@ class Api
                 $iplan = self::internal_parse_plan($cmd);
                 if (is_array($iplan) && !empty($iplan['steps']) && count($iplan['steps']) >= 1){
                     try {
+                        if (!empty($allowedActions0)){
+                            foreach (($iplan['steps'] ?? []) as $st){ $aa = (string)($st['action'] ?? ''); if ($aa && !in_array($aa, $allowedActions0, true)) { return new \WP_REST_Response(['ok'=>false,'error'=>'forbidden','message'=>'این عملیات مجاز نیست: '.$aa], 403); } }
+                        }
                         $outPrev = Hoshyar::agent([ 'plan' => $iplan, 'confirm' => false ]);
                         if (is_array($outPrev) && !empty($outPrev['ok'])){
                             return new \WP_REST_Response($outPrev, 200);
@@ -1651,7 +1667,12 @@ class Api
                     }
                     // Pass-through common actions
                     if (!empty($intent['action'])){
-                        if ($action === 'open_tab' && !empty($intent['tab'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_tab','tab' => (string)$intent['tab']], 200);
+                        if ($action === 'open_tab' && !empty($intent['tab'])){
+                            $tab = (string)$intent['tab'];
+                            if (!empty($allowedMenus0) && !in_array($tab, $allowedMenus0, true)) return new WP_REST_Response(['ok'=>false,'error'=>'forbidden','message'=>'دسترسی به این منو مجاز نیست: '.$tab], 403);
+                            return new WP_REST_Response(['ok'=>true,'action'=>'open_tab','tab' => $tab], 200);
+                        }
+                        if (!empty($allowedActions0) && !in_array($action, $allowedActions0, true)) return new WP_REST_Response(['ok'=>false,'error'=>'forbidden','message'=>'این عملیات مجاز نیست: '.$action], 403);
                         if ($action === 'open_builder' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_builder','id' => (int)$intent['id']], 200);
                         if ($action === 'open_results' && !empty($intent['id'])) return new WP_REST_Response(['ok'=>true,'action'=>'open_results','id' => (int)$intent['id']], 200);
                         if ($action === 'open_editor' && !empty($intent['id'])){ $idx = isset($intent['index']) ? (int)$intent['index'] : 0; return new WP_REST_Response(['ok'=>true,'action'=>'open_editor','id' => (int)$intent['id'],'index'=>$idx], 200); }
