@@ -194,8 +194,20 @@ class UserGroupsPage
         // برای سادگی از REST استفاده نمی‌کنیم تا خروجی سریع باشد
         $members = \Arshline\Modules\UserGroups\MemberRepository::list($gid, 50000);
 
-        // پایه لینک عمومی با توکن: ?arshline=TOKEN
-        $base = add_query_arg('arshline', '%TOKEN%', home_url('/'));
+        // لینک عمومی فرم: اگر form_id داده شده باشد و فرم منتشر باشد، از توکن عمومی فرم استفاده می‌کنیم
+        $fid = isset($_GET['form_id']) ? intval($_GET['form_id']) : 0;
+        $formToken = '';
+        if ($fid > 0) {
+            try {
+                $form = \Arshline\Modules\Forms\FormRepository::find($fid);
+                if ($form && $form->status === 'published' && !empty($form->public_token)) {
+                    $formToken = (string)$form->public_token;
+                }
+            } catch (\Throwable $e) { /* ignore */ }
+        }
+        // اگر توکن فرم موجود بود، لینک پایه = /?arshline=FORM_TOKEN و member_token جداگانه اضافه می‌شود
+        // در غیر این صورت جهت سازگاری قبلی، لینک را با توکن عضو (ممکن است کاربرد عمومی نداشته باشد) تولید می‌کنیم
+        $base = $formToken !== '' ? add_query_arg('arshline', rawurlencode($formToken), home_url('/')) : add_query_arg('arshline', '%TOKEN%', home_url('/'));
 
         // هدرهای دانلود
         $filename = 'arshline_group_'.$gid.'_links.csv';
@@ -214,7 +226,12 @@ class UserGroupsPage
         fputs($out, implode(',', array_map([static::class,'csvSafe'], $headers))."\n");
         foreach ($members as $m) {
             $tok = $m->token ?: \Arshline\Modules\UserGroups\MemberRepository::ensureToken($m->id);
-            $link = str_replace('%TOKEN%', rawurlencode((string)$tok), $base);
+            // اگر لینک پایه شامل توکن فرم باشد، member_token را به‌عنوان پارامتر اضافه می‌کنیم
+            if ($formToken !== '') {
+                $link = add_query_arg('member_token', rawurlencode((string)$tok), $base);
+            } else {
+                $link = str_replace('%TOKEN%', rawurlencode((string)$tok), $base);
+            }
             $row = [ $m->name, $m->phone, (string)$tok, $link ];
             // Map custom fields per order
             $dataArr = is_array($m->data) ? $m->data : (json_decode($m->data ?? '[]', true) ?: []);
