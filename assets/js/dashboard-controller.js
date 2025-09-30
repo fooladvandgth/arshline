@@ -408,7 +408,8 @@
             '<select id="arAnaForms" class="ar-select" multiple size="6" style="min-width:260px"></select>'+
             '<input id="arAnaQ" class="ar-input" placeholder="سوال شما…" style="min-width:280px;flex:1 1 320px" />'+
             '<input id="arAnaChunk" class="ar-input" type="number" value="800" min="50" max="2000" style="width:120px" title="سایز قطعه" />'+
-            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaStructured" type="checkbox"/> ساختاری (سریع)</label>'+
+            /* ساختاری (سریع) — حذف شد: حالت فقط LLM */
+            '<span class="hint" style="opacity:.8">حالت: مدل زبانی (LLM)</span>'+
             '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaFormatTable" type="checkbox"/> ارسال جدول</label>'+
             '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+
             '<button id="arAnaSpeak" class="ar-btn ar-btn--soft" title="خواندن خلاصه">گویا</button>'+
@@ -423,7 +424,7 @@
           var q = document.getElementById('arAnaQ');
           var speak = document.getElementById('arAnaSpeak');
           var chunk = document.getElementById('arAnaChunk');
-          var structuredChk = document.getElementById('arAnaStructured');
+          var structuredChk = null; // حذف حالت ساختاری؛ فقط LLM
           var formatTableChk = document.getElementById('arAnaFormatTable');
           var clearBtn = document.getElementById('arAnaClear');
           // simple in-memory chat history for this session
@@ -438,8 +439,8 @@
             var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
             // pass conversation history (limit last 8 turns for brevity)
             if (chatHistory.length){ body.history = chatHistory.slice(-16); }
-            // structured/llm mode
-            if (structuredChk && structuredChk.checked){ body.mode = 'structured'; } else { body.mode = 'llm'; }
+            // حالت فقط LLM
+            body.mode = 'llm';
             // preferred format
             if (formatTableChk && formatTableChk.checked){ body.format = 'table'; }
             if (ANA_DEBUG) body.debug = true;

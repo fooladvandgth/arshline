@@ -3781,30 +3781,11 @@ class Api
             return new WP_REST_Response([ 'error' => 'ai_disabled' ], 400);
         }
         $use_model = $model !== '' ? $model : $default_model;
-        // Whether to use structural shortcuts (count, names, ...). Default: disabled (LLM-only), can be enabled via param/setting/filter.
+        // LLM-only mode: disable all structured shortcuts regardless of params/options/filters.
         $allowStructural = false;
-        if ($mode === 'structured') { $allowStructural = true; }
-        if ($mode === 'llm') { $allowStructural = false; }
-        if ($structuredParam !== null) { $allowStructural = (bool)$structuredParam; }
-        if ($mode === '' && $structuredParam === null) {
-            // fallback to global option, default false
-            $allowStructural = !empty($cur['analytics_structured_intents']);
-        }
-        // Allow theme/plugins to override
-        if (function_exists('apply_filters')){
-            $allowStructural = (bool)apply_filters('arshline_analytics_structured_intents', $allowStructural, $p);
-        }
 
-        // Quick greeting intent — allow polite greeting regardless of data availability
+        // Always delegate answers to the model (no local greeting or canned responses)
         $ql = mb_strtolower($question, 'UTF-8');
-        $isGreeting = (bool)(
-            preg_match('/\b(hi|hello|salam|salaam)\b/i', $ql)
-            || preg_match('/^(?:سلام|درود|وقت\s*بخیر)/u', $ql)
-        );
-        if ($isGreeting){
-            $greet = 'سلام! من هوشنگ هستم؛ دستیار تحلیل داده‌های فرم. هر سوالی دربارهٔ این فرم دارید بپرسید.';
-            return new WP_REST_Response([ 'summary' => $greet, 'chunks' => [], 'usage' => [], 'voice' => $voice ], 200);
-        }
 
         // Collect data rows per form, capped by max_rows total, and include minimal fields meta for grounding
         $total_rows = 0; $tables = [];
