@@ -3771,7 +3771,8 @@ class Api
         $session_id = isset($p['session_id']) ? max(0, (int)$p['session_id']) : 0;
     $max_rows = isset($p['max_rows']) && is_numeric($p['max_rows']) ? max(50, min(10000, (int)$p['max_rows'])) : 2000;
     $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
-        $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
+    $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
+    $max_tokens = isset($p['max_tokens']) && is_numeric($p['max_tokens']) ? max(16, min(2048, (int)$p['max_tokens'])) : 800;
     $voice = is_scalar($p['voice'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['voice']), 0, 50) : '';
     $format = is_scalar($p['format'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['format']), 0, 20)) : '';
     $mode = is_scalar($p['mode'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['mode']), 0, 20)) : '';
@@ -4003,7 +4004,7 @@ Principles (in order):
 1) If the user message is a greeting (e.g., سلام/درود/hi/hello) or an identity question (e.g., "اسم شما چیه؟", "کی هستی؟", "who are you?", "what\'s your name?"), ALWAYS reply briefly and politely in Persian (e.g., "سلام! من هوشنگ هستم."). Do not output the fallback phrase for greetings/identity.
 2) ONLY use the provided data: fields_meta, submissions (rows), and values. Do NOT invent facts beyond these.
 3) If the question cannot be strictly answered from the provided data (and it is not a greeting/identity), respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم».
-4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for counts, derive from provided values.
+4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for lists, return a bullet list; when the user asks for counts, return a single number and a one-line justification from the provided values.
 '
                     ]
                 ];
@@ -4019,6 +4020,7 @@ Principles (in order):
                     'model' => $use_model,
                     'messages' => $messages,
                     'temperature' => 0.2,
+                    'max_tokens' => $max_tokens,
                 ];
                 $payloadJson = wp_json_encode($payload);
                 $t0 = microtime(true);
