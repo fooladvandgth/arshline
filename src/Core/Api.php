@@ -3754,10 +3754,21 @@ class Api
         if ($question === '') return new WP_REST_Response([ 'error' => 'question_required' ], 400);
     $max_rows = isset($p['max_rows']) && is_numeric($p['max_rows']) ? max(50, min(10000, (int)$p['max_rows'])) : 2000;
     $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
-    $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
+        $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
     $voice = is_scalar($p['voice'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['voice']), 0, 50) : '';
     $mode = is_scalar($p['mode'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['mode']), 0, 20)) : '';
     $structuredParam = isset($p['structured']) ? (bool)$p['structured'] : null;
+        // Optional chat history: array of {role:'user'|'assistant'|'system', content:string}
+        $history = [];
+        if (isset($p['history']) && is_array($p['history'])){
+            foreach ($p['history'] as $h){
+                if (!is_array($h)) continue;
+                $role = (string)($h['role'] ?? ''); $content = (string)($h['content'] ?? '');
+                if ($content === '') continue;
+                if (!in_array($role, ['user','assistant','system'], true)) $role = 'user';
+                $history[] = [ 'role'=>$role, 'content'=>$content ];
+            }
+        }
 
         // Load AI config
     $cur = get_option('arshline_settings', []);
@@ -3816,7 +3827,7 @@ class Api
             // Persian variants: "چند" / "چند تا" / "تعداد" + noun
             || preg_match('/(?:(?:چند\s*تا|چند|تعداد)\s*(?:سوال|سؤال|آیتم|گزینه|فیلد)s?)/u', $ql)
         );
-    if ($allowStructural && $isCountIntent){
+        if ($allowStructural && $isCountIntent){
             $supported = [ 'short_text'=>1,'long_text'=>1,'multiple_choice'=>1,'dropdown'=>1,'rating'=>1 ];
             $lines = [];
             foreach ($form_ids as $fid){
@@ -3829,6 +3840,24 @@ class Api
                         if (isset($supported[$type])) $cnt++;
                     }
                     $lines[] = "فرم " . $fid . ": " . $cnt . " آیتم";
+                } catch (\Throwable $e) { $lines[] = "فرم " . $fid . ": نامشخص"; }
+            }
+            $sum = implode("\n", $lines);
+            return new WP_REST_Response([ 'summary' => $sum, 'chunks' => [], 'usage' => [], 'voice' => $voice ], 200);
+        }
+
+        // Quick structural intent: count submissions ("چند نفر فرم رو پر کردند؟", "تعداد ارسال‌ها")
+        $isSubmitCountIntent = (bool)(
+            preg_match('/\bhow\s+many\s+(?:submissions|responses|entries)\b/i', $ql)
+            || preg_match('/\b(count|number)\s+of\s+(?:submissions|responses|entries)\b/i', $ql)
+            || preg_match('/(?:چند\s*نفر|تعداد)\s*(?:فرم|ارسال|پاسخ|ورودی)/u', $ql)
+        );
+        if ($allowStructural && $isSubmitCountIntent){
+            $lines = [];
+            foreach ($form_ids as $fid){
+                try {
+                    $all = SubmissionRepository::listByFormAll($fid, [], 1_000_000);
+                    $lines[] = "فرم " . $fid . ": " . count($all) . " ارسال";
                 } catch (\Throwable $e) { $lines[] = "فرم " . $fid . ": نامشخص"; }
             }
             $sum = implode("\n", $lines);
@@ -3905,12 +3934,17 @@ class Api
                 // Fetch submission values in batch for this slice to ground the model
                 $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $slice), function($v){ return $v>0; }));
                 $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                // Build chat messages: system + history + current user payload (grounded data)
+                $messages = [
+                    [ 'role' => 'system', 'content' => 'You are Hoshang, a precise Persian data analyst. Rules: 1) ONLY use the provided data: fields_meta, submissions (rows), and values. 2) Do NOT invent facts beyond these. 3) If the answer cannot be derived strictly from provided data, respond with "نامشخص" and briefly say what is missing. 4) Answer in Persian. 5) Be concise and structured (bullets/tables when appropriate).' ]
+                ];
+                if (!empty($history)){
+                    foreach ($history as $h){ $messages[] = $h; }
+                }
+                $messages[] = [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ], JSON_UNESCAPED_UNICODE) ];
                 $payload = [
                     'model' => $use_model,
-                    'messages' => [
-                        [ 'role' => 'system', 'content' => 'You are Hoshang, a precise Persian data analyst. Rules: 1) ONLY use the provided data: fields_meta, submissions (rows), and values. 2) Do NOT invent facts beyond these. 3) If the answer cannot be derived strictly from provided data, respond with "نامشخص" and briefly say what is missing. 4) Answer in Persian. 5) Be concise and structured (bullets/tables when appropriate).' ],
-                        [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ], JSON_UNESCAPED_UNICODE) ]
-                    ],
+                    'messages' => $messages,
                     'temperature' => 0.2,
                 ];
                 $payloadJson = wp_json_encode($payload);
@@ -3998,6 +4032,9 @@ class Api
                     $usage['input'] = max(1, (int) ceil($promptApprox / 4));
                     $usage['output'] = max(0, (int) ceil($compApprox / 4));
                     $usage['total'] = $usage['input'] + $usage['output'];
+                }
+                if ($text === '' || !is_string($text)){
+                    $text = 'نامشخص';
                 }
                 $answers[] = [ 'form_id'=>$fid, 'chunk'=> [ 'index'=>$i, 'size'=>count($slice) ], 'text'=>$text ];
                 // Log usage
