@@ -302,8 +302,11 @@
 
     // Centralized tab renderer (ported from template)
     function renderTab(tab){
-  try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-  try { localStorage.setItem('arshLastRoute', tab); } catch(_){ }
+      try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
+      try {
+        var full = (location.hash||'').replace('#','').trim();
+        localStorage.setItem('arshLastRoute', full || tab);
+      } catch(_){ }
       try {
   if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(tab)){
           var _h = (location.hash||'').replace('#','');
@@ -2104,7 +2107,16 @@
       if (window.ARSH_ROUTER){
         try { window.ARSH_ROUTER.arRenderTab = renderTab; } catch(_){ }
         if (!window._arRouterBooted && typeof window.ARSH_ROUTER.init === 'function'){
-          try { window._arRouterBooted = true; window.ARSH_ROUTER.init(); dlog('router:init'); } catch(_){ }
+          try {
+            // If no explicit hash on load, restore last route before initializing router
+            if (!location.hash || location.hash === '#dashboard'){
+              try {
+                var lastR = localStorage.getItem('arshLastRoute') || localStorage.getItem('arshLastTab') || '';
+                if (lastR && lastR !== 'dashboard'){ setHash(lastR); }
+              } catch(_){ }
+            }
+            window._arRouterBooted = true; window.ARSH_ROUTER.init(); dlog('router:init');
+          } catch(_){ }
         } else { dlog('router:init-skipped'); }
       } else {
         // Fallback: simple initial render if router is not present
