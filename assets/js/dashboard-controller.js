@@ -302,17 +302,19 @@
 
     // Centralized tab renderer (ported from template)
     function renderTab(tab){
-      try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
-      try {
-        var full = (location.hash||'').replace('#','').trim();
-        localStorage.setItem('arshLastRoute', full || tab);
-      } catch(_){ }
       try {
   if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(tab)){
           var _h = (location.hash||'').replace('#','');
           var _seg0 = (_h.split('/')[0]||'').split('?')[0];
           if (_seg0 !== tab) setHash(tab); // don't clobber query (e.g., messaging?tab=...)
         }
+      } catch(_){ }
+      // Persist after possibly updating hash
+      try {
+        var fullHash = (location.hash||'').replace('#','').trim();
+        if (!fullHash) fullHash = tab;
+        localStorage.setItem('arshLastTab', tab);
+        localStorage.setItem('arshLastRoute', fullHash);
       } catch(_){ }
       try { setSidebarClosed(false, false); } catch(_){ }
       setActive(tab);
