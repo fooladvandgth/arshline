@@ -3800,17 +3800,58 @@ class Api
                     ],
                     'temperature' => 0.2,
                 ];
+                $t0 = microtime(true);
                 $resp = wp_remote_post($endpoint, [ 'timeout'=> 30, 'headers'=>$headers, 'body'=> wp_json_encode($payload) ]);
                 $ok = is_array($resp) && !is_wp_error($resp) && (int)wp_remote_retrieve_response_code($resp) === 200;
                 $body = $ok ? json_decode(wp_remote_retrieve_body($resp), true) : null;
                 $text = '';
-                $usage = [ 'input'=>0,'output'=>0,'total'=>0,'cost'=>null,'duration_ms'=>0 ];
+                $usage = [ 'input'=>0,'output'=>0,'total'=>0,'cost'=>null,'duration_ms'=> (int) round((microtime(true)-$t0)*1000) ];
                 if (is_array($body)){
                     $text = (string)($body['choices'][0]['message']['content'] ?? '');
                     $u = $body['usage'] ?? [];
-                    $usage['input'] = (int)($u['prompt_tokens'] ?? 0);
-                    $usage['output'] = (int)($u['completion_tokens'] ?? 0);
-                    $usage['total'] = (int)($u['total_tokens'] ?? ($usage['input'] + $usage['output']));
+                    // Support multiple usage shapes (OpenAI-style and others)
+                    $in = 0; $out = 0; $tot = 0;
+                    if (is_array($u)){
+                        $in = (int)($u['prompt_tokens'] ?? $u['input_tokens'] ?? ($u['input'] ?? 0));
+                        $out = (int)($u['completion_tokens'] ?? $u['output_tokens'] ?? ($u['output'] ?? 0));
+                        $tot = (int)($u['total_tokens'] ?? $u['total'] ?? 0);
+                        // Nested tokens object
+                        if (!$in && is_array($u['tokens'] ?? null)){
+                            $in = (int)($u['tokens']['input'] ?? 0);
+                        }
+                        if (!$out && is_array($u['tokens'] ?? null)){
+                            $out = (int)($u['tokens']['output'] ?? 0);
+                        }
+                        if (!$tot && is_array($u['tokens'] ?? null)){
+                            $tot = (int)($u['tokens']['total'] ?? 0);
+                        }
+                    }
+                    // If body.usage missing or zeros, try headers (provider-specific)
+                    if ((!$in && !$out && !$tot) && is_array($resp)){
+                        $hdrs = wp_remote_retrieve_headers($resp);
+                        $hdrsArr = [];
+                        if (is_object($hdrs) && method_exists($hdrs, 'getAll')){ $hdrsArr = $hdrs->getAll(); }
+                        elseif (is_array($hdrs)){ $hdrsArr = $hdrs; }
+                        if (is_array($hdrsArr)){
+                            foreach ($hdrsArr as $hk => $hv){
+                                $k = strtolower((string)$hk); $v = is_array($hv)? implode(',', $hv) : (string)$hv;
+                                if (!$in && preg_match('/(prompt|input).*tokens/', $k)) { $in = (int)preg_replace('/\D+/', '', $v); }
+                                if (!$out && preg_match('/(completion|output).*tokens/', $k)) { $out = (int)preg_replace('/\D+/', '', $v); }
+                                if (!$tot && preg_match('/total.*tokens/', $k)) { $tot = (int)preg_replace('/\D+/', '', $v); }
+                            }
+                        }
+                    }
+                    // As a very rough fallback, estimate tokens from characters (approx 4 chars per token)
+                    if (!$in && !$out && !$tot){
+                        $promptApprox = strlen(wp_json_encode($payload));
+                        $compApprox = strlen($text);
+                        $in = (int) ceil($promptApprox / 4);
+                        $out = (int) ceil($compApprox / 4);
+                        $tot = $in + $out;
+                    }
+                    $usage['input'] = max(0, $in);
+                    $usage['output'] = max(0, $out);
+                    $usage['total'] = max(0, $tot ?: ($usage['input'] + $usage['output']));
                 }
                 $answers[] = [ 'form_id'=>$fid, 'chunk'=> [ 'index'=>$i, 'size'=>count($slice) ], 'text'=>$text ];
                 // Log usage

@@ -29,6 +29,20 @@ class FieldRepository
         $existing_lookup = [];
         foreach ($existing_ids as $eid) { $existing_lookup[(int)$eid] = true; }
 
+        // Deduplicate incoming payload by ID (keep last occurrence), preserve order
+        $deduped = [];
+        $seen = [];
+        for ($i = count($fields) - 1; $i >= 0; $i--) {
+            $f = $fields[$i];
+            $id = isset($f['id']) ? (int)$f['id'] : 0;
+            if ($id > 0) {
+                if (isset($seen[$id])) { continue; }
+                $seen[$id] = true;
+            }
+            $deduped[] = $f;
+        }
+        $fields = array_reverse($deduped);
+
         $seen_ids = [];
         $sort = 0;
         foreach ($fields as $f) {

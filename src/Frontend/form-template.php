@@ -408,8 +408,17 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
       }; });
       // Filter to supported question types and skip non-questions like welcome/thank_you
       var supported = { short_text:1, long_text:1, multiple_choice:1, dropdown:1, rating:1 };
-      state.fields = flat;
-      state.questions = flat.filter(function(f){ return supported[f.type]; });
+      // Defensive deduplication by id: keep first occurrence
+      var seen = {};
+      var dedup = [];
+      for (var i=0;i<flat.length;i++){
+        var row = flat[i]; var fid = parseInt(row.id||0);
+        if (fid>0 && seen[fid]) { continue; }
+        if (fid>0) seen[fid] = true;
+        dedup.push(row);
+      }
+      state.fields = dedup;
+      state.questions = dedup.filter(function(f){ return supported[f.type]; });
       render();
     })
     .catch(function(err){

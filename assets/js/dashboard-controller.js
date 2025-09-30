@@ -414,9 +414,9 @@
           function doRun(){ try {
             var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
             var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
-            out.textContent = 'در حال پردازش…';
+            out.textContent = 'در حال پردازش…'; var old = run.textContent; run.disabled=true; run.textContent='در حال پردازش…';
             fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
-              .then(function(r){ return r.json(); })
+              .then(async function(r){ var txt=''; try{ txt=await r.clone().text(); }catch(_){ } if(!r.ok){ var msg='HTTP '+r.status; try{ var j=txt?JSON.parse(txt):await r.json(); msg = (j && (j.error||j.message)) || msg; }catch(_){ } throw new Error(msg); } try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; } })
               .then(function(j){
                 try {
                   if (j.error){ out.textContent = 'خطا: '+j.error; return; }
@@ -429,11 +429,30 @@
                   }
                 } catch(e){ out.textContent = 'خطا در نمایش خروجی'; }
               })
-              .catch(function(err){ console.error(err); out.textContent = 'درخواست ناموفق بود.'; });
+              .catch(function(err){ console.error(err); out.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); })
+              .finally(function(){ run.disabled=false; run.textContent=old; });
           } catch(e){ console.error(e); notify('خطا در اجرای تحلیل','error'); }
           }
           if (run) run.addEventListener('click', doRun);
-          if (speak) speak.addEventListener('click', function(){ try { var t = (out && out.textContent) ? out.textContent : ''; if(!t){ notify('متنی برای خواندن وجود ندارد','warn'); return; } var u = new (window.SpeechSynthesisUtterance||function(s){ this.text=s; })(); u.text = t; u.lang = 'fa-IR'; try { window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } catch(_){ } } catch(_){ } });
+          function speakFa(text){
+            try {
+              if (!('speechSynthesis' in window)) { notify('مرورگر از خواندن متن پشتیبانی نمی‌کند','warn'); return; }
+              var u = new (window.SpeechSynthesisUtterance||function(s){ this.text=s; })();
+              u.text = text; u.lang = 'fa-IR';
+              function pickVoice(){
+                try {
+                  var vs = window.speechSynthesis.getVoices() || [];
+                  var fa = vs.find(function(v){ return v && /fa(-IR)?/i.test(String(v.lang||'')); });
+                  if (fa) u.voice = fa;
+                } catch(_){ }
+              }
+              pickVoice();
+              if (!u.voice){ try { window.speechSynthesis.onvoiceschanged = function(){ pickVoice(); }; } catch(_){ } }
+              try { window.speechSynthesis.cancel(); } catch(_){ }
+              try { window.speechSynthesis.speak(u); } catch(_){ }
+            } catch(_){ }
+          }
+          if (speak) speak.addEventListener('click', function(){ try { var t = (out && out.textContent) ? out.textContent : ''; if(!t){ notify('متنی برای خواندن وجود ندارد','warn'); return; } speakFa(t); } catch(_){ } });
         })();
       } else if (tab === 'forms'){
         content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\
@@ -1325,6 +1344,24 @@
               else { arr.push(edited); }
             }
           }
+          // Deduplicate by ID (keep last occurrence), to prevent accidental duplicates
+          try {
+            var seenIds = new Set();
+            var deduped = [];
+            for (var di = arr.length - 1; di >= 0; di--) {
+              var it = arr[di] || {};
+              var pid = (typeof it.id !== 'undefined') ? it.id : (it.props && typeof it.props.id !== 'undefined' ? it.props.id : 0);
+              var pidNum = parseInt(pid||'0');
+              if (pidNum > 0) {
+                if (seenIds.has(pidNum)) { continue; }
+                seenIds.add(pidNum);
+              }
+              deduped.push(it);
+            }
+            deduped.reverse();
+            if (deduped.length !== arr.length) { dlog('saveFields:dedup-applied', { before: arr.length, after: deduped.length }); }
+            arr = deduped;
+          } catch(_){ }
           dlog('saveFields:payload', arr);
           return fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: arr }) })
             .then(async function(r){ try { await r.clone().text(); } catch(_){ } return r; });
@@ -1780,7 +1817,92 @@
             var saveD = document.getElementById('arSaveDesign'); if (saveD){ saveD.onclick = function(){ var payload = { meta: { design_primary: dPrim.value, design_bg: dBg.value, design_theme: dTheme.value } }; fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('طراحی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره طراحی ناموفق بود', 'error'); }); } }
             try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var side = document.getElementById('arFormSide'); if (side){ var isDarkNow = document.body.classList.contains('dark'); side.style.background = isDarkNow ? '' : (dBg.value || ''); } } catch(_){ } }); } } catch(_){ }
             var stSel = document.getElementById('arFormStatus'); if (stSel){ try { stSel.value = String(data.status||'draft'); } catch(_){ } }
-            var saveStatus = document.getElementById('arSaveStatus'); if (saveStatus && stSel){ saveStatus.onclick = function(){ var val = String(stSel.value||'draft'); fetch(ARSHLINE_REST+'forms/'+id, { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ status: val }) }).then(function(r){ if(!r.ok){ if (r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(obj){ var ns = (obj&&obj.status)||val; notify('وضعیت فرم ذخیره شد: '+ns, 'success'); }).catch(function(){ notify('ذخیره وضعیت ناموفق بود', 'error'); }); } }
+            var saveStatus = document.getElementById('arSaveStatus'); if (saveStatus && stSel){ saveStatus.onclick = function(){ var val = String(stSel.value||'draft'); fetch(ARSHLINE_REST+'forms/'+id, { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ status: val }) }).then(function(r){ if(!r.ok){ if (r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(obj){ var ns = (obj&&obj.status)||val; notify('وضعیت فرم ذخیره شد: '+ns, 'success'); try { data.status = ns; if (ns === 'published'){ // Ensure public token exists then refresh Share UI
+                    fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                      .catch(function(){ /* ignore */ })
+                      .finally(function(){ fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                        .then(function(rr){ return rr.ok ? rr.json() : Promise.reject(new Error('HTTP '+rr.status)); })
+                        .then(function(d2){ try { data.token = (d2 && d2.token) ? String(d2.token) : (data.token||''); } catch(_){ } try { updateShareUI && updateShareUI(); } catch(_){ } })
+                        .catch(function(){ try { updateShareUI && updateShareUI(); } catch(_){ } }); });
+                  } else { try { updateShareUI && updateShareUI(); } catch(_){ } } } catch(_){ } }).catch(function(){ notify('ذخیره وضعیت ناموفق بود', 'error'); }); } }
+
+            // Initialize and wire per-form settings (honeypot, rate limits, captcha...)
+            (function initFormSettings(){
+              try {
+                var meta = data.meta || {};
+                var hp = document.getElementById('arSetHoneypot'); if (hp) hp.checked = !!meta.anti_spam_honeypot;
+                var ms = document.getElementById('arSetMinSec'); if (ms) ms.value = (typeof meta.min_submit_seconds === 'number') ? String(meta.min_submit_seconds) : '';
+                var rpm = document.getElementById('arSetRatePerMin'); if (rpm) rpm.value = (typeof meta.rate_limit_per_min === 'number') ? String(meta.rate_limit_per_min) : '';
+                var rwin = document.getElementById('arSetRateWindow'); if (rwin) rwin.value = (typeof meta.rate_limit_window_min === 'number') ? String(meta.rate_limit_window_min) : '';
+                var ce = document.getElementById('arSetCaptchaEnabled'); if (ce) ce.checked = !!meta.captcha_enabled;
+                var cs = document.getElementById('arSetCaptchaSite'); if (cs) cs.value = meta.captcha_site_key || '';
+                var ck = document.getElementById('arSetCaptchaSecret'); if (ck) ck.value = meta.captcha_secret_key || '';
+                var cv = document.getElementById('arSetCaptchaVersion'); if (cv) cv.value = meta.captcha_version || 'v2';
+                function updateCaptchaInputs(){ var enabled = !!(ce && ce.checked); if (cs) cs.disabled = !enabled; if (ck) ck.disabled = !enabled; if (cv) cv.disabled = !enabled; }
+                updateCaptchaInputs(); if (ce) ce.addEventListener('change', updateCaptchaInputs);
+                var saveS = document.getElementById('arSaveSettings');
+                if (saveS){ saveS.onclick = function(){
+                  // Consolidated save: title + status + meta in one go
+                  var tInp = document.getElementById('arFormTitle');
+                  var stSel = document.getElementById('arFormStatus');
+                  var newTitle = tInp ? String(tInp.value||'').trim() : '';
+                  var newStatus = stSel ? String(stSel.value||'draft') : 'draft';
+                  var payloadMeta = {
+                    anti_spam_honeypot: !!(hp && hp.checked),
+                    min_submit_seconds: Math.max(0, parseInt((ms && ms.value)? ms.value : '0') || 0),
+                    rate_limit_per_min: Math.max(0, parseInt((rpm && rpm.value)? rpm.value : '0') || 0),
+                    rate_limit_window_min: Math.max(1, parseInt((rwin && rwin.value)? rwin.value : '1') || 1),
+                    captcha_enabled: !!(ce && ce.checked),
+                    captcha_site_key: (cs && cs.value) ? String(cs.value) : '',
+                    captcha_secret_key: (ck && ck.value) ? String(ck.value) : '',
+                    captcha_version: (cv && cv.value) ? String(cv.value) : 'v2',
+                    title: newTitle
+                  };
+                  // Disable button during save
+                  var oldText = saveS.textContent; saveS.disabled=true; saveS.textContent='در حال ذخیره...';
+                  // Save status and meta sequentially to reuse existing endpoints
+                  fetch(ARSHLINE_REST+'forms/'+id, { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ status: newStatus }) })
+                    .then(function(r){ if(!r.ok){ if (r.status===401 && typeof handle401==='function') handle401(); throw new Error('HTTP '+r.status); } return r.json(); })
+                    .then(function(obj){ try { data.status = (obj&&obj.status)||newStatus; } catch(_){ } return fetch(ARSHLINE_REST+'forms/'+id+'/meta', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ meta: payloadMeta }) }); })
+                    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                    .then(function(){
+                      try { data.meta = Object.assign({}, data.meta||{}, payloadMeta); } catch(_){ }
+                      // Update builder header title
+                      try { var hdr = content.querySelector('.card .title'); if (hdr && hdr.textContent && hdr.textContent.indexOf('ویرایش فرم #'+id)===0){ hdr.textContent = 'ویرایش فرم #'+id + (newTitle?(' — '+newTitle):''); } } catch(_){ }
+                      // If status is published, ensure token and refresh Share UI
+                      if (String(data.status||'') === 'published'){
+                        fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                          .catch(function(){ /* ignore */ })
+                          .finally(function(){ fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                            .then(function(rr){ return rr.ok ? rr.json() : Promise.reject(new Error('HTTP '+rr.status)); })
+                            .then(function(d2){ try { data.token = (d2 && d2.token) ? String(d2.token) : (data.token||''); } catch(_){ } try { updateShareUI && updateShareUI(); } catch(_){ } notify('تنظیمات ذخیره شد', 'success'); })
+                            .catch(function(){ try { updateShareUI && updateShareUI(); } catch(_){ } notify('تنظیمات ذخیره شد', 'success'); }); });
+                      } else {
+                        try { updateShareUI && updateShareUI(); } catch(_){ }
+                        notify('تنظیمات ذخیره شد', 'success');
+                      }
+                    })
+                    .catch(function(){ notify('ذخیره تنظیمات ناموفق بود', 'error'); })
+                    .finally(function(){ saveS.disabled=false; saveS.textContent=oldText; });
+                }; }
+              } catch(_){ }
+            })();
+
+            // Share panel: compute public URL, update UI, copy button, and ensure token when entering
+            var publicUrl = '';
+            function computePublicUrl(){ try { var token = (data && data.token) ? String(data.token) : ''; var isPub = String(data.status||'') === 'published'; if (isPub && token){ if (window.ARSHLINE_DASHBOARD && ARSHLINE_DASHBOARD.publicTokenBase){ return ARSHLINE_DASHBOARD.publicTokenBase.replace('%TOKEN%', token); } return window.location.origin + '/?arshline=' + encodeURIComponent(token); } return ''; } catch(_){ return ''; } }
+            function updateShareUI(){ try { publicUrl = computePublicUrl(); var shareLink = document.getElementById('arShareLink'); if (shareLink){ shareLink.value = publicUrl; shareLink.setAttribute('value', publicUrl); } var copyBtn = document.getElementById('arCopyLink'); if (copyBtn){ copyBtn.disabled = !publicUrl; } var shareWarn = document.getElementById('arShareWarn'); if (shareWarn){ shareWarn.style.display = publicUrl ? 'none' : 'inline'; } } catch(_){ } }
+            updateShareUI();
+            (function wireCopy(){ try { var copyBtn = document.getElementById('arCopyLink'); if (!copyBtn) return; function copyText(text){ if (navigator.clipboard && navigator.clipboard.writeText){ return navigator.clipboard.writeText(text); } return new Promise(function(res, rej){ try { var ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); var ok=document.execCommand('copy'); document.body.removeChild(ta); ok?res():rej(new Error('execCommand failed')); } catch(e){ rej(e); } }); } copyBtn.onclick = function(){ if (!publicUrl){ notify('ابتدا فرم را منتشر کنید', 'error'); return; } copyText(publicUrl).then(function(){ notify('کپی شد', 'success'); }).catch(function(){ notify('کپی ناموفق بود', 'error'); }); }; } catch(_){ } })();
+
+            // Enhance tabs showPanel to refresh Share panel on entry and auto-ensure token
+            try {
+              var tabs = Array.from(content.querySelectorAll('.ar-tabs [data-tab]'));
+              function showPanel(which){ var title = document.getElementById('arSectionTitle'); var panels = { builder: document.getElementById('arFormFieldsList'), design: document.getElementById('arDesignPanel'), settings: document.getElementById('arSettingsPanel'), share: document.getElementById('arSharePanel'), reports: document.getElementById('arReportsPanel') }; Object.keys(panels).forEach(function(k){ panels[k].style.display = (k===which)?'block':'none'; }); document.getElementById('arBulkToolbar').style.display = (which==='builder')?'flex':'none'; var tools = document.getElementById('arToolsSide'); if (tools) tools.style.display = (which==='builder')?'block':'none'; title.textContent = (which==='builder'?'پیش‌نمایش فرم': which==='design'?'طراحی فرم': which==='settings'?'تنظیمات فرم': which==='share'?'ارسال/اشتراک‌گذاری': 'گزارشات فرم'); if (which === 'share'){ try { var isPubNow = String(data.status||'') === 'published'; var hasTokNow = !!(data && data.token); if (isPubNow && !hasTokNow){ fetch(ARSHLINE_REST + 'forms/' + id + '/token', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }) .catch(function(){ /* ignore */ }) .finally(function(){ fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }) .then(function(rr){ return rr.ok ? rr.json() : Promise.reject(new Error('HTTP '+rr.status)); }) .then(function(d2){ try { data.token = (d2 && d2.token) ? String(d2.token) : (data.token||''); } catch(_){ } updateShareUI(); }) .catch(function(){ updateShareUI(); }); }); } else { updateShareUI(); } var sl = document.getElementById('arShareLink'); if (sl && typeof publicUrl === 'string'){ sl.value = publicUrl; sl.setAttribute('value', publicUrl); } } catch(_){ } }
+              }
+              // Re-wire tab buttons to use the enhanced showPanel (maintain existing active state code)
+              tabs.forEach(function(btn){ btn.onclick = (function(b){ return function(){ tabs.forEach(function(bb){ bb.classList.remove('active'); bb.setAttribute('aria-selected','false'); }); b.classList.add('active'); b.setAttribute('aria-selected','true'); showPanel(b.getAttribute('data-tab')); }; })(btn); });
+            } catch(_){ }
           } catch(_){ }
           var fields = data.fields || []; var qCounter = 0; var visibleMap = []; var vIdx = 0;
           list.innerHTML = fields.map(function(f, i){ var p = f.props || f; var type = p.type || f.type || 'short_text'; if (type === 'welcome' || type === 'thank_you'){ var ttl = (type==='welcome') ? 'پیام خوش‌آمد' : 'پیام تشکر'; var head = (p.heading && String(p.heading).trim()) || ''; return '<div class="card" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
