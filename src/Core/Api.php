@@ -4000,9 +4000,9 @@ class Api
                 $messages = [
                     [ 'role' => 'system', 'content' => 'You are Hoshang, a Persian assistant and data analyst.
 Principles (in order):
-1) If the user message is a greeting (e.g., سلام/درود/hi/hello), ALWAYS reply with a short polite Persian greeting. Do not output the fallback phrase for greetings.
+1) If the user message is a greeting (e.g., سلام/درود/hi/hello) or an identity question (e.g., "اسم شما چیه؟", "کی هستی؟", "who are you?", "what\'s your name?"), ALWAYS reply briefly and politely in Persian (e.g., "سلام! من هوشنگ هستم."). Do not output the fallback phrase for greetings/identity.
 2) ONLY use the provided data: fields_meta, submissions (rows), and values. Do NOT invent facts beyond these.
-3) If the question cannot be strictly answered from the provided data (and it is not a greeting), respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم».
+3) If the question cannot be strictly answered from the provided data (and it is not a greeting/identity), respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم».
 4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for counts, derive from provided values.
 '
                     ]
@@ -4107,7 +4107,15 @@ Principles (in order):
                     $usage['total'] = $usage['input'] + $usage['output'];
                 }
                 if ($text === '' || !is_string($text)){
-                    $text = 'اطلاعات لازم در فرم پیدا نمی‌کنم';
+                    // Heuristic: if user asked a greeting/identity question, provide a short Persian reply instead of the generic fallback
+                    $qnorm = mb_strtolower(preg_replace('/\s+/u', ' ', (string)$question));
+                    $isGreeting = (bool)preg_match('/\b(hi|hello|salam|salam|سلام|درود)\b/u', $qnorm);
+                    $isIdentity = (bool)(preg_match('/(اسم\s*شما\s*چیه|کی\s*هستی|کیستی|who\s*are\s*you|what\'?s\s*your\s*name)/u', $qnorm));
+                    if ($isGreeting || $isIdentity){
+                        $text = 'سلام! من هوشنگ هستم.';
+                    } else {
+                        $text = 'اطلاعات لازم در فرم پیدا نمی‌کنم';
+                    }
                 }
                 $answers[] = [ 'form_id'=>$fid, 'chunk'=> [ 'index'=>$i, 'size'=>count($slice) ], 'text'=>$text ];
                 // Log usage
