@@ -96,6 +96,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <!-- Extracted: tools-registry and core defaults -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tools-registry.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/tool-defaults.js?ver=' . $version ); ?>"></script>
+            <!-- Ensure FULL mode is enabled BEFORE loading any external controllers so they own routing/rendering -->
+            <script>
+            try { window.ARSH_CTRL_FULL = true; } catch(_){ }
+            </script>
             <!-- Core router -->
             <!-- FULL mode is enabled below; external controller owns renderTab and routing. -->
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/core/router.js?ver=' . $version ); ?>"></script>
@@ -149,7 +153,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 <?php endif; ?>
         <script src="<?php echo esc_url( $plugin_url . '/assets/js/modules/console-capture.js?ver=' . $version ); ?>"></script>
     <script>
-    // Enable FULL mode so inline controller is skipped when external is present
+    // FULL mode already enabled above; keep here as a no-op safety in case of partial loads
     try { window.ARSH_CTRL_FULL = true; } catch(_){ }
     /* =========================================================================
        BLOCK: dashboard-controller
@@ -3270,7 +3274,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                             <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
                                                 <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
                                                 <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
-                                                <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-5-mini">gpt-5-mini</option></select>\
+                                                <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-5">gpt-5</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4o">gpt-4o</option></select>\
                                                 <span class="hint">تحلیلگر</span><select id="gsAiParser" class="ar-select"><option value="internal">هوشیار داخلی</option><option value="hybrid">هیبرید (پیش‌فرض)</option><option value="llm">OpenAI LLM</option></select>\
                                                 <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
                                             </div>\
@@ -3325,7 +3329,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         .then(function(resp){ try {
                             var c = resp && resp.config ? resp.config : {};
                             var bu = document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || '';
-                            var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o-mini';
+                            var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o';
                             var pa = document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid';
                             var ak = document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || '';
                         } catch(_){ } });

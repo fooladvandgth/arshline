@@ -2976,7 +2976,7 @@
                                             <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
                                                 <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
                                                 <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
-                                                <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-5-mini">gpt-5-mini</option></select>\
+                                                <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-5">gpt-5</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4o">gpt-4o</option></select>\
                                                 <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
                                             </div>\
                                             <div class="field" style="display:flex;flex-direction:column;gap:.4rem;">\
@@ -3030,7 +3030,7 @@
                         .then(function(resp){ try {
                             var c = resp && resp.config ? resp.config : {};
                             var bu = document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || '';
-                            var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o-mini';
+                            var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o';
                             // Do not prefill API key for safety; user can paste to update
                         } catch(_){ } });
                     })

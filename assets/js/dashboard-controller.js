@@ -401,33 +401,105 @@
         content.innerHTML = ''+
         '<div class="card glass" style="padding:1rem;">'+
           '<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem">'+
-            '<span class="title">تحلیل‌ها (هوشنگ)</span>'+
-            '<span class="hint">انتخاب چند فرم و پرسش؛ خلاصهٔ فارسی</span>'+
+            '<span class="title">هوشنگ</span>'+
+            '<div style="display:inline-flex;gap:.35rem;margin-inline-start:auto">'+
+              '<label class="ar-btn ar-btn--soft" style="cursor:pointer"><input type="radio" name="arHoshMode" value="chat" id="arHoshModeChat" checked style="margin:0 .35rem 0 0"/> چت ساده</label>'+
+              '<label class="ar-btn ar-btn--outline" style="cursor:pointer"><input type="radio" name="arHoshMode" value="advanced" id="arHoshModeAdv" style="margin:0 .35rem 0 0"/> تحلیل پیشرفته</label>'+
+            '</div>'+
           '</div>'+
-          '<div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem">'+
-            '<select id="arAnaForms" class="ar-select" multiple size="6" style="min-width:260px"></select>'+
-            '<input id="arAnaQ" class="ar-input" placeholder="سوال شما…" style="min-width:280px;flex:1 1 320px" />'+
-            '<input id="arAnaChunk" class="ar-input" type="number" value="800" min="50" max="2000" style="width:120px" title="سایز قطعه" />'+
-            /* ساختاری (سریع) — حذف شد: حالت فقط LLM */
-            '<span class="hint" style="opacity:.8">حالت: مدل زبانی (LLM)</span>'+
-            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaFormatTable" type="checkbox"/> ارسال جدول</label>'+ 
-            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaDebug" type="checkbox"/> دیباگ</label>'+ 
-            '<input id="arAnaMaxTok" class="ar-input" type="number" value="800" min="16" max="2048" style="width:120px" title="حداکثر توکن خروجی" />'+ 
-            '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+ 
-            '<button id="arAnaExport" class="ar-btn ar-btn--outline" title="خروجی گفتگو">خروجی</button>'+
-            '<button id="arAnaSpeak" class="ar-btn ar-btn--soft" title="خواندن خلاصه">گویا</button>'+
-            '<button id="arAnaClear" class="ar-btn ar-btn--outline" title="پاک‌کردن گفتگو">پاک‌کردن گفتگو</button>'+
+          '<div id="arHoshChat" style="margin-bottom:.8rem;display:block">'+
+            '<div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem">'+
+              '<input id="arChatQ" class="ar-input" placeholder="پیام شما…" style="min-width:280px;flex:1 1 420px" />'+
+              '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arChatDebug" type="checkbox"/> دیباگ</label>'+ 
+              '<input id="arChatMaxTok" class="ar-input" type="number" value="800" min="16" max="2048" style="width:120px" title="حداکثر توکن خروجی" />'+ 
+              '<button id="arChatSend" class="ar-btn">ارسال</button>'+ 
+              '<button id="arChatExport" class="ar-btn ar-btn--soft" title="خروجی گفتگو">خروجی</button>'+ 
+              '<button id="arChatClear" class="ar-btn" title="پاک‌کردن گفتگو">پاک‌کردن</button>'+
+            '</div>'+
+            '<div id="arChatOut" class="card glass" style="padding:1rem;white-space:pre-wrap;line-height:1.7;max-height:420px;overflow:auto"></div>'+
           '</div>'+
-          '<div id="arAnaOut" class="card glass" style="padding:1rem;white-space:pre-wrap;line-height:1.7"></div>'+
+          '<div id="arHoshAdv" style="display:none">'+
+            '<div class="hint" style="margin-bottom:.4rem">تحلیل پیشرفته (نسخهٔ قبلی با گزینه‌ها)</div>'+
+            '<div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem">'+
+              '<input id="arAnaFormSearch" class="ar-input" placeholder="جستجوی فرم‌ها…" style="min-width:200px;flex:0 0 220px" />'+
+              '<select id="arAnaForms" class="ar-select" multiple size="6" style="min-width:260px"></select>'+
+              '<input id="arAnaQ" class="ar-input" placeholder="سوال شما…" style="min-width:280px;flex:1 1 320px" />'+
+              '<input id="arAnaChunk" class="ar-input" type="number" value="800" min="50" max="2000" style="width:120px" title="سایز قطعه" />'+
+              '<span class="hint" style="opacity:.8">حالت: مدل زبانی (LLM)</span>'+
+              '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaFormatTable" type="checkbox"/> ارسال جدول</label>'+
+              '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaStructured" type="checkbox"/> خروجی JSON ساختاری</label>'+
+              '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaDebug" type="checkbox"/> دیباگ</label>'+ 
+              '<input id="arAnaMaxTok" class="ar-input" type="number" value="800" min="16" max="2048" style="width:120px" title="حداکثر توکن خروجی" />'+ 
+              '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+ 
+              '<button id="arAnaExport" class="ar-btn ar-btn--outline" title="خروجی گفتگو">خروجی</button>'+
+              '<select id="arAnaVoice" class="ar-select" title="انتخاب صدا" style="min-width:180px"></select>'+ 
+              '<button id="arAnaSpeak" class="ar-btn ar-btn--soft" title="خواندن خلاصه">گویا</button>'+ 
+              '<button id="arAnaClear" class="ar-btn ar-btn--outline" title="پاک‌کردن گفتگو">پاک‌کردن گفتگو</button>'+
+            '</div>'+
+            '<div id="arAnaProgress" style="display:none;margin-bottom:.25rem;height:6px;background:var(--border);border-radius:999px;overflow:hidden"><div id="arAnaProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#06b6d4,#3b82f6);transition:width .25s ease"></div></div>'+
+            '<div id="arAnaProgressInfo" class="hint" style="display:none;margin-bottom:.4rem"></div>'+
+            '<div id="arAnaOut" class="card glass" style="padding:1rem;white-space:pre-wrap;line-height:1.7"></div>'+
+          '</div>'+
         '</div>';
         (function initAna(){
+          // Mode toggle
+          var modeChat = document.getElementById('arHoshModeChat');
+          var modeAdv = document.getElementById('arHoshModeAdv');
+          var paneChat = document.getElementById('arHoshChat');
+          var paneAdv = document.getElementById('arHoshAdv');
+          function setMode(which){ var isChat = (which==='chat'); if (paneChat) paneChat.style.display = isChat?'block':'none'; if (paneAdv) paneAdv.style.display = isChat?'none':'block'; try { localStorage.setItem('arshHoshMode', isChat?'chat':'advanced'); } catch(_){ } }
+          try { var savedMode = localStorage.getItem('arshHoshMode')||'chat'; if (savedMode!=='chat'){ if (modeAdv) modeAdv.checked = true; setMode('advanced'); } else { if (modeChat) modeChat.checked = true; setMode('chat'); } } catch(_){ }
+          if (modeChat) modeChat.addEventListener('change', function(){ if (modeChat.checked) setMode('chat'); });
+          if (modeAdv) modeAdv.addEventListener('change', function(){ if (modeAdv.checked) setMode('advanced'); });
+
+          // Simple chat wiring
+          (function initSimpleChat(){
+            var q = document.getElementById('arChatQ');
+            var out = document.getElementById('arChatOut');
+            var send = document.getElementById('arChatSend');
+            var clearBtn = document.getElementById('arChatClear');
+            var exportBtn = document.getElementById('arChatExport');
+            var debugChk = document.getElementById('arChatDebug');
+            var maxTok = document.getElementById('arChatMaxTok');
+            var CHAT_DEBUG = false; try { CHAT_DEBUG = (localStorage.getItem('arshChatDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+            try { if (debugChk){ debugChk.checked = !!CHAT_DEBUG; debugChk.addEventListener('change', function(){ CHAT_DEBUG = !!debugChk.checked; try { localStorage.setItem('arshChatDebug', CHAT_DEBUG ? '1' : '0'); } catch(_){ } }); } } catch(_){ }
+            try { if (maxTok){ var saved = parseInt(localStorage.getItem('arshChatMaxTok')||'800')||800; maxTok.value = String(saved); maxTok.addEventListener('change', function(){ var v = parseInt(maxTok.value||'0')||800; if (v<16) v=16; if (v>2048) v=2048; maxTok.value = String(v); try { localStorage.setItem('arshChatMaxTok', String(v)); } catch(_){ } }); } } catch(_){ }
+            var history = [];
+            var chatSessionId = 0; try { chatSessionId = parseInt(localStorage.getItem('arshChatSessionId')||'0')||0; } catch(_){ }
+            function _appendChatMessage(role, text){ if (!out) return null; var wrap = document.createElement('div'); wrap.className = 'ar-chat-msg '+role; wrap.style.display='flex'; wrap.style.gap='.6rem'; wrap.style.marginBottom='.7rem'; wrap.style.alignItems='flex-start'; var bubble=document.createElement('div'); bubble.className='ar-chat-bubble'; bubble.style.whiteSpace='pre-wrap'; bubble.style.lineHeight='1.7'; bubble.style.padding='.6rem .8rem'; bubble.style.borderRadius='12px'; bubble.textContent = text || ''; if (role==='user'){ bubble.style.background='var(--primary-50, rgba(59,130,246,.12))'; wrap.style.justifyContent='flex-end'; } else { bubble.style.background='var(--surface-2, rgba(0,0,0,.06))'; wrap.style.justifyContent='flex-start'; } wrap.appendChild(bubble); out.appendChild(wrap); try { out.scrollTop = out.scrollHeight; } catch(_){ } return { wrap:wrap, bubble:bubble }; }
+            function _truncate(s,n){ try { s=String(s||''); return s.length>n ? (s.slice(0,n)+'\n…[truncated]') : s; } catch(_){ return String(s||''); } }
+            function _pretty(o){ try { return JSON.stringify(o,null,2); } catch(_){ try { return String(o); } catch(__){ return ''; } } }
+            // Load and render existing session history
+            (function initChatHistory(){ try {
+              if (!out) return; if (!chatSessionId) return;
+              var url = ARSHLINE_REST + 'analytics/sessions/'+chatSessionId;
+              fetch(url, { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } })
+                .then(function(r){ if(!r.ok){ if (CHAT_DEBUG) console.warn('[ARSH][CHAT] history HTTP', r.status); return null; } return r.json(); })
+                .then(function(j){ if(!j||!Array.isArray(j.messages)) return; try {
+                  j.messages.forEach(function(m){ var role=(m&&m.role)||''; var content=(m&&m.content)||''; if (role!=='user' && role!=='assistant') return; _appendChatMessage(role, content); history.push({ role: role, content: content }); });
+                  if (j.messages.length){ try { out.scrollTop = out.scrollHeight; } catch(_){ } }
+                } catch(_){ }
+              });
+            } catch(_){ } })();
+            function doSend(){ try { var text=(q.value||'').trim(); if(!text){ notify('متن پیام خالی است','warn'); return; } var body={ message:text }; if(history.length){ body.history = history.slice(-16); } if (chatSessionId>0) body.session_id = chatSessionId; if(CHAT_DEBUG) body.debug=true; try { if (maxTok){ var mt=parseInt(maxTok.value||'0')||0; if (mt>0) body.max_tokens = Math.max(16, Math.min(2048, mt)); } } catch(_){ } if (CHAT_DEBUG){ try { console.groupCollapsed('[ARSH][CHAT] request'); console.log('message:', text); console.log('options:', { session_id: body.session_id||0, max_tokens: body.max_tokens||undefined, history_len: (body.history||[]).length, debug: !!body.debug }); console.groupEnd(); } catch(_){ } } var old=send.textContent; send.disabled=true; send.textContent='در حال ارسال…'; var userMsg=text; if(userMsg){ _appendChatMessage('user', userMsg); } var pending=_appendChatMessage('assistant', 'در حال پردازش…'); var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now(); fetch(ARSHLINE_REST + 'ai/simple-chat', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+              .then(async function(r){ var txt=''; try{ txt=await r.clone().text(); }catch(_){ } if (CHAT_DEBUG){ try { var t1=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now(); console.groupCollapsed('[ARSH][CHAT] http'); console.log('status:', r.status); console.log('roundtrip_ms:', Math.round(t1 - t0)); console.log('raw_len:', (txt||'').length); console.groupEnd(); } catch(_){ } } if(!r.ok){ var msg='HTTP '+r.status; try{ var jErr=txt?JSON.parse(txt):await r.json(); msg = (jErr && (jErr.error||jErr.message)) || msg; }catch(_){ } throw new Error(msg); } try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; } })
+              .then(function(j){ try { if (j.error){ if(pending&&pending.bubble) pending.bubble.textContent='خطا: '+j.error; return; } if(pending&&pending.bubble) pending.bubble.textContent = j.reply || ''; if (typeof j.session_id==='number' && j.session_id>0){ chatSessionId = j.session_id; try { localStorage.setItem('arshChatSessionId', String(chatSessionId)); } catch(_){ } } if (CHAT_DEBUG){ try { console.info('[ARSH][CHAT] response', j); } catch(_){ } } var assistantMsg=String(j.reply||''); if(userMsg){ history.push({ role:'user', content:userMsg }); } if(assistantMsg){ history.push({ role:'assistant', content:assistantMsg }); } if (j.usage){ var u=j.usage||{}; var m=document.createElement('div'); m.className='hint'; m.style.marginTop='.6rem'; m.textContent='مصرف توکن — ورودی: '+(u.input||0)+' ؛ خروجی: '+(u.output||0)+' ؛ کل: '+(u.total||0); if(pending&&pending.wrap) pending.wrap.appendChild(m); else out.appendChild(m); } if (j.debug && pending && pending.wrap && CHAT_DEBUG){ try { console.groupCollapsed('[ARSH][CHAT] debug'); var dbg=j.debug; if(dbg && dbg.request_preview) console.log('request_preview:', dbg.request_preview); if(dbg && dbg.http_status!=null) console.log('http_status:', dbg.http_status); if(dbg && dbg.raw) console.log('raw:\n'+_truncate(dbg.raw, 2000)); console.groupEnd(); var det=document.createElement('details'); det.style.marginTop='.4rem'; var sum=document.createElement('summary'); sum.textContent='جزئیات دیباگ'; det.appendChild(sum); var pre=document.createElement('pre'); pre.style.whiteSpace='pre-wrap'; pre.style.direction='ltr'; pre.style.maxHeight='300px'; pre.style.overflow='auto'; pre.textContent=_truncate(_pretty(j.debug), 3000); det.appendChild(pre); pending.wrap.appendChild(det); } catch(_){ } } } catch(e){ if(out) out.textContent='خطا در نمایش خروجی'; } })
+              .catch(function(err){ console.error(err); if(pending&&pending.bubble) pending.bubble.textContent='درخواست ناموفق بود: '+String((err&&err.message)||err); else if(out) out.textContent='درخواست ناموفق بود: '+String((err&&err.message)||err); })
+              .finally(function(){ send.disabled=false; send.textContent=old; }); } catch(e){ console.error(e); notify('خطا در ارسال','error'); } }
+            if (send) send.addEventListener('click', doSend);
+            try { if (q){ q.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); doSend(); } }); } } catch(_){ }
+            if (clearBtn) clearBtn.addEventListener('click', function(){ history = []; chatSessionId = 0; try { localStorage.removeItem('arshChatSessionId'); } catch(_){ } if (out){ out.innerHTML=''; } notify('گفتگو پاک شد','info'); });
+            if (exportBtn) exportBtn.addEventListener('click', function(){ try { if (!chatSessionId){ notify('ابتدا یک پیام بفرستید تا گفتگویی ایجاد شود','warn'); return; } var url = new URL(ARSHLINE_REST + 'analytics/sessions/'+chatSessionId+'/export'); url.searchParams.set('format','json'); window.open(url.toString(), '_blank'); } catch(e){ console.error(e); notify('امکان خروجی وجود ندارد','error'); } });
+          })();
           var sel = document.getElementById('arAnaForms');
+          var selSearch = document.getElementById('arAnaFormSearch');
           var out = document.getElementById('arAnaOut');
           var run = document.getElementById('arAnaRun');
           var q = document.getElementById('arAnaQ');
           var speak = document.getElementById('arAnaSpeak');
+          var voiceSel = document.getElementById('arAnaVoice');
           var chunk = document.getElementById('arAnaChunk');
-          var structuredChk = null; // حذف حالت ساختاری؛ فقط LLM
+          var structuredChk = document.getElementById('arAnaStructured');
           var formatTableChk = document.getElementById('arAnaFormatTable');
           var debugChk = document.getElementById('arAnaDebug');
           var maxTok = document.getElementById('arAnaMaxTok');
@@ -441,8 +513,59 @@
           try { if (debugChk){ debugChk.checked = !!ANA_DEBUG; debugChk.addEventListener('change', function(){ ANA_DEBUG = !!debugChk.checked; try { localStorage.setItem('arshAnaDebug', ANA_DEBUG ? '1' : '0'); } catch(_){ } }); } } catch(_){ }
           try { if (maxTok){ var saved = parseInt(localStorage.getItem('arshAnaMaxTok')||'800')||800; maxTok.value = String(saved); maxTok.addEventListener('change', function(){ var v = parseInt(maxTok.value||'0')||800; if (v<16) v=16; if (v>2048) v=2048; maxTok.value = String(v); try { localStorage.setItem('arshAnaMaxTok', String(v)); } catch(_){ } }); } } catch(_){ }
           // Load minimal config and then list forms
+          var ANA_AUTO_FMT = true; // default: let backend auto-decide
+          var ANA_SHOW_ADV = false; // default: hide expert toggles
+          var CFG_ANA_MAXTOK = 1200;
+          var CFG_ANA_CHUNK = 800;
           fetch(ARSHLINE_REST + 'analytics/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ return r.json(); }).then(function(cfg){ if(!cfg.enabled){ notify('هوشنگ غیرفعال است (AI)؛ ابتدا کلید/مبنا را تنظیم کنید.', 'warn'); } }).catch(function(){ });
-          fetch(ARSHLINE_REST + 'forms', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ if(!r.ok){ if(r.status===401 && typeof handle401==='function') handle401(); throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { var arr = Array.isArray(data) ? data : (Array.isArray(data.items)?data.items:[]); sel.innerHTML = arr.map(function(f){ return '<option value="'+String(f.id)+'">#'+String(f.id)+' — '+(f.title||'بی‌عنوان')+'</option>'; }).join(''); } catch(_){ } }).catch(function(err){ console.error(err); notify('دریافت لیست فرم‌ها ناموفق بود','error'); });
+          // Try to get advanced analytics settings from AI config (admin-only endpoint); ignore if forbidden
+          try {
+            fetch(ARSHLINE_REST + 'ai/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } })
+              .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+              .then(function(j){ try { var c=(j&&j.config)||{}; if (typeof c.ana_auto_format==='boolean') ANA_AUTO_FMT = !!c.ana_auto_format; if (typeof c.ana_show_advanced==='boolean') ANA_SHOW_ADV = !!c.ana_show_advanced; if (typeof c.ana_max_tokens==='number') CFG_ANA_MAXTOK = Math.max(16, Math.min(4096, parseInt(c.ana_max_tokens)||1200)); if (typeof c.ana_chunk_size==='number') CFG_ANA_CHUNK = Math.max(50, Math.min(2000, parseInt(c.ana_chunk_size)||800)); } catch(_){ } })
+              .catch(function(){ /* ignore */ })
+              .finally(function(){ try { var el1 = document.getElementById('arAnaStructured'); var el2 = document.getElementById('arAnaFormatTable'); var wrap1 = el1 && el1.closest('label'); var wrap2 = el2 && el2.closest('label'); if (!ANA_SHOW_ADV){ if (wrap1) wrap1.style.display='none'; if (wrap2) wrap2.style.display='none'; } var chEl=document.getElementById('arAnaChunk'); var mtEl=document.getElementById('arAnaMaxTok'); if (!ANA_SHOW_ADV){ if (chEl) chEl.style.display='none'; if (mtEl) mtEl.style.display='none'; } else { if (chEl) chEl.value = String(CFG_ANA_CHUNK); if (mtEl) mtEl.value = String(Math.min(2048, CFG_ANA_MAXTOK)); } } catch(_){ } });
+          } catch(_){ /* ignore */ }
+          // TTS voices: populate selector (if supported)
+          (function initVoices(){ try {
+            if (!voiceSel) return;
+            if (!('speechSynthesis' in window)) { voiceSel.disabled = true; voiceSel.title = 'مرورگر از TTS پشتیبانی نمی‌کند'; return; }
+            function voiceId(v){ return (v && (v.voiceURI||(''+(v.name||'')+'|'+(v.lang||'')))) || ''; }
+            function labelOf(v){ var name=String(v.name||''); var lang=String(v.lang||''); return (lang? (lang+' — '):'') + name; }
+            function sortVoices(vs){ return (vs||[]).slice().sort(function(a,b){ function score(v){ var L=String(v.lang||''); if (/fa-IR/i.test(L)) return 300; if (/^fa/i.test(L)) return 200; if (/ar/i.test(L)) return 120; return 0; } var sa=score(a), sb=score(b); if (sa!==sb) return sb-sa; return String(a.name||'').localeCompare(String(b.name||'')); }); }
+            function populate(){
+              try {
+                // Calling getVoices eagerly helps certain browsers load the list
+                var _ = window.speechSynthesis.getVoices();
+                var list = sortVoices(_||[]);
+                var saved=''; try { saved = localStorage.getItem('arshAnaVoice')||''; } catch(_){ }
+                var opts = [{ value:'auto', text:'انتخاب خودکار (فارسی)' }];
+                list.forEach(function(v){ opts.push({ value: voiceId(v), text: labelOf(v) }); });
+                voiceSel.innerHTML = opts.map(function(o){ return '<option value="'+o.value+'">'+o.text+'</option>'; }).join('');
+                if (saved){ var found = list.find(function(v){ return voiceId(v)===saved; }); if (found) voiceSel.value = saved; }
+                voiceSel.addEventListener('change', function(){ try { var val = String(voiceSel.value||''); if (val==='auto') localStorage.removeItem('arshAnaVoice'); else localStorage.setItem('arshAnaVoice', val); } catch(_){ } });
+                voiceSel.disabled = list.length===0;
+                if (list.length===0) voiceSel.title = 'هیچ صدایی از مرورگر گزارش نشد؛ پس از چند ثانیه دوباره تلاش کنید.';
+              } catch(_){ }
+            }
+            populate();
+            try { window.speechSynthesis.onvoiceschanged = function(){ populate(); }; } catch(_){ }
+          } catch(_){ } })();
+          // Load and render existing analytics session history (if any)
+          (function initAnaHistory(){ try { if (!out) return; if (!chatSessionId) return; var url = ARSHLINE_REST + 'analytics/sessions/'+chatSessionId; fetch(url, { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } })
+            .then(function(r){ if(!r.ok){ if (ANA_DEBUG) console.warn('[ARSH][ANA] history HTTP', r.status); return null; } return r.json(); })
+            .then(function(j){ if(!j||!Array.isArray(j.messages)) return; try { j.messages.forEach(function(m){ var role=(m&&m.role)||''; var content=(m&&m.content)||''; if (role!=='user' && role!=='assistant') return; _appendChatMessage(role, content); chatHistory.push({ role: role, content: content }); }); if (j.messages.length){ try { out.scrollTop = out.scrollHeight; } catch(_){ } } } catch(_){ } }); } catch(_){ } })();
+          // Load forms list for analytics multi-select and wire up live search
+          fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } })
+            .then(async function(r){ if(!r.ok){ if(r.status===401 && typeof handle401==='function') handle401(); var t=''; try{ t=await r.text(); }catch(_){ } throw new Error('[ANA][FORMS] HTTP '+r.status+(t?(' :: '+t):'')); } return r.json(); })
+            .then(function(data){ try {
+              var all = Array.isArray(data) ? data : (Array.isArray(data.items)?data.items:[]);
+              function renderFormOptions(list){ if (!sel) return; sel.innerHTML = list.map(function(f){ return '<option value="'+String(f.id)+'">#'+String(f.id)+' — '+(f.title||'بی‌عنوان')+'</option>'; }).join(''); }
+              function applyFormSearch(){ var term = (selSearch && selSearch.value.trim()) || ''; if (!term){ renderFormOptions(all); return; } var t = term.toLowerCase(); var filtered = all.filter(function(f){ var s = ('#'+String(f.id)+' '+(f.title||'')); return s.toLowerCase().indexOf(t)!==-1; }); renderFormOptions(filtered); }
+              renderFormOptions(all);
+              if (selSearch){ selSearch.addEventListener('input', function(){ clearTimeout(selSearch._t); selSearch._t = setTimeout(applyFormSearch, 150); }); }
+            } catch(_){ }} )
+            .catch(function(err){ console.error('[ARSH][ANA] load forms failed:', err); notify('دریافت لیست فرم‌ها ناموفق بود','error'); });
           function getSelected(){ return Array.from(sel.options).filter(function(o){ return o.selected; }).map(function(o){ return parseInt(o.value||'0'); }).filter(function(v){ return v>0; }); }
           // helpers for chat-style rendering
           function _appendChatMessage(role, text){
@@ -476,24 +599,28 @@
           // Debug helpers
           function _truncate(s, n){ try { s = String(s||''); return s.length>n ? (s.slice(0,n) + '\n…[truncated]') : s; } catch(_){ return String(s||''); } }
           function _pretty(o){ try { return JSON.stringify(o, null, 2); } catch(_){ try { return String(o); } catch(__){ return ''; } } }
-          function doRun(){ try {
+          async function doRun(){ try {
             var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
-            var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
-            if (chatSessionId>0) body.session_id = chatSessionId;
+            var body = { form_ids: ids, question: (q.value||'').trim() };
+            var bodyBase = { form_ids: ids, question: (q.value||'').trim() };
+            if (ANA_SHOW_ADV){ bodyBase.chunk_size = parseInt((chunk && chunk.value)||String(CFG_ANA_CHUNK))||CFG_ANA_CHUNK; }
+            if (chatSessionId>0) body.session_id = chatSessionId, bodyBase.session_id = chatSessionId;
             // pass conversation history (limit last 8 turns for brevity)
-            if (chatHistory.length){ body.history = chatHistory.slice(-16); }
-            // حالت فقط LLM
-            body.mode = 'llm';
-            // preferred format
-            if (formatTableChk && formatTableChk.checked){ body.format = 'table'; }
-            if (ANA_DEBUG) body.debug = true;
-            try { if (maxTok){ var mt = parseInt(maxTok.value||'0')||0; if (mt>0) body.max_tokens = Math.max(16, Math.min(2048, mt)); } } catch(_){ }
+            if (chatHistory.length){ body.history = chatHistory.slice(-16); bodyBase.history = chatHistory.slice(-16); }
+            // حالت ساختاری یا LLM — only when advanced toggles are enabled; otherwise let backend auto-decide
+            if (!ANA_AUTO_FMT){
+              if (structuredChk && structuredChk.checked){ body.structured = true; body.mode = 'structured'; body.format = 'json'; }
+              else { body.mode = 'llm'; }
+              if (formatTableChk && formatTableChk.checked){ body.format = 'table'; }
+            }
+            if (ANA_DEBUG) { body.debug = true; bodyBase.debug = true; }
+            try { if (ANA_SHOW_ADV && maxTok){ var mt = parseInt(maxTok.value||'0')||0; if (mt>0) body.max_tokens = Math.max(16, Math.min(2048, mt)); bodyBase.max_tokens = body.max_tokens; } } catch(_){ }
             if (ANA_DEBUG) {
               try {
                 console.groupCollapsed('[ARSH][ANA] request');
                 console.log('Selected forms:', ids);
                 console.log('Question:', body.question);
-                console.log('Options:', { chunk_size: body.chunk_size, format: body.format||'json', mode: body.mode, session_id: body.session_id||0, max_tokens: body.max_tokens||undefined, history_len: (body.history||[]).length, debug: !!body.debug });
+                console.log('Options:', { chunk_size: body.chunk_size, format: body.format||'(auto)', mode: body.mode||'(auto)', session_id: body.session_id||0, max_tokens: body.max_tokens||undefined, history_len: (body.history||[]).length, debug: !!body.debug, auto_format: ANA_AUTO_FMT });
                 console.groupEnd();
               } catch(_){ }
             }
@@ -501,24 +628,195 @@
             // render user message and a pending assistant bubble
             var userMsg = (q.value||'').trim();
             if (userMsg){ _appendChatMessage('user', userMsg); }
-            var pending = _appendChatMessage('assistant', 'در حال پردازش…');
-            var t0 = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
-            fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
-              .then(async function(r){
-                var txt='';
-                try{ txt=await r.clone().text(); }catch(_){ }
-                if (ANA_DEBUG){ try { var t1=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now(); console.groupCollapsed('[ARSH][ANA] http'); console.log('status:', r.status); console.log('roundtrip_ms:', Math.round(t1 - t0)); console.log('raw_len:', (txt||'').length); console.groupEnd(); } catch(_){ } }
-                if(!r.ok){ var msg='HTTP '+r.status; try{ var j=txt?JSON.parse(txt):await r.json(); msg = (j && (j.error||j.message)) || msg; }catch(_){ } throw new Error(msg); }
-                try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; }
-              })
-              .then(function(j){
+            var pending = _appendChatMessage('assistant', 'در حال آماده‌سازی داده‌ها…');
+            var barWrap = document.getElementById('arAnaProgress');
+            var bar = document.getElementById('arAnaProgressBar');
+            var info = document.getElementById('arAnaProgressInfo');
+            function setPct(p){ try { if (barWrap) barWrap.style.display='block'; if (bar) bar.style.width = Math.max(0, Math.min(100, p)) + '%'; } catch(_){ } }
+            function setInfo(text){ try { if (info){ info.style.display='block'; info.textContent = text||''; } } catch(_){ } }
+            setPct(5);
+            try {
+              // If user forced LLM-only, keep legacy behavior
+              var llmOnly = (!(!ANA_AUTO_FMT) && !(structuredChk && structuredChk.checked));
+              if (!llmOnly){
+                // Phased: plan
+                var planReq = Object.assign({}, bodyBase, { structured:true, mode:'structured', format:'json', phase:'plan', debug: !!ANA_DEBUG });
+                var rPlan = await fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(planReq) });
+                var jPlan = await rPlan.json();
+                if (!rPlan.ok || !jPlan || jPlan.phase!=='plan') throw new Error((jPlan && (jPlan.error||jPlan.message)) || 'plan failed');
+                var total = (jPlan.plan && jPlan.plan.total_rows) || 0;
+                var chunks = (jPlan.plan && jPlan.plan.number_of_chunks) || 1;
+                var perChunk = (jPlan.plan && jPlan.plan.chunk_size) || (bodyBase.chunk_size||800);
+                var suggestedTok = (jPlan.plan && jPlan.plan.suggested_max_tokens) || undefined;
+                var doneRows = 0;
+                setInfo('مرحله برنامه‌ریزی: '+total+' ردیف · '+chunks+' قطعه');
+                if (pending && pending.bubble) pending.bubble.textContent = 'در حال پردازش قطعه 1 از '+chunks+'…'; setPct(10);
+                var partials = [];
+                for (var i=1;i<=chunks;i++){
+                  var pct = Math.round(((i-1)/Math.max(chunks,1))*80)+10; // allocate 10..90% for chunks
+                  if (pending && pending.bubble) pending.bubble.textContent = 'در حال پردازش قطعه '+i+' از '+chunks+'…';
+                  setPct(pct);
+                  setInfo('قطعه '+i+'/'+chunks+' · پردازش '+doneRows+' از '+total+' ردیف (٪'+pct+')');
+                  var chReq = Object.assign({}, bodyBase, { structured:true, mode:'structured', format:'json', phase:'chunk', chunk_index:i, chunk_size:perChunk, debug: !!ANA_DEBUG });
+                  if (suggestedTok) chReq.max_tokens = suggestedTok;
+                  var rCh = await fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(chReq) });
+                  var jCh = await rCh.json();
+                  if (!rCh.ok || !jCh || jCh.phase!=='chunk') throw new Error((jCh && (jCh.error||jCh.message)) || 'chunk failed');
+                  if (jCh.partial) partials.push(jCh.partial);
+                  try { var d0 = Array.isArray(jCh.debug)? jCh.debug[0] : (jCh.debug||null); if (d0 && typeof d0.rows==='number') doneRows += (d0.rows||0); else doneRows = Math.min(total, i*perChunk); } catch(_){ doneRows = Math.min(total, i*perChunk); }
+                  setInfo('قطعه '+i+'/'+chunks+' · پردازش '+doneRows+' از '+total+' ردیف (٪'+pct+')');
+                }
+                if (pending && pending.bubble) pending.bubble.textContent = 'در حال ادغام نتایج…'; setPct(90); setInfo('ادغام نتایج · (٪90)');
+                var finReq = Object.assign({}, bodyBase, { structured:true, mode:'structured', format:'json', phase:'final', partials:partials, debug: !!ANA_DEBUG });
+                if (pending && pending.bubble) pending.bubble.textContent = 'در حال نهایی‌سازی تحلیل…'; setPct(95); setInfo('نهایی‌سازی · (٪95)');
+                var rFin = await fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(finReq) });
+                setPct(100); setInfo('انجام شد · ۱۰۰٪'); setTimeout(function(){ if (barWrap) barWrap.style.display='none'; if (info) info.style.display='none'; }, 1200);
+                var j = await rFin.json();
+                if (!rFin.ok || !j || j.phase!=='final') throw new Error((j && (j.error||j.message)) || 'final failed');
+                // continue to common render below
+              } else {
+                // Legacy single call
+                var r = await fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+                var j = await r.json();
+                if (!r.ok){ throw new Error(j && (j.error||j.message) || ('HTTP '+r.status)); }
+              }
+              (function render(j){
                 try {
                   if (j.error){ if (pending && pending.bubble) pending.bubble.textContent = 'خطا: '+j.error; return; }
-                  if (pending && pending.bubble) pending.bubble.textContent = j.summary || '';
+                  // If structured result exists, prefer it
+                  var assistantText = '';
+                  if (j && j.result && typeof j.result === 'object'){ assistantText = String(j.result.answer||''); }
+                  if (!assistantText) assistantText = String(j.summary||'');
+                  if (pending && pending.bubble) pending.bubble.textContent = assistantText;
+                  // If structured, append details
+                  if (j && j.result && typeof j.result === 'object'){
+                    try {
+                      // Routing badge (when debug provides routing/model); fallback to final model if present
+                      try {
+                        var firstDbg = Array.isArray(j.debug) ? j.debug[0] : (j.debug || null);
+                        var routing = firstDbg && firstDbg.routing ? firstDbg.routing : null;
+                        var modelName = (j.model || (firstDbg && (firstDbg.final_model || (firstDbg.model)))) || '';
+                        var badgeText = '';
+                        if (routing && routing.structured){ badgeText = 'Structured' + (routing.auto ? ' (auto)' : ''); }
+                        else { badgeText = 'LLM-only'; }
+                        if (modelName){ badgeText += ' · '+modelName; }
+                        var badge = document.createElement('span');
+                        badge.className = 'hint';
+                        badge.style.cssText = 'display:inline-block;margin-bottom:.35rem;background:var(--accent, #06b6d4)20;color:var(--accent, #06b6d4);padding:.1rem .4rem;border-radius:999px;font-size:12px;';
+                        badge.textContent = badgeText;
+                        if (pending && pending.wrap) pending.wrap.insertBefore(badge, pending.wrap.firstChild);
+                      } catch(_){ }
+
+                      var det = document.createElement('details'); det.style.marginTop = '.4rem';
+                      var sum = document.createElement('summary'); sum.textContent = 'جزئیات ساختاری'; det.appendChild(sum);
+                      var pre = document.createElement('pre'); pre.style.whiteSpace='pre-wrap'; pre.style.direction='ltr'; pre.style.maxHeight='300px'; pre.style.overflow='auto';
+                      pre.textContent = JSON.stringify(j.result, null, 2);
+                      det.appendChild(pre);
+                      if (pending && pending.wrap) pending.wrap.appendChild(det);
+                      // Footer rows/chunks if we have a planning phase response cached above
+                      try { if (typeof total!=='undefined' && typeof chunks!=='undefined'){ var f = document.createElement('div'); f.className='hint'; f.style.marginTop='.4rem'; f.textContent = 'تحلیل بر روی '+(total||0)+' ردیف (در '+(chunks||1)+' قطعه) انجام شد.'; pending.wrap.appendChild(f); } } catch(_){ }
+                      // Clarify suggestions (name disambiguation)
+                      try {
+                        var clarify = j.result.clarify;
+                        if (clarify && clarify.type === 'name' && Array.isArray(clarify.candidates) && clarify.candidates.length){
+                          var box = document.createElement('div');
+                          box.className = 'card';
+                          box.style.cssText = 'margin-top:.4rem;padding:.5rem;background:var(--surface,rgba(0,0,0,.03));border-radius:8px;';
+                          var title = document.createElement('div'); title.className='hint'; title.textContent = 'منظور شما کدام است؟'; box.appendChild(title);
+                          var list = document.createElement('div'); list.style.display='flex'; list.style.flexWrap='wrap'; list.style.gap='.4rem';
+                          clarify.candidates.slice(0,6).forEach(function(name){
+                            var btn = document.createElement('button');
+                            btn.className = 'ar-btn ar-btn--soft';
+                            btn.type = 'button';
+                            btn.textContent = name;
+                            btn.addEventListener('click', function(){
+                              try {
+                                // Re-run with quoted name appended if not already present
+                                var qEl = document.getElementById('arAnaQ');
+                                var original = (qEl && qEl.value) || '';
+                                var needle = String(name);
+                                var nextQ = original;
+                                if (original.indexOf(needle) === -1){ nextQ = original + ' «' + needle + '»'; }
+                                if (qEl){ qEl.value = nextQ; }
+                                // Trigger run
+                                if (run){ run.click(); }
+                              } catch(_){ }
+                            });
+                            list.appendChild(btn);
+                          });
+                          box.appendChild(list);
+                          if (pending && pending.wrap) pending.wrap.appendChild(box);
+                        }
+                      } catch(_){ }
+                      // Render insights (if provided)
+                      try {
+                        if (Array.isArray(j.result.insights) && j.result.insights.length){
+                          var ins = document.createElement('div'); ins.style.marginTop='.4rem';
+                          ins.innerHTML = '<div class="hint" style="margin-bottom:.2rem">Insights</div>' +
+                            '<ul style="margin:0;padding-inline-start:1.2rem;">' + j.result.insights.map(function(x){ return '<li>'+escapeHtml(String(x))+'</li>'; }).join('') + '</ul>';
+                          if (pending && pending.wrap) pending.wrap.appendChild(ins);
+                        }
+                      } catch(_){ }
+                      // Render outliers (if provided)
+                      try {
+                        if (Array.isArray(j.result.outliers) && j.result.outliers.length){
+                          var outl = document.createElement('div'); outl.style.marginTop='.4rem';
+                          var rows = j.result.outliers.map(function(x){ try { return JSON.stringify(x); } catch(_){ return String(x); } });
+                          outl.innerHTML = '<div class="hint" style="margin-bottom:.2rem">Outliers</div>' +
+                            '<div style="white-space:pre-wrap;direction:ltr;">'+rows.join('\n')+'</div>';
+                          if (pending && pending.wrap) pending.wrap.appendChild(outl);
+                        }
+                      } catch(_){ }
+                      // Optional: render chart_data if present and in known shape
+                      if (Array.isArray(j.result.chart_data) && j.result.chart_data.length){
+                        try {
+                          var cd = j.result.chart_data;
+                          var labels = cd.map(function(it){ return String(it.name||it.label||''); });
+                          var vals = cd.map(function(it){ var v = it.score!=null?it.score:it.value; v = parseFloat(v||0)||0; return v; });
+                          // inline chart canvas
+                          var cvWrap = document.createElement('div'); cvWrap.style.marginTop='.6rem'; cvWrap.style.height='220px'; cvWrap.style.maxWidth='560px';
+                          var cv = document.createElement('canvas'); cvWrap.appendChild(cv);
+                          if (pending && pending.wrap) pending.wrap.appendChild(cvWrap);
+                          if (window.Chart){
+                            var pal = palette();
+                            var ctx2 = cv.getContext('2d');
+                            try {
+                              new window.Chart(ctx2, {
+                                type: 'bar',
+                                data: {
+                                  labels: labels,
+                                  datasets: [
+                                    {
+                                      label: 'مقادیر',
+                                      data: vals,
+                                      backgroundColor: pal.fill,
+                                      borderColor: pal.line,
+                                      borderWidth: 1
+                                    }
+                                  ]
+                                },
+                                options: {
+                                  responsive: true,
+                                  maintainAspectRatio: false,
+                                  scales: {
+                                    x: { ticks: { color: pal.text } },
+                                    y: { ticks: { color: pal.text } }
+                                  },
+                                  plugins: {
+                                    legend: { labels: { color: pal.text } }
+                                  }
+                                }
+                              });
+                            } catch(_){ }
+                          }
+                        } catch(_){ }
+                      }
+                    } catch(_){ }
+                  }
                   if (j.session_id){ chatSessionId = parseInt(j.session_id)||0; try{ localStorage.setItem('arshAnaSessionId', String(chatSessionId||0)); }catch(_){ } }
                   if (ANA_DEBUG) { try { console.info('[ARSH][ANA] response', j); } catch(_){ } }
                   // append to history for better multi-turn chat
-                  var assistantMsg = String(j.summary||'');
+                  var assistantMsg = assistantText;
                   if (userMsg){ chatHistory.push({ role:'user', content:userMsg }); }
                   if (assistantMsg){ chatHistory.push({ role:'assistant', content:assistantMsg }); }
                   // Optionally show a brief usage footer
@@ -555,9 +853,9 @@
                     } catch(_){ }
                   }
                 } catch(e){ out.textContent = 'خطا در نمایش خروجی'; }
-              })
-              .catch(function(err){ console.error(err); if (pending && pending.bubble) pending.bubble.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); else if (out) out.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); })
-              .finally(function(){ run.disabled=false; run.textContent=old; });
+              })(j);
+            } catch(err){ console.error(err); if (pending && pending.bubble) pending.bubble.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); else if (out) out.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); }
+            finally { run.disabled=false; run.textContent=old; }
           } catch(e){ console.error(e); notify('خطا در اجرای تحلیل','error'); }
           }
           if (run) run.addEventListener('click', doRun);
@@ -565,18 +863,36 @@
           if (exportBtn) exportBtn.addEventListener('click', function(){ try { if (!chatSessionId){ notify('ابتدا یک پیام بفرستید تا گفتگویی ایجاد شود','warn'); return; } var url = new URL(ARSHLINE_REST + 'analytics/sessions/'+chatSessionId+'/export'); url.searchParams.set('format', (formatTableChk && formatTableChk.checked)?'csv':'json'); window.open(url.toString(), '_blank'); } catch(e){ console.error(e); notify('امکان خروجی وجود ندارد','error'); } });
           function speakFa(text){
             try {
-              if (!('speechSynthesis' in window)) { notify('مرورگر از خواندن متن پشتیبانی نمی‌کند','warn'); return; }
+              if (!('speechSynthesis' in window)) { notify('مرورگر از خواندن متن (TTS) پشتیبانی نمی‌کند','warn'); return; }
               var u = new (window.SpeechSynthesisUtterance||function(s){ this.text=s; })();
               u.text = text; u.lang = 'fa-IR';
               function pickVoice(){
                 try {
                   var vs = window.speechSynthesis.getVoices() || [];
-                  var fa = vs.find(function(v){ return v && /fa(-IR)?/i.test(String(v.lang||'')); });
-                  if (fa) u.voice = fa;
+                  // If user selected a specific voice, try honoring it first
+                  var savedId = '';
+                  try { savedId = localStorage.getItem('arshAnaVoice') || ''; } catch(_){ }
+                  if (savedId && savedId !== 'auto'){
+                    var chosen = vs.find(function(v){ var id=(v.voiceURI||(''+(v.name||'')+'|'+(v.lang||''))); return id===savedId; });
+                    if (chosen){ u.voice = chosen; u.lang = String(chosen.lang||u.lang||'fa-IR'); return; }
+                  }
+                  // Prefer explicit Persian Iran voice
+                  var vFaIr = vs.find(function(v){ return v && /fa-IR/i.test(String(v.lang||'')); });
+                  // Fallback to any Persian voice
+                  var vFa = vFaIr || vs.find(function(v){ return v && /^fa/i.test(String(v.lang||'')); });
+                  // As a last resort, try a neutral voice to avoid silence
+                  var vAny = vFa || vs.find(function(v){ return v && /en|ar|tr|de|fr/i.test(String(v.lang||'')); });
+                  if (vFaIr) { u.voice = vFaIr; u.lang = 'fa-IR'; }
+                  else if (vFa) { u.voice = vFa; u.lang = String(vFa.lang||'fa'); }
+                  else if (vAny) { u.voice = vAny; /* keep fa-IR for right shaping */ }
                 } catch(_){ }
               }
               pickVoice();
-              if (!u.voice){ try { window.speechSynthesis.onvoiceschanged = function(){ pickVoice(); }; } catch(_){ } }
+              if (!u.voice){
+                try { window.speechSynthesis.onvoiceschanged = function(){ pickVoice(); }; } catch(_){ }
+                // Inform the user if Persian voice is not available yet
+                notify('صدای فارسی پیدا نشد؛ تلاش برای استفاده از نزدیک‌ترین صدا', 'info');
+              }
               try { window.speechSynthesis.cancel(); } catch(_){ }
               try { window.speechSynthesis.speak(u); } catch(_){ }
             } catch(_){ }
@@ -622,7 +938,17 @@
         if (cancelBtn) cancelBtn.addEventListener('click', function(){ if (inlineWrap) inlineWrap.style.display = 'none'; });
         if (submitBtn) submitBtn.addEventListener('click', function(){ var titleEl = document.getElementById('arNewFormTitle'); var title = (titleEl && titleEl.value.trim()) || 'فرم جدید'; fetch(ARSHLINE_REST + 'forms', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ title: title }) }).then(async function(r){ if (!r.ok){ if (r.status===401){ if (typeof handle401 === 'function') handle401(); } var t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); }).then(function(obj){ if (obj && obj.id){ notify('فرم ایجاد شد', 'success'); renderFormBuilder(parseInt(obj.id)); } else { notify('ایجاد فرم ناموفق بود. لطفاً دسترسی و دیتابیس را بررسی کنید.', 'error'); if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); } } }).catch(function(e){ try { console.error('[ARSH] create_form failed:', e); } catch(_){ } notify('ایجاد فرم ناموفق بود. لطفاً دسترسی را بررسی کنید.', 'error'); if (inlineWrap){ inlineWrap.style.display='flex'; var input=document.getElementById('arNewFormTitle'); if (input) input.focus(); } }); });
         (function(){ try { var inp=document.getElementById('arNewFormTitle'); if (inp){ inp.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); if (submitBtn) submitBtn.click(); } }); } } catch(_){ } })();
-        fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(r=>r.json()).then(function(forms){
+        fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+          .then(async function(r){
+            if (!r.ok){
+              if (r.status===401){ if (typeof handle401 === 'function') handle401(); }
+              var t = '';
+              try { t = await r.text(); } catch(_){ }
+              throw new Error('[FORMS] HTTP '+r.status + (t? (' :: '+t) : ''));
+            }
+            return r.json();
+          })
+          .then(function(forms){
           var all = Array.isArray(forms) ? forms : [];
           var box = document.getElementById('arFormsList'); if (!box) return;
           function badge(status){ var lab = status==='published'?'فعال':(status==='disabled'?'غیرفعال':'پیش‌نویس'); var col = status==='published'?'#06b6d4':(status==='disabled'?'#ef4444':'#a3a3a3'); return '<span class="hint" style="background:'+col+'20;color:'+col+';padding:.15rem .4rem;border-radius:999px;font-size:12px;">'+lab+'</span>'; }
@@ -643,7 +969,14 @@
           if (formDT) formDT.addEventListener('change', applyFilters);
           if (formSF) formSF.addEventListener('change', applyFilters);
           if (window._arOpenCreateInlineOnce && inlineWrap){ inlineWrap.style.display = 'flex'; var input = document.getElementById('arNewFormTitle'); if (input){ input.value=''; input.focus(); } window._arOpenCreateInlineOnce = false; }
-        }).catch(function(){ var box = document.getElementById('arFormsList'); if (box) box.textContent = 'خطا در بارگذاری فرم‌ها.'; notify('خطا در بارگذاری فرم‌ها', 'error'); });
+          }).catch(function(err){
+            try { console.error('[ARSH][FORMS] load failed:', err); } catch(_){ }
+            var box = document.getElementById('arFormsList');
+            if (box) box.textContent = (String(err&&err.message||'').indexOf('403')!==-1)
+              ? 'مجوز مشاهدهٔ لیست فرم‌ها را ندارید.'
+              : 'خطا در بارگذاری فرم‌ها.';
+            notify('بارگذاری فرم‌ها ناموفق بود', 'error');
+          });
       } else if (tab === 'reports'){
         content.innerHTML = ''+
           '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
@@ -862,9 +1195,9 @@
           .catch(function(){ notify('بارگذاری گروه‌ها ناموفق بود', 'error'); });
         // Load forms (for link)
         fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-          .then(function(r){ return r.json(); })
+          .then(async function(r){ if (!r.ok){ var t=''; try { t=await r.text(); } catch(_){ } throw new Error('[FORMS] HTTP '+r.status+(t?(' :: '+t):'')); } return r.json(); })
           .then(function(fs){ _smsAllForms = Array.isArray(fs) ? fs : []; updateSmsFormsOptions(); updateSmsVariablesHint(); })
-          .catch(function(){ /* ignore */ });
+          .catch(function(err){ try { console.warn('[ARSH][SMS] forms for link failed:', err); } catch(_){ } /* not fatal */ });
 
         // Save settings
         var btnSave = document.getElementById('smsSave'); if (btnSave) btnSave.addEventListener('click', function(){
@@ -1172,7 +1505,12 @@
                 <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
                   <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
                   <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
-                  <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-5-mini">gpt-5-mini</option></select>\
+                  <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-5">gpt-5</option><option value="gpt-5-mini">gpt-5-mini</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4o">gpt-4o</option><option value="gpt-4o-mini">gpt-4o-mini</option></select>\
+                </div>\
+                <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
+                  <div class="title" style="font-size:1rem">هوشنگ (تحلیل فرم)</div>\
+                  <span class="hint">Hoshang Model</span><select id="gsHoshModel" class="ar-select"><option value="">(inherit)</option><option value="gpt-5">gpt-5</option><option value="gpt-5-mini">gpt-5-mini</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4o">gpt-4o</option><option value="gpt-4o-mini">gpt-4o-mini</option></select>\
+                  <span class="hint">Mode</span><select id="gsHoshMode" class="ar-select"><option value="hybrid">hybrid (پیش‌فرض)</option><option value="structured">structured</option><option value="llm">llm-only</option></select>\
                   <span class="hint">تحلیلگر</span><select id="gsAiParser" class="ar-select"><option value="internal">هوشیار داخلی</option><option value="hybrid">هیبرید (پیش‌فرض)</option><option value="llm">OpenAI LLM</option></select>\
                   <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
                 </div>\
@@ -1194,12 +1532,12 @@
         fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
           .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try { var hp=document.getElementById('gsHoneypot'); if(hp) hp.checked=!!s.anti_spam_honeypot; var ms=document.getElementById('gsMinSec'); if(ms) ms.value=String(s.min_submit_seconds||0); var rpm=document.getElementById('gsRatePerMin'); if(rpm) rpm.value=String(s.rate_limit_per_min||0); var rwin=document.getElementById('gsRateWindow'); if(rwin) rwin.value=String(s.rate_limit_window_min||1); var ce=document.getElementById('gsCaptchaEnabled'); if(ce) ce.checked=!!s.captcha_enabled; var cs=document.getElementById('gsCaptchaSite'); if(cs) cs.value=s.captcha_site_key||''; var ck=document.getElementById('gsCaptchaSecret'); if(ck) ck.value=s.captcha_secret_key||''; var cv=document.getElementById('gsCaptchaVersion'); if(cv) cv.value=s.captcha_version||'v2'; var uk=document.getElementById('gsUploadKB'); if(uk) uk.value=String(s.upload_max_kb||300); var bsvg=document.getElementById('gsBlockSvg'); if(bsvg) bsvg.checked=(s.block_svg !== false); var aiE=document.getElementById('gsAiEnabled'); if(aiE) aiE.checked=!!s.ai_enabled; var aiT=document.getElementById('gsAiThreshold'); if(aiT) aiT.value=String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5)); function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; } updC(); if (ce) ce.addEventListener('change', updC); } catch(_){ } })
-          .then(function(){ return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(resp){ try { var c = resp && resp.config ? resp.config : {}; var bu=document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || ''; var mo=document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o-mini'; var pa=document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid'; var ak=document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || ''; } catch(_){ } }); })
+          .then(function(){ return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(resp){ try { var c = resp && resp.config ? resp.config : {}; var bu=document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || ''; var mo=document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o'; var pa=document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid'; var ak=document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || ''; var hm=document.getElementById('gsHoshModel'); if (hm) hm.value = c.hosh_model || ''; var hmd=document.getElementById('gsHoshMode'); if (hmd) hmd.value = c.hosh_mode || 'hybrid'; } catch(_){ } }); })
           .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
         function putSettings(part){ return fetch(ARSHLINE_REST + 'settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ settings: part }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
         function putAiConfig(cfg){ return fetch(ARSHLINE_REST + 'ai/config', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ config: cfg }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
         var saveSec=document.getElementById('gsSaveSecurity'); if (saveSec){ saveSec.addEventListener('click', function(){ var payload = { anti_spam_honeypot: !!(document.getElementById('gsHoneypot')?.checked), min_submit_seconds: Math.max(0, parseInt(document.getElementById('gsMinSec')?.value||'0')||0), rate_limit_per_min: Math.max(0, parseInt(document.getElementById('gsRatePerMin')?.value||'0')||0), rate_limit_window_min: Math.max(1, parseInt(document.getElementById('gsRateWindow')?.value||'1')||1), captcha_enabled: !!(document.getElementById('gsCaptchaEnabled')?.checked), captcha_site_key: String(document.getElementById('gsCaptchaSite')?.value||''), captcha_secret_key: String(document.getElementById('gsCaptchaSecret')?.value||''), captcha_version: String(document.getElementById('gsCaptchaVersion')?.value||'v2'), upload_max_kb: Math.max(50, Math.min(4096, parseInt(document.getElementById('gsUploadKB')?.value||'300')||300)), block_svg: !!(document.getElementById('gsBlockSvg')?.checked) }; putSettings(payload).then(function(){ notify('تنظیمات امنیت ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات امنیت ناموفق بود', 'error'); }); }); }
-  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)) }; var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: String(document.getElementById('gsAiModel')?.value||''), parser: String(document.getElementById('gsAiParser')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
+  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)) }; var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: String(document.getElementById('gsAiModel')?.value||''), parser: String(document.getElementById('gsAiParser')?.value||'hybrid'), hosh_model: String(document.getElementById('gsHoshModel')?.value||''), hosh_mode: String(document.getElementById('gsHoshMode')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
         var testBtn=document.getElementById('gsAiTest'); if (testBtn){ testBtn.addEventListener('click', function(){ fetch(ARSHLINE_REST + 'ai/test', { method:'POST', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); }).then(function(res){ if (res.body && res.body.ok){ notify('اتصال موفق بود (HTTP '+(res.body.status||res.status)+')', 'success'); } else { notify('اتصال ناموفق بود', 'error'); } }).catch(function(){ notify('خطا در تست اتصال', 'error'); }); }); }
   var runBtn = document.getElementById('aiAgentRun'); if (runBtn){ var runAgentSettings=function(){ var cmdEl = document.getElementById('aiAgentCmd'); var outEl = document.getElementById('aiAgentOut'); var cmd = (cmdEl && cmdEl.value) ? String(cmdEl.value) : ''; if (!cmd){ notify('دستور خالی است', 'warn'); return; } if (cmdEl){ try { cmdEl.value=''; } catch(_){ } } fetch(ARSHLINE_REST + 'ai/agent', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ command: cmd }) }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); }).then(function(res){ outEl && (outEl.textContent = JSON.stringify(res.body||{}, null, 2)); if (res.ok && res.body && res.body.ok){ notify('انجام شد', 'success'); } else { notify('اجرا ناموفق بود', 'error'); } }).catch(function(){ notify('خطا در اجرای دستور', 'error'); }); }; runBtn.addEventListener('click', runAgentSettings); var cmdElS = document.getElementById('aiAgentCmd'); if (cmdElS){ cmdElS.addEventListener('keydown', function(e){ if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); runAgentSettings(); } }); } }
       } else {
@@ -1551,8 +1889,8 @@
               row.innerHTML = questionBlock + '<textarea id="'+inputId+'" class="ar-input" style="width:100%" rows="4" placeholder="'+(phS||'')+'" data-field-id="'+f.id+'" data-format="'+fmt+'" ' + (p.required?'required':'') + ' aria-describedby="'+(p.show_description?descId:'')+'" aria-invalid="false" aria-label="'+escapeAttr((numbered?numberStr:'')+ariaQ)+'"></textarea>' + (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
             } else if (type === 'multiple_choice' || type === 'multiple-choice') {
               var opts = p.options || []; var vertical = (p.vertical !== false); var multiple = !!p.multiple;
-              var html = '<div style="display:flex;flex-direction:'+(vertical?'column':'row')+';gap:.5rem;flex-wrap:wrap">';
-              opts.forEach(function(o, i){ var lbl = sanitizeQuestionHtml(o.label||''); var sec = o.second_label?('<div class="hint" style="font-size:.8rem">'+escapeHtml(o.second_label)+'</div>') : ''; html += '<label style="display:flex;align-items:center;gap:.5rem;"><input type="'+(multiple?'checkbox':'radio')+'" name="mc_'+(f.id||i)+'" value="'+escapeAttr(o.value||'')+'" /> <span>'+lbl+'</span> '+sec+'</label>'; });
+              var html = '<div style="display:flex;flex-direction:'+(vertical?'column':'row')+';gap:.5rem;flex-wrap:wrap" data-field-id="'+(f.id||'')+'">';
+              opts.forEach(function(o, i){ var lbl = sanitizeQuestionHtml(o.label||''); var sec = o.second_label?('<div class="hint" style="font-size:.8rem">'+escapeHtml(o.second_label)+'</div>') : ''; html += '<label style="display:flex;align-items:center;gap:.5rem;"><input type="'+(multiple?'checkbox':'radio')+'" name="mc_'+(f.id||i)+'" data-field-id="'+(f.id||'')+'" value="'+escapeAttr(o.value||'')+'" /> <span>'+lbl+'</span> '+sec+'</label>'; });
               html += '</div>';
               row.innerHTML = questionBlock + html + (p.show_description && p.description ? ('<div id="'+descId+'" class="hint" style="margin-top:.25rem;">'+ escapeHtml(p.description||'') +'</div>') : '');
             } else if (type === 'dropdown') {
@@ -1575,7 +1913,24 @@
           });
           fwrap.querySelectorAll('input[data-field-id], textarea[data-field-id]').forEach(function(inp, idx){ var props = questionProps[idx] || {}; try { applyInputMask(inp, props); } catch(_){ } if ((props.format||'') === 'date_jalali' && typeof jQuery !== 'undefined' && jQuery.fn.pDatepicker){ try { jQuery(inp).pDatepicker({ format: 'YYYY/MM/DD', initialValue: false }); } catch(e){} } });
           try { Array.from(fwrap.querySelectorAll('.ar-rating-wrap')).forEach(function(wrap){ var solid = wrap.getAttribute('data-icon-solid') || 'star'; var outline = wrap.getAttribute('data-icon-outline') || 'star-outline'; var hidden = wrap.nextElementSibling; var items = Array.from(wrap.querySelectorAll('.ar-rating-icon')); function update(v){ items.forEach(function(el, idx){ var ion = el.querySelector('ion-icon'); if (ion){ ion.setAttribute('name', idx < v ? solid : outline); } el.style.color = idx < v ? 'var(--primary)' : 'var(--muted)'; }); if (hidden) hidden.value = String(v||''); } items.forEach(function(el){ el.addEventListener('click', function(){ var v = parseInt(el.getAttribute('data-value')||'0')||0; update(v); }); el.setAttribute('tabindex','0'); el.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' '){ e.preventDefault(); var v = parseInt(el.getAttribute('data-value')||'0')||0; update(v); } }); }); update(0); }); } catch(_){ }
-          document.getElementById('arPreviewSubmit').onclick = function(){ var vals = []; Array.from(fwrap.querySelectorAll('input[data-field-id], textarea[data-field-id]')).forEach(function(inp, idx){ var fid = parseInt(inp.getAttribute('data-field-id')||'0'); vals.push({ field_id: fid, value: inp.value||'' }); }); fetch(ARSHLINE_REST + 'forms/'+id+'/submissions', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) }).then(async r=>{ if (!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); }).then(function(){ notify('ارسال شد', 'success'); }).catch(function(){ notify('اعتبارسنجی/ارسال ناموفق بود', 'error'); }); };
+          document.getElementById('arPreviewSubmit').onclick = function(){
+            var vals = [];
+            // textareas/inputs with data-field-id (short_text, long_text, rating hidden input)
+            Array.from(fwrap.querySelectorAll('input[data-field-id], textarea[data-field-id]')).forEach(function(inp){ var fid = parseInt(inp.getAttribute('data-field-id')||'0'); if (!fid) return; // skip MC inputs here; they are handled below via checked selectors
+              // Ignore MC radios/checkboxes in this pass to avoid duplicating
+              if (inp.type === 'radio' || inp.type === 'checkbox') return;
+              vals.push({ field_id: fid, value: inp.value||'' });
+            });
+            // multiple_choice: collect checked values; support multiple selections
+            Array.from(fwrap.querySelectorAll('div[data-field-id] input[type="radio"], div[data-field-id] input[type="checkbox"]')).forEach(function(ctrl){
+              var fid = parseInt(ctrl.getAttribute('data-field-id')||'0'); if (!fid) return;
+              if (ctrl.checked){ vals.push({ field_id: fid, value: ctrl.value||'' }); }
+            });
+            fetch(ARSHLINE_REST + 'forms/'+id+'/submissions', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ values: vals }) })
+              .then(async r=>{ if (!r.ok){ let t=await r.text(); throw new Error(t||('HTTP '+r.status)); } return r.json(); })
+              .then(function(){ notify('ارسال شد', 'success'); })
+              .catch(function(){ notify('اعتبارسنجی/ارسال ناموفق بود', 'error'); });
+          };
           document.getElementById('arPreviewBack').onclick = function(){ document.body.classList.remove('preview-only'); try { var back = window._arBackTo; window._arBackTo = null; if (back && back.view === 'builder' && back.id){ renderFormBuilder(back.id); return; } if (back && back.view === 'editor' && back.id){ renderFormEditor(back.id, { index: back.index || 0 }); return; } } catch(_){ } arRenderTab('forms'); };
         });
     }
@@ -1920,6 +2275,40 @@
           </div>\
         </div>';
       try { var bPrev = document.getElementById('arBuilderPreview'); if (bPrev) bPrev.onclick = function(){ try { window._arBackTo = { view: 'builder', id: id }; } catch(_){ } renderFormPreview(id); }; var bBack = document.getElementById('arBuilderBack'); if (bBack) bBack.onclick = function(){ arRenderTab('forms'); }; } catch(_){ }
+
+      // Early wiring: make tools clickable/drag-start immediately (before fetch)
+      (function earlyWireToolsAndDrop(){
+        try {
+          var list = document.getElementById('arFormFieldsList');
+          // Early tool clicks (idempotent; full wiring happens later too)
+          var btnShort = document.getElementById('arAddShortText'); if (btnShort && !btnShort._arEarlyClick){ btnShort._arEarlyClick = true; btnShort.addEventListener('click', function(){ addNewField(id, 'short_text'); }); }
+          var btnLong  = document.getElementById('arAddLongText'); if (btnLong && !btnLong._arEarlyClick){ btnLong._arEarlyClick = true; btnLong.addEventListener('click', function(){ addNewField(id, 'long_text'); }); }
+          var btnMc    = document.getElementById('arAddMultipleChoice'); if (btnMc && !btnMc._arEarlyClick){ btnMc._arEarlyClick = true; btnMc.addEventListener('click', function(){ addNewField(id, 'multiple_choice'); }); }
+          var btnDd    = document.getElementById('arAddDropdown'); if (btnDd && !btnDd._arEarlyClick){ btnDd._arEarlyClick = true; btnDd.addEventListener('click', function(){ addNewField(id, 'dropdown'); }); }
+          var btnRating= document.getElementById('arAddRating'); if (btnRating && !btnRating._arEarlyClick){ btnRating._arEarlyClick = true; btnRating.addEventListener('click', function(){ addNewField(id, 'rating'); }); }
+          var btnWelcome=document.getElementById('arAddWelcome'); if (btnWelcome && !btnWelcome._arEarlyClick){ btnWelcome._arEarlyClick = true; btnWelcome.addEventListener('click', function(){ addNewField(id, 'welcome'); }); }
+          var btnThank = document.getElementById('arAddThank'); if (btnThank && !btnThank._arEarlyClick){ btnThank._arEarlyClick = true; btnThank.addEventListener('click', function(){ addNewField(id, 'thank_you'); }); }
+
+          // Early tool dragstart (so the user can start dragging immediately)
+          function earlyDrag(btn, type){ if (!btn) return; if (btn._arEarlyDrag) return; btn._arEarlyDrag = true; btn.setAttribute('draggable','true'); btn.addEventListener('dragstart', function(ev){ try { if (ev && ev.dataTransfer){ ev.dataTransfer.effectAllowed='copyMove'; ev.dataTransfer.setData('text/plain', 'tool:'+type); } } catch(_){ } }); }
+          earlyDrag(btnShort, 'short_text'); earlyDrag(btnLong, 'long_text'); earlyDrag(btnMc, 'multiple_choice'); earlyDrag(btnDd, 'dropdown'); earlyDrag(btnRating, 'rating'); earlyDrag(btnWelcome, 'welcome'); earlyDrag(btnThank, 'thank_you');
+
+          // Early drop target: allow dropping tools to append at end until full DnD initializes
+          if (list && !list._arEarlyDrop){
+            list._arEarlyDrop = true;
+            list.addEventListener('dragover', function(ev){ try { ev.preventDefault(); } catch(_){ } });
+            list.addEventListener('dragenter', function(ev){ try { ev.preventDefault(); } catch(_){ } });
+            list.addEventListener('drop', function(ev){ try {
+              var dt = ev.dataTransfer; var hint = '';
+              try { hint = (dt && dt.getData && dt.getData('text/plain')) || ''; } catch(_){ hint=''; }
+              if (hint.indexOf('tool:') === 0){ ev.preventDefault(); ev.stopPropagation(); var tp = hint.slice(5);
+                // Fallback: append at end quickly; full DnD (with precise index) will replace this after data loads
+                addNewField(id, tp);
+              }
+            } catch(_){ } });
+          }
+        } catch(_){ }
+      })();
       fetch(ARSHLINE_REST + 'forms/' + id, { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
         .then(r=>r.json())
         .then(function(data){

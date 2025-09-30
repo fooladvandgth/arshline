@@ -135,10 +135,10 @@ class Api
             'block_svg' => true,
             'ai_enabled' => false,
             'ai_spam_threshold' => 0.5,
-            'ai_model' => 'gpt-4o-mini',
+            'ai_model' => 'gpt-4o',
         ];
         $raw = get_option('arshline_settings', []);
-        $arr = is_array($raw) ? $raw : [];
+    $arr = is_array($raw) ? $raw : [];
         $san = self::sanitize_settings_input($arr);
         return array_merge($defaults, $san);
     }
@@ -452,6 +452,12 @@ class Api
             'methods' => 'GET',
             'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
             'callback' => [self::class, 'get_analytics_config'],
+        ]);
+        // Simple LLM chat (minimal proxy). No grounding, no form data, just chat.
+        register_rest_route('arshline/v1', '/ai/simple-chat', [
+            'methods' => 'POST',
+            'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'callback' => [self::class, 'ai_simple_chat'],
         ]);
         register_rest_route('arshline/v1', '/analytics/analyze', [
             'methods' => 'POST',
@@ -1417,13 +1423,22 @@ class Api
         $key = isset($arr['ai_api_key']) && is_scalar($arr['ai_api_key']) ? trim((string)$arr['ai_api_key']) : '';
         $key = substr($key, 0, 2000);
         $enabled = isset($arr['ai_enabled']) ? (bool)$arr['ai_enabled'] : false;
-        $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'gpt-4o-mini';
+        $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'gpt-4o';
     $parser = isset($arr['ai_parser']) && is_scalar($arr['ai_parser']) ? (string)$arr['ai_parser'] : 'hybrid'; // 'internal' | 'hybrid' | 'llm'
-    $parser = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid';
+        $parser = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid';
+    // Analytics defaults
+    $anaMaxTok = isset($arr['ai_ana_max_tokens']) && is_numeric($arr['ai_ana_max_tokens']) ? max(16, min(4096, (int)$arr['ai_ana_max_tokens'])) : 1200;
+    $anaChunkSize = isset($arr['ai_ana_chunk_size']) && is_numeric($arr['ai_ana_chunk_size']) ? max(50, min(2000, (int)$arr['ai_ana_chunk_size'])) : 800;
+    $anaAutoFmt = isset($arr['ai_ana_auto_format']) ? (bool)$arr['ai_ana_auto_format'] : true;
+    $anaShowAdv = isset($arr['ai_ana_show_advanced']) ? (bool)$arr['ai_ana_show_advanced'] : false;
+        // Hoshang-specific optional overrides
+        $hoshModel = isset($arr['ai_hosh_model']) && is_scalar($arr['ai_hosh_model']) ? (string)$arr['ai_hosh_model'] : '';
+        $hoshMode  = isset($arr['ai_hosh_mode']) && is_scalar($arr['ai_hosh_mode']) ? (string)$arr['ai_hosh_mode'] : 'hybrid';
+        $hoshMode  = in_array($hoshMode, ['llm','structured','hybrid'], true) ? $hoshMode : 'hybrid';
         // New: allowlist for AI-accessible menus/actions
         $allowedMenus = isset($arr['ai_allowed_menus']) && is_array($arr['ai_allowed_menus']) ? array_values(array_unique(array_filter(array_map('strval', $arr['ai_allowed_menus'])))) : ['dashboard','forms'];
         $allowedActions = isset($arr['ai_allowed_actions']) && is_array($arr['ai_allowed_actions']) ? array_values(array_unique(array_filter(array_map('strval', $arr['ai_allowed_actions'])))) : [];
-        return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'parser' => $parser, 'allowed_menus' => $allowedMenus, 'allowed_actions' => $allowedActions ];
+    return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'parser' => $parser, 'hosh_model' => $hoshModel, 'hosh_mode' => $hoshMode, 'ana_max_tokens' => $anaMaxTok, 'ana_chunk_size' => $anaChunkSize, 'ana_auto_format' => $anaAutoFmt, 'ana_show_advanced' => $anaShowAdv, 'allowed_menus' => $allowedMenus, 'allowed_actions' => $allowedActions ];
     }
     public static function get_ai_config(WP_REST_Request $request)
     {
@@ -1431,13 +1446,19 @@ class Api
     }
     public static function update_ai_config(WP_REST_Request $request)
     {
-        $cfg = $request->get_param('config');
+    $cfg = $request->get_param('config');
         if (!is_array($cfg)) $cfg = [];
         $base = is_scalar($cfg['base_url'] ?? '') ? trim((string)$cfg['base_url']) : '';
         $key  = is_scalar($cfg['api_key'] ?? '') ? trim((string)$cfg['api_key']) : '';
         $enabled = (bool)($cfg['enabled'] ?? false);
         $model = is_scalar($cfg['model'] ?? '') ? trim((string)$cfg['model']) : '';
     $parser = is_scalar($cfg['parser'] ?? '') ? trim((string)$cfg['parser']) : '';
+    $anaMaxTok = isset($cfg['ana_max_tokens']) && is_numeric($cfg['ana_max_tokens']) ? max(16, min(4096, (int)$cfg['ana_max_tokens'])) : null;
+    $anaChunkSize = isset($cfg['ana_chunk_size']) && is_numeric($cfg['ana_chunk_size']) ? max(50, min(2000, (int)$cfg['ana_chunk_size'])) : null;
+    $anaAutoFmt = isset($cfg['ana_auto_format']) ? (bool)$cfg['ana_auto_format'] : null;
+    $anaShowAdv = isset($cfg['ana_show_advanced']) ? (bool)$cfg['ana_show_advanced'] : null;
+        $hoshModel = is_scalar($cfg['hosh_model'] ?? '') ? trim((string)$cfg['hosh_model']) : '';
+        $hoshMode  = is_scalar($cfg['hosh_mode'] ?? '') ? trim((string)$cfg['hosh_mode']) : '';
         $allowedMenus = isset($cfg['allowed_menus']) && is_array($cfg['allowed_menus']) ? array_values(array_unique(array_filter(array_map('strval', $cfg['allowed_menus'])))) : null;
         $allowedActions = isset($cfg['allowed_actions']) && is_array($cfg['allowed_actions']) ? array_values(array_unique(array_filter(array_map('strval', $cfg['allowed_actions'])))) : null;
         $cur = get_option('arshline_settings', []);
@@ -1445,8 +1466,14 @@ class Api
         $arr['ai_base_url'] = substr($base, 0, 500);
         $arr['ai_api_key']  = substr($key, 0, 2000);
         $arr['ai_enabled']  = $enabled;
-        if ($model !== ''){ $arr['ai_model'] = substr(preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $model), 0, 100); }
+        if ($model !== ''){ $arr['ai_model'] = substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', $model), 0, 100); }
     if ($parser !== ''){ $arr['ai_parser'] = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid'; }
+    if ($anaMaxTok !== null){ $arr['ai_ana_max_tokens'] = $anaMaxTok; }
+    if ($anaChunkSize !== null){ $arr['ai_ana_chunk_size'] = $anaChunkSize; }
+    if ($anaAutoFmt !== null){ $arr['ai_ana_auto_format'] = (bool)$anaAutoFmt; }
+    if ($anaShowAdv !== null){ $arr['ai_ana_show_advanced'] = (bool)$anaShowAdv; }
+        if ($hoshModel !== ''){ $arr['ai_hosh_model'] = substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', $hoshModel), 0, 100); }
+        if ($hoshMode  !== ''){ $arr['ai_hosh_mode']  = in_array($hoshMode, ['llm','structured','hybrid'], true) ? $hoshMode : 'hybrid'; }
         if ($allowedMenus !== null){ $arr['ai_allowed_menus'] = $allowedMenus; }
         if ($allowedActions !== null){ $arr['ai_allowed_actions'] = $allowedActions; }
         update_option('arshline_settings', $arr, false);
@@ -1492,7 +1519,7 @@ class Api
             'settings' => [
                 'title' => 'تنظیمات',
                 'items' => [
-                    [ 'id' => 'set_setting', 'label' => 'تغییر تنظیمات سراسری', 'params' => ['key' => 'ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model|ai_parser', 'value' => 'string|number|boolean'], 'confirm' => true, 'examples' => [ 'فعال کردن هوش مصنوعی', 'مدل را روی gpt-5-mini بگذار', 'تحلیل دستورات با اوپن‌ای‌آی', 'تحلیلگر را هیبرید کن' ] ],
+                    [ 'id' => 'set_setting', 'label' => 'تغییر تنظیمات سراسری', 'params' => ['key' => 'ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model|ai_parser', 'value' => 'string|number|boolean'], 'confirm' => true, 'examples' => [ 'فعال کردن هوش مصنوعی', 'مدل را روی gpt-5 بگذار', 'تحلیل دستورات با اوپن‌ای‌آی', 'تحلیلگر را هیبرید کن' ] ],
                     [ 'id' => 'ui', 'label' => 'اقدامات رابط کاربری', 'params' => ['target' => 'toggle_theme|undo|go_back|open_editor_index', 'index?' => 'number (0-based)'], 'confirm' => false, 'examples' => [ 'تم را تغییر بده', 'یک قدم برگرد', 'بازگردانی کن', 'پرسش 1 را باز کن' ] ],
                 ],
             ],
@@ -2854,7 +2881,7 @@ class Api
     {
         try {
             $base = rtrim((string)$s['base_url'], '/');
-            $model = (string)($s['model'] ?? 'gpt-4o-mini');
+            $model = (string)($s['model'] ?? 'gpt-4o');
             $url = $base . '/v1/chat/completions';
           $sys = 'You are a deterministic command parser for the Arshline dashboard. '
               . 'Your ONLY job is to convert Persian admin commands into a single strict JSON object. '
@@ -2873,7 +2900,7 @@ class Api
               . '"باز کردن تنظیمات" => {"action":"open_tab","tab":"settings"}. '
               . '"خروجی فرم 5" => {"action":"export_csv","id":5}. '
               . '"کمک" => {"action":"help"}. '
-              . '"مدل را روی gpt-4o-mini بگذار" => {"action":"set_setting","key":"ai_model","value":"gpt-4o-mini"}. '
+              . '"مدل را روی gpt-4o بگذار" => {"action":"set_setting","key":"ai_model","value":"gpt-4o"}. '
               . '"حالت تاریک را فعال کن" => {"action":"ui","target":"toggle_theme","params":{"mode":"dark"}}. '
               . '"فعال کن فرم 3" => {"action":"open_form","id":3}. '
               . '"غیرفعال کن فرم 8" => {"action":"close_form","id":8}. '
@@ -2924,7 +2951,7 @@ class Api
     {
         try {
             $base = rtrim((string)$s['base_url'], '/');
-            $model = (string)($s['model'] ?? 'gpt-4o-mini');
+            $model = (string)($s['model'] ?? 'gpt-4o');
             $url = $base . '/v1/chat/completions';
             $sys = 'You are a deterministic planner for Arshline admin. Output ONLY a strict JSON object with no prose. '
                 . 'When the user request implies multiple sequential actions, produce a plan JSON of the form: '
@@ -3753,7 +3780,7 @@ class Api
     {
         $gs = self::get_global_settings();
         $base = (string)($gs['ai_base_url'] ?? '');
-        $model = (string)($gs['ai_model'] ?? 'gpt-4o-mini');
+    $model = (string)($gs['ai_model'] ?? 'gpt-4o');
         $enabled = !empty($gs['ai_enabled']);
         return new WP_REST_Response(['enabled'=>$enabled,'base_url'=>$base,'model'=>$model], 200);
     }
@@ -3772,13 +3799,16 @@ class Api
         if ($question === '') return new WP_REST_Response([ 'error' => 'question_required' ], 400);
         $session_id = isset($p['session_id']) ? max(0, (int)$p['session_id']) : 0;
     $max_rows = isset($p['max_rows']) && is_numeric($p['max_rows']) ? max(50, min(10000, (int)$p['max_rows'])) : 2000;
-    $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
+    $chunk_size = null; // compute after loading config
     $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
-    $max_tokens = isset($p['max_tokens']) && is_numeric($p['max_tokens']) ? max(16, min(2048, (int)$p['max_tokens'])) : 800;
+    // Respect per-site analytics default (configurable), allow request override; clamp to 4096
+    $max_tokens = null; // computed after loading AI settings below
     $voice = is_scalar($p['voice'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['voice']), 0, 50) : '';
     $format = is_scalar($p['format'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['format']), 0, 20)) : '';
     $mode = is_scalar($p['mode'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['mode']), 0, 20)) : '';
-    $structuredParam = isset($p['structured']) ? (bool)$p['structured'] : null;
+    $phase = is_scalar($p['phase'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['phase']), 0, 20)) : '';
+    $chunk_index = isset($p['chunk_index']) && is_numeric($p['chunk_index']) ? max(1, (int)$p['chunk_index']) : 1;
+        $structuredParam = isset($p['structured']) ? (bool)$p['structured'] : null;
         // Optional chat history: array of {role:'user'|'assistant'|'system', content:string}
         $history = [];
         if (isset($p['history']) && is_array($p['history'])){
@@ -3792,17 +3822,36 @@ class Api
         }
 
         // Load AI config
-    $cur = get_option('arshline_settings', []);
+        $cur = get_option('arshline_settings', []);
         $base = is_scalar($cur['ai_base_url'] ?? null) ? trim((string)$cur['ai_base_url']) : '';
         $api_key = is_scalar($cur['ai_api_key'] ?? null) ? (string)$cur['ai_api_key'] : '';
         $enabled = !empty($cur['ai_enabled']);
-        $default_model = is_scalar($cur['ai_model'] ?? null) ? (string)$cur['ai_model'] : 'gpt-4o-mini';
+        // Prefer Hoshang-specific model if set; else fall back to global ai_model
+        $default_model = is_scalar($cur['ai_hosh_model'] ?? null) && (string)$cur['ai_hosh_model'] !== ''
+            ? (string)$cur['ai_hosh_model']
+            : ( (is_scalar($cur['ai_model'] ?? null) ? (string)$cur['ai_model'] : 'gpt-4o') );
         if (!$enabled || $base === '' || $api_key === ''){
             return new WP_REST_Response([ 'error' => 'ai_disabled' ], 400);
         }
+        // Resolve default max_tokens from config (ai_ana_max_tokens), then honor request override
+    $cfgMaxTok = isset($cur['ai_ana_max_tokens']) && is_numeric($cur['ai_ana_max_tokens']) ? max(16, min(4096, (int)$cur['ai_ana_max_tokens'])) : 1200;
+    $cfgChunkSize = isset($cur['ai_ana_chunk_size']) && is_numeric($cur['ai_ana_chunk_size']) ? max(50, min(2000, (int)$cur['ai_ana_chunk_size'])) : 800;
+        $reqMaxTok = isset($p['max_tokens']) && is_numeric($p['max_tokens']) ? (int)$p['max_tokens'] : 0;
+        $max_tokens = $reqMaxTok > 0 ? max(16, min(4096, $reqMaxTok)) : $cfgMaxTok;
+    // Resolve chunk_size from request override or site default
+    $reqChunk = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? (int)$p['chunk_size'] : 0;
+    $chunk_size = $reqChunk > 0 ? max(50, min(2000, $reqChunk)) : $cfgChunkSize;
         $use_model = $model !== '' ? $model : $default_model;
-        // LLM-only mode: disable all structured shortcuts regardless of params/options/filters.
-        $allowStructural = false;
+        // LLM-only mode: disable any local structural shortcuts regardless of params/options/filters.
+    $allowStructural = false;
+    // New: structured JSON mode (config-aware) + auto-format routing
+    $hoshMode = is_scalar($cur['ai_hosh_mode'] ?? null) ? (string)$cur['ai_hosh_mode'] : 'hybrid';
+    $hoshMode = in_array($hoshMode, ['llm','structured','hybrid'], true) ? $hoshMode : 'hybrid';
+    $autoFormat = isset($cur['ai_ana_auto_format']) ? (bool)$cur['ai_ana_auto_format'] : true;
+    $clientWantsStructured = ($structuredParam === true) || ($mode === 'structured') || ($format === 'json');
+    // Base routing: honor hard setting first, then client (when auto-format disabled)
+    $isStructured = ($hoshMode === 'structured') ? true : (($hoshMode === 'llm') ? false : ($autoFormat ? false : $clientWantsStructured));
+    $autoStructured = false; $structTrigger = '';
 
         // Always delegate answers to the model (no local greeting or canned responses)
     $ql = mb_strtolower($question, 'UTF-8');
@@ -3810,6 +3859,19 @@ class Api
     $isTableOut = (bool)(preg_match('/\btable\b/i', $ql) || preg_match('/جدول/u', $ql));
     $isListOut  = (bool)(preg_match('/\blist\b|bullet|bulleted/i', $ql) || preg_match('/(?:فهرست|لیست|بولت|نقطه(?:‌|)ای)/u', $ql));
     $out_format = $isTableOut ? 'table' : ($isListOut ? 'list' : 'plain');
+    // Detect greeting/ambiguous openers (to avoid dumping data on "سلام")
+    $isGreeting = (bool)preg_match('/^(?:\s*(?:سلام|درود|hi|hello|hey)\s*[!،,.]?)$/ui', trim($question));
+
+        // Hybrid auto-switch: when auto-format is enabled and question looks heavy/analytical, use structured automatically
+        if (!$isStructured && $hoshMode === 'hybrid' && $autoFormat){
+            $isHeavyQ = (bool)(
+                preg_match('/\b(compare|correlat|trend|distribution|variance|std|median|quartile|regression|cluster|segment|chart|bar|pie|line)\b/i', $ql)
+                || preg_match('/(?:مقایسه|همبستگی|روند|میانگین|میانه|نمودار|نمودار(?:\s*میله|\s*دایره|\s*خط)|واریانس|انحراف\s*معیار)/u', $ql)
+            );
+            if ($isHeavyQ || ($out_format === 'table' && preg_match('/(?:نمودار|chart|trend|روند|compare|مقایسه)/ui', $ql))) {
+                $isStructured = true; $autoStructured = true; $structTrigger = $isHeavyQ ? 'heavy-query' : 'tabular-intent';
+            }
+        }
 
         // Ensure chat session exists and store the user message immediately
         try {
@@ -3850,7 +3912,8 @@ class Api
                 $fieldsForMeta = FieldRepository::listByForm($fid);
                 foreach (($fieldsForMeta ?: []) as $f){
                     $p = is_array($f['props'] ?? null) ? $f['props'] : [];
-                    $label = (string)($p['label'] ?? $p['title'] ?? $p['name'] ?? '');
+                    // Prefer common builder keys for question/label; fall back through sensible aliases
+                    $label = (string)($p['question'] ?? $p['label'] ?? $p['title'] ?? $p['name'] ?? '');
                     $type = (string)($p['type'] ?? '');
                     $fmeta[] = [ 'id' => (int)($f['id'] ?? 0), 'label' => $label, 'type' => $type ];
                 }
@@ -3912,6 +3975,15 @@ class Api
             preg_match('/(?:لیست|فهرست)?\s*(?:اسامی|اسم|نام)/u', $ql)
             || preg_match('/\bnames?\b/i', $ql)
         );
+        // Avoid misclassifying queries like "اسم میوه" as a person-name intent
+        if ($isNamesIntent) {
+            if (preg_match('/(?:^|\s)اسم\s+([\p{L}\s‌]+)/u', $ql, $m)){
+                $tok = trim($m[1]);
+                if (preg_match('/^(?:میوه|ایمیل|شماره|تلفن|کد\s*ملی|سوال|سؤال|فرم)\b/u', $tok)){
+                    $isNamesIntent = false;
+                }
+            }
+        }
         // Help the model by using table format for intents that benefit from tabular grounding
         $isFieldsIntent = (bool)(
             preg_match('/\b(fields?|questions?)\b/i', $ql) || preg_match('/فیلد(?:های)?\s*فرم/u', $ql)
@@ -3920,7 +3992,16 @@ class Api
             preg_match('/\b(all\s+data|show\s+all|dump)\b/i', $ql)
             || preg_match('/تمام\s*اطلاعات|همه\s*داده|لیست\s*اطلاعات(?:\s*فرم)?|خلاصه\s*اطلاعات(?:\s*فرم)?/u', $ql)
         );
-        if ($format !== 'table' && ($isFieldsIntent || $isShowAllIntent || $out_format==='table')) {
+        $isAnswersIntent = (bool)(preg_match('/پاسخ(?:‌|\s*)ها|جواب(?:‌|\s*)ها|نتایج|ارسال(?:‌|\s*)ها/u', $ql));
+        // Extract a simple field hint from phrases like "لیست X ها" or "اسم|نام X"
+        $field_hint = '';
+        if (preg_match('/(?:لیست|فهرست)\s+([\p{L}\s‌]+?)(?:\s*ها|\s*های)?\b/u', $ql, $mm)){
+            $field_hint = trim($mm[1]);
+        }
+        if ($field_hint === '' && preg_match('/(?:اسم|نام)\s+([\p{L}\s‌]+)$/u', $ql, $mm2)){
+            $field_hint = trim($mm2[1]);
+        }
+        if ($format !== 'table' && ($isFieldsIntent || $isShowAllIntent || $isAnswersIntent || $isNamesIntent || $out_format==='table')) {
             $format = 'table';
         }
     if ($allowStructural && $isNamesIntent){
@@ -3971,9 +4052,18 @@ class Api
             return new WP_REST_Response([ 'summary' => $sum, 'chunks' => [], 'usage' => [], 'voice' => $voice ], 200);
         }
 
-        // For each table, build chunks and call LLM with a compact prompt
+    // For each table, build chunks and call LLM with a compact prompt
         $baseUrl = rtrim($base, '/');
-        $endpoint = $baseUrl . '/v1/chat/completions';
+        // Normalize base URL to avoid double /v1 when configured as https://host/v1
+        if (preg_match('#/v\d+$#', $baseUrl)) {
+            $baseUrl = preg_replace('#/v\d+$#', '', $baseUrl);
+        }
+        // Allow full endpoint override when a complete chat/completions path is provided
+        if (preg_match('#/chat/(?:completions|completion)$#', $baseUrl)) {
+            $endpoint = $baseUrl;
+        } else {
+            $endpoint = $baseUrl . '/v1/chat/completions';
+        }
     $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
     $http_timeout = 45; // allow a bit more time for larger tables
         $agentName = 'hoshang';
@@ -3981,6 +4071,644 @@ class Api
         $answers = [];
         $debug = !empty($p['debug']);
         $debugInfo = [];
+        // Phased pipeline for full-dataset structured analytics
+        if ($isStructured && $phase !== ''){
+            $fid = $form_ids[0];
+            // Helper: detect field roles from labels/types for better guidance (names, mood text, mood score)
+            $detect_field_roles = function(array $fmeta){
+                $roles = [ 'name'=>[], 'mood_text'=>[], 'mood_score'=>[], 'phone'=>[] ];
+                foreach (($fmeta ?: []) as $fm){
+                    $lab = (string)($fm['label'] ?? '');
+                    $labL = mb_strtolower($lab, 'UTF-8');
+                    $type = (string)($fm['type'] ?? '');
+                    if ($lab === '') continue;
+                    // name candidates
+                    if (preg_match('/\bname\b|first\s*name|last\s*name|full\s*name|surname|family/i', $lab)
+                        || preg_match('/نام(?:\s*و\s*نام\s*خانوادگی)?|نام\s*خانوادگی|اسم/u', $labL)){
+                        $roles['name'][] = $lab;
+                    }
+                    // phone candidates
+                    if (preg_match('/\bphone\b|mobile|cell/i', $lab) || preg_match('/شماره\s*(?:تلفن|همراه)/u', $labL)){
+                        $roles['phone'][] = $lab;
+                    }
+                    // mood text candidates
+                    if (preg_match('/\b(mood|feeling|status|wellbeing)\b/i', $lab) || preg_match('/حال|حالت|اوضاع|احوال|روحیه|امروز\s*.*چطور/u', $labL)){
+                        $roles['mood_text'][] = $lab;
+                    }
+                    // mood score candidates (rating/score 1-10)
+                    if ($type === 'rating' || preg_match('/\b(score|rating)\b/i', $lab) || preg_match('/امتیاز|نمره|رتبه|از\s*(?:۱|1)\s*تا\s*(?:۱?0|۱۰)/u', $labL)){
+                        $roles['mood_score'][] = $lab;
+                    }
+                }
+                // de-dup
+                foreach ($roles as $k=>$arr){ $roles[$k] = array_values(array_unique(array_filter(array_map('strval', $arr), function($s){ return $s!==''; }))); }
+                return $roles;
+            };
+            // Heuristic: classify question as heavy/light for chunk/tokens
+            $qLower = mb_strtolower($question, 'UTF-8');
+            $isHeavy = (bool)(
+                preg_match('/\b(compare|correlat|trend|distribution|variance|std|median|quartile|regression|cluster|segment|chart|bar|pie|line)\b/i', $qLower)
+                || preg_match('/(?:مقایسه|همبستگی|روند|میانگین|میانه|نمودار|نمودار(?:\s*میله|\s*دایره|\s*خط)|واریانس|انحراف\s*معیار)/u', $qLower)
+            );
+            $cfgChunkSize = isset($cur['ai_ana_chunk_size']) && is_numeric($cur['ai_ana_chunk_size']) ? max(200, min(2000, (int)$cur['ai_ana_chunk_size'])) : 800;
+            $reqChunk = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? (int)$p['chunk_size'] : 0;
+            $useChunk = $reqChunk > 0 ? max(200, min(2000, $reqChunk)) : $cfgChunkSize;
+            // Auto-tune chunk size slightly
+            if ($reqChunk <= 0){ $useChunk = $isHeavy ? max($useChunk, 1000) : min($useChunk, 600); }
+            // Determine token budget suggestion
+            $suggestedMaxTok = $isHeavy ? min(1200, max(800, $max_tokens)) : min(500, max(300, $max_tokens));
+            if ($phase === 'plan'){
+                // Use paged listing to get total quickly
+                $pg = \Arshline\Modules\Forms\SubmissionRepository::listByFormPaged($fid, 1, 1, []);
+                $total = (int)($pg['total'] ?? 0);
+                $n = $useChunk>0 ? (int)ceil($total / $useChunk) : 1;
+                // fields_meta
+                $fmeta = [];
+                try {
+                    $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                    foreach (($fieldsForMeta ?: []) as $f){
+                        $p0 = is_array($f['props'] ?? null) ? $f['props'] : [];
+                        $label0 = (string)($p0['question'] ?? $p0['label'] ?? $p0['title'] ?? $p0['name'] ?? '');
+                        $type0 = (string)($p0['type'] ?? '');
+                        $fmeta[] = [ 'id' => (int)($f['id'] ?? 0), 'label' => $label0, 'type' => $type0 ];
+                    }
+                } catch (\Throwable $e) { /* ignore */ }
+                $field_roles = $detect_field_roles($fmeta);
+                $dbg = [];
+                if ($debug){ $dbg[] = [ 'phase'=>'plan', 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n, 'field_roles'=>$field_roles ]; }
+                return new WP_REST_Response([
+                    'phase' => 'plan',
+                    'plan' => [ 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n, 'suggested_max_tokens'=>$suggestedMaxTokens ?? $suggestedMaxTok, 'field_roles'=>$field_roles ],
+                    'fields_meta' => $fmeta,
+                    'usage' => [],
+                    'debug' => $dbg,
+                    'session_id' => $session_id,
+                ], 200);
+            }
+            if ($phase === 'chunk'){
+                $page = $chunk_index;
+                $t0 = microtime(true);
+                $res = \Arshline\Modules\Forms\SubmissionRepository::listByFormPaged($fid, $page, $useChunk, []);
+                $rows = is_array($res['rows'] ?? null) ? $res['rows'] : [];
+                // Build fields meta
+                $fmeta = [];
+                try {
+                    $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                    foreach (($fieldsForMeta ?: []) as $f){
+                        $p0 = is_array($f['props'] ?? null) ? $f['props'] : [];
+                        $label0 = (string)($p0['question'] ?? $p0['label'] ?? $p0['title'] ?? $p0['name'] ?? '');
+                        $type0 = (string)($p0['type'] ?? '');
+                        $fmeta[] = [ 'id' => (int)($f['id'] ?? 0), 'label' => $label0, 'type' => $type0 ];
+                    }
+                } catch (\Throwable $e) { /* ignore */ }
+                $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $rows), function($v){ return $v>0; }));
+                $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                // Header labels
+                $labels = [];
+                $idToLabel = [];
+                foreach ($fmeta as $fm){ $fidm=(int)($fm['id'] ?? 0); $labm=(string)($fm['label'] ?? ''); if ($labm==='') $labm='فیلد #'.$fidm; $idToLabel[$fidm]=$labm; $labels[]=$labm; }
+                $rowsCsv = [];
+                if (!empty($labels)){
+                    $rowsCsv[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $labels));
+                    foreach ($sliceIds as $sid){
+                        $vals = $valuesMap[$sid] ?? [];
+                        $map = [];
+                        foreach ($vals as $v){ $fidv=(int)($v['field_id'] ?? 0); $lab=(string)($idToLabel[$fidv] ?? ''); if ($lab==='') $lab='فیلد #'.$fidv; $val=trim((string)($v['value'] ?? '')); if(!isset($map[$lab])) $map[$lab]=[]; if($val!=='') $map[$lab][]=$val; }
+                        $rowsCsv[] = implode(',', array_map(function($h) use ($map){ $v = isset($map[$h]) ? implode(' | ', $map[$h]) : ''; return '"'.str_replace('"','""',$v).'"'; }, $labels));
+                    }
+                }
+                $tableCsv = implode("\r\n", $rowsCsv);
+                // Annotate field roles for better guidance (combine mood text + score when applicable)
+                $field_roles = $detect_field_roles($fmeta);
+                // Chunk prompt expecting partials
+                $sys = 'You are Hoshang, a Persian analytics assistant. Analyze ONLY the provided CSV rows (this chunk).'
+                    . ' When the user asks about a person\'s mood/wellbeing, combine evidence from textual mood columns and numeric rating columns if both exist.'
+                    . ' Use name columns to match the requested person. Output STRICT JSON with keys: '
+                    . '{"aggregations":{...},"partial_insights":[...],"partial_chart_data":[...],"outliers":[...],"fields_used":[...],"chunk_summary":{"row_count":<int>,"notes":[...]}}.'
+                    . ' No prose. JSON only. Use Persian for insights/notes.';
+                $user = [ 'question' => $question, 'table_csv' => $tableCsv, 'field_roles' => $field_roles ];
+                $msgs = [ [ 'role'=>'system','content'=>$sys ], [ 'role'=>'user','content'=> wp_json_encode($user, JSON_UNESCAPED_UNICODE) ] ];
+                $modelName = $use_model; if ($isHeavy && preg_match('/mini|3\.5|4o\-mini/i', (string)$modelName)) $modelName = 'gpt-4o';
+                $req = [ 'model'=>$modelName, 'messages'=>$msgs, 'temperature'=>0.1, 'max_tokens'=>$suggestedMaxTok ];
+                $jsonReq = wp_json_encode($req);
+                $r = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=>$jsonReq ]);
+                $status = is_wp_error($r) ? 0 : (int)wp_remote_retrieve_response_code($r);
+                $raw = is_wp_error($r) ? ($r->get_error_message() ?: '') : (string)wp_remote_retrieve_body($r);
+                $ok = ($status === 200);
+                $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                $text = '';
+                if (is_array($body)){
+                    if (isset($body['choices'][0]['message']['content']) && is_string($body['choices'][0]['message']['content'])) $text = (string)$body['choices'][0]['message']['content'];
+                    elseif (isset($body['choices'][0]['text']) && is_string($body['choices'][0]['text'])) $text = (string)$body['choices'][0]['text'];
+                    elseif (isset($body['output_text']) && is_string($body['output_text'])) $text = (string)$body['output_text'];
+                }
+                $partial = $text ? json_decode($text, true) : null;
+                $repaired = false;
+                if (!is_array($partial)){
+                    // JSON repair mini pass
+                    $repairSys = 'Fix the following model output into VALID JSON only (no code fences, no text). Keep only keys: aggregations, partial_insights, partial_chart_data, outliers, fields_used, chunk_summary.';
+                    $repairMsgs = [ [ 'role'=>'system','content'=>$repairSys ], [ 'role'=>'user','content'=>$text ] ];
+                    $repairReq = [ 'model' => (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$repairMsgs, 'temperature'=>0.0, 'max_tokens'=>400 ];
+                    $r2 = wp_remote_post($endpoint, [ 'timeout'=>20, 'headers'=>$headers, 'body'=> wp_json_encode($repairReq) ]);
+                    $raw2 = is_wp_error($r2) ? '' : (string)wp_remote_retrieve_body($r2);
+                    $b2 = json_decode($raw2, true);
+                    $txt2 = '';
+                    if (is_array($b2)){
+                        if (isset($b2['choices'][0]['message']['content']) && is_string($b2['choices'][0]['message']['content'])) $txt2 = (string)$b2['choices'][0]['message']['content'];
+                        elseif (isset($b2['choices'][0]['text']) && is_string($b2['choices'][0]['text'])) $txt2 = (string)$b2['choices'][0]['text'];
+                        elseif (isset($b2['output_text']) && is_string($b2['output_text'])) $txt2 = (string)$b2['output_text'];
+                    }
+                    $partial = $txt2 ? json_decode($txt2, true) : null;
+                    if (is_array($partial)) $repaired = true;
+                }
+                $t1 = microtime(true);
+                $dbg = [];
+                if ($debug){
+                    $dbg[] = [ 'phase'=>'chunk', 'chunk_index'=>$chunk_index, 'page'=>$page, 'per_page'=>$useChunk, 'rows'=>count($rows), 'row_ids'=>$sliceIds, 'duration_ms'=>(int)round(($t1-$t0)*1000), 'json_repaired'=>$repaired, 'http_status'=>$status ];
+                }
+                return new WP_REST_Response([
+                    'phase' => 'chunk',
+                    'chunk_index' => $chunk_index,
+                    'partial' => is_array($partial)? $partial : [ 'aggregations'=>new \stdClass(), 'partial_insights'=>[], 'partial_chart_data'=>[], 'outliers'=>[], 'fields_used'=>[], 'chunk_summary'=>[ 'row_count'=>count($rows), 'notes'=>['No matching data found'] ] ],
+                    'usage' => [],
+                    'debug' => $dbg,
+                    'session_id' => $session_id,
+                ], 200);
+            }
+            if ($phase === 'final'){
+                $partials = is_array($p['partials'] ?? null) ? $p['partials'] : [];
+                // Compose final merge request with summaries only
+                $mergeIn = [ 'question'=>$question, 'partials'=>$partials ];
+                $sys = 'You are Hoshang. Merge the provided partial chunk analytics. If the question is about a person\'s mood/wellbeing, combine evidence from both textual mood descriptions and numeric ratings (1–10) when present.'
+                    . ' Output STRICT JSON: {"answer":"<fa>","fields_used":[],"aggregations":{},"chart_data":[],"outliers":[],"insights":[],"confidence":"high|medium|low"}. JSON only.';
+                $msgs = [ [ 'role'=>'system','content'=>$sys ], [ 'role'=>'user','content'=> wp_json_encode($mergeIn, JSON_UNESCAPED_UNICODE) ] ];
+                $modelName = $use_model; if (preg_match('/mini/i', (string)$modelName)) $modelName = 'gpt-4o';
+                $req = [ 'model'=>$modelName, 'messages'=>$msgs, 'temperature'=>0.2, 'max_tokens'=> min(1200, max(600, $max_tokens)) ];
+                $r = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=> wp_json_encode($req) ]);
+                $status = is_wp_error($r) ? 0 : (int)wp_remote_retrieve_response_code($r);
+                $raw = is_wp_error($r) ? ($r->get_error_message() ?: '') : (string)wp_remote_retrieve_body($r);
+                $ok = ($status === 200);
+                $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                $text = '';
+                if (is_array($body)){
+                    if (isset($body['choices'][0]['message']['content']) && is_string($body['choices'][0]['message']['content'])) $text = (string)$body['choices'][0]['message']['content'];
+                    elseif (isset($body['choices'][0]['text']) && is_string($body['choices'][0]['text'])) $text = (string)$body['choices'][0]['text'];
+                    elseif (isset($body['output_text']) && is_string($body['output_text'])) $text = (string)$body['output_text'];
+                }
+                $final = $text ? json_decode($text, true) : null;
+                $repaired = false;
+                if (!is_array($final)){
+                    // Repair
+                    $repairSys = 'Fix to VALID JSON only with keys: answer, fields_used, aggregations, chart_data, outliers, insights, confidence.';
+                    $repairMsgs = [ [ 'role'=>'system','content'=>$repairSys ], [ 'role'=>'user','content'=>$text ] ];
+                    $repairReq = [ 'model' => (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$repairMsgs, 'temperature'=>0.0, 'max_tokens'=>400 ];
+                    $r2 = wp_remote_post($endpoint, [ 'timeout'=>20, 'headers'=>$headers, 'body'=> wp_json_encode($repairReq) ]);
+                    $raw2 = is_wp_error($r2) ? '' : (string)wp_remote_retrieve_body($r2);
+                    $b2 = json_decode($raw2, true);
+                    $txt2 = '';
+                    if (is_array($b2)){
+                        if (isset($b2['choices'][0]['message']['content']) && is_string($b2['choices'][0]['message']['content'])) $txt2 = (string)$b2['choices'][0]['message']['content'];
+                        elseif (isset($b2['choices'][0]['text']) && is_string($b2['choices'][0]['text'])) $txt2 = (string)$b2['choices'][0]['text'];
+                        elseif (isset($b2['output_text']) && is_string($b2['output_text'])) $txt2 = (string)$b2['output_text'];
+                    }
+                    $final = $txt2 ? json_decode($txt2, true) : null;
+                    if (is_array($final)) $repaired = true;
+                }
+                $dbg = [];
+                if ($debug){ $dbg[] = [ 'phase'=>'final', 'json_repaired'=>$repaired, 'http_status'=>$status, 'partials_count'=>count($partials) ]; }
+                $res = is_array($final)? $final : [ 'answer'=>'تحلیلی یافت نشد.', 'fields_used'=>[], 'aggregations'=>new \stdClass(), 'chart_data'=>[], 'outliers'=>[], 'insights'=>[], 'confidence'=>'low' ];
+                // Diagnostics: if no matching data found
+                $candidateRows = 0; $matchedColumns = [];
+                try {
+                    foreach (($partials ?: []) as $p0){
+                        $rc = (int)($p0['chunk_summary']['row_count'] ?? 0); $candidateRows += $rc;
+                        $fields = is_array($p0['fields_used'] ?? null) ? $p0['fields_used'] : [];
+                        foreach ($fields as $f){ if (is_string($f) && $f !== '' && !in_array($f, $matchedColumns, true)) $matchedColumns[] = $f; }
+                    }
+                } catch (\Throwable $e) { }
+                $diagnostics = null;
+                if ($candidateRows === 0){ $diagnostics = [ 'candidate_rows' => 0, 'matched_columns' => $matchedColumns ]; }
+                return new WP_REST_Response([
+                    'phase' => 'final',
+                    'result' => $res,
+                    'diagnostics' => $diagnostics,
+                    'usage' => [],
+                    'debug' => $dbg,
+                    'session_id' => $session_id,
+                ], 200);
+            }
+            return new WP_REST_Response([ 'error'=>'invalid_phase' ], 400);
+        }
+        // Fast path: structured JSON mode — single-call analysis with strict JSON output (legacy)
+        if ($isStructured) {
+            // Restrict to the (only) selected form (enforced earlier)
+            $fid = $form_ids[0];
+            // Fetch up to max_rows for a single grounded CSV
+            $rowsAll = \Arshline\Modules\Forms\SubmissionRepository::listByFormAll($fid, [], $max_rows);
+            if (empty($rowsAll)){
+                $payloadOut = [ 'result' => [ 'answer' => 'No matching data found.', 'fields_used'=>[], 'aggregations'=>new \stdClass(), 'chart_data'=>[], 'confidence'=>'low' ], 'summary' => 'No matching data found.', 'usage' => [], 'voice' => $voice, 'session_id' => $session_id ];
+                return new WP_REST_Response($payloadOut, 200);
+            }
+            // Build fields meta
+            $fmeta = [];
+            try {
+                $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                foreach (($fieldsForMeta ?: []) as $f){
+                    $p0 = is_array($f['props'] ?? null) ? $f['props'] : [];
+                    $label0 = (string)($p0['question'] ?? $p0['label'] ?? $p0['title'] ?? $p0['name'] ?? '');
+                    $type0 = (string)($p0['type'] ?? '');
+                    $fmeta[] = [ 'id' => (int)($f['id'] ?? 0), 'label' => $label0, 'type' => $type0 ];
+                }
+            } catch (\Throwable $e) { /* ignore */ }
+            // Compose a single table CSV grounding across rows (with optional pre-filter via LLM planning)
+            $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $rowsAll), function($v){ return $v>0; }));
+            $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+
+            // Lightweight server-side name disambiguation (clarify candidates)
+            $clarify = null;
+            try {
+                // Detect name-like field ids
+                $nameFieldIds = [];
+                foreach ($fmeta as $fm){
+                    $lab = mb_strtolower((string)($fm['label'] ?? ''), 'UTF-8');
+                    if ($lab === '') continue;
+                    if (preg_match('/\bname\b|first\s*name|last\s*name|full\s*name|surname|family/i', $lab)
+                        || preg_match('/نام(?:\s*خانوادگی)?|اسم/u', $lab)){
+                        $nameFieldIds[] = (int)($fm['id'] ?? 0);
+                    }
+                }
+                $nameFieldIds = array_values(array_unique(array_filter($nameFieldIds, function($v){ return $v>0; })));
+                // Build distinct names from filtered ids for CSV (or all slice ids if not filtered)
+                $idsForClar = !empty($filteredIds) ? $filteredIds : $sliceIds;
+                $normalize = function($s){
+                    $s = is_scalar($s) ? (string)$s : '';
+                    $s = str_replace(["\xE2\x80\x8C"], [''], $s); // ZWNJ
+                    $s = str_replace(["ي","ك"],["ی","ک"], $s);
+                    $s = preg_replace('/\s+/u',' ', $s);
+                    return trim(mb_strtolower($s, 'UTF-8'));
+                };
+                $distinctNames = [];
+                if (!empty($nameFieldIds)){
+                    foreach ($idsForClar as $sid){
+                        $vals = $valuesMap[$sid] ?? [];
+                        $byField = [];
+                        foreach ($vals as $v){ $fidv=(int)($v['field_id'] ?? 0); if (!in_array($fidv, $nameFieldIds, true)) continue; $val=(string)($v['value'] ?? ''); if ($val==='') continue; $byField[$fidv][] = $val; }
+                        foreach ($byField as $arr){
+                            foreach ($arr as $raw){
+                                // split by common joiner
+                                $parts = array_map('trim', explode('|', str_replace(' | ', '|', $raw)));
+                                foreach ($parts as $p){ if ($p==='') continue; $n=$normalize($p); if ($n!==''){ $distinctNames[$n] = $p; } }
+                            }
+                        }
+                    }
+                }
+                // Extract candidate token from question
+                $qtext = $question;
+                $qnorm = $normalize($qtext);
+                // pick the longest token >= 2 not a common stopword
+                $tok = '';
+                if (preg_match_all('/[\p{L}]{2,}/u', $qnorm, $mm)){
+                    $cands = $mm[0] ?? [];
+                    $stops = ['حال','چطوره','هست','چه','روند','امتیاز','میانگین','اسامی','اسم','نام','شماره','تلفن','نمره','امروز','اوضاع','احوال','چقدر','کد','ملی','فرم','پاسخ','ارسال'];
+                    $best = '';
+                    foreach ($cands as $w){ if (mb_strlen($w,'UTF-8')>=2 && !in_array($w, $stops, true)){ if (mb_strlen($w,'UTF-8') > mb_strlen($best,'UTF-8')) $best=$w; } }
+                    $tok = $best;
+                }
+                if ($tok !== '' && count($distinctNames) > 0){
+                    $hits = [];
+                    foreach ($distinctNames as $n => $orig){ if (strpos($n, $tok) !== false) $hits[$n] = $orig; }
+                    // If multiple candidates (2..6) and no exact single match, propose clarify
+                    $count = count($hits);
+                    if ($count >= 2 && $count <= 6){ $clarify = [ 'type' => 'name', 'candidates' => array_values(array_unique(array_slice(array_values($hits), 0, 6))) ]; }
+                }
+            } catch (\Throwable $e) { /* ignore clarify errors */ }
+
+            // Two-stage planning (LLM-guided light filtering) to reduce grounding size and improve precision
+            $filteredIds = $sliceIds; $planObj = null; $planUsage = null; $planningApplied = false; $planningModel = '';
+            try {
+                // Build a tiny planning prompt to extract filters and target fields
+                $planSys = 'You are Hoshang planning assistant. Task: Given Persian question and fields_meta, return a strict JSON plan to FILTER rows (no analysis). Rules:\n'
+                    . '1) Output JSON ONLY, no text. Keys in English.\n'
+                    . '2) Detect name/phone/mood and other field intents from synonyms.\n'
+                    . '3) Plan schema: { "filters": [{"field":"<best label>", "op":"contains", "value":"..."}], "columns_needed": ["label1","label2"], "target_fields": ["label?/semantic" ] }.\n'
+                    . '4) Use simple contains filters with normalized Persian (ی/ي, ک/ك, remove ZWNJ) and case-insensitive.\n'
+                    . '5) Do NOT answer the question.\n';
+                $planUser = [ 'question' => $question, 'fields_meta' => $fmeta ];
+                $planMsgs = [ [ 'role'=>'system','content'=>$planSys ], [ 'role'=>'user', 'content' => json_encode($planUser, JSON_UNESCAPED_UNICODE) ] ];
+                // Prefer a mini model for planning when available
+                $planningModel = (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini');
+                // Fallback to current model if mini may be unavailable
+                if ($planningModel === 'gpt-4o-mini' && $use_model === 'gpt-4o-mini') { /* same */ }
+                $makePlanReq = function($modelName) use ($endpoint, $http_timeout, $headers, $planMsgs){
+                    $pl = [ 'model'=>$modelName, 'messages'=>$planMsgs, 'temperature'=>0.0, 'max_tokens'=>300 ];
+                    $plJson = wp_json_encode($pl);
+                    $t0 = microtime(true);
+                    $resp = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=>$plJson ]);
+                    $status = is_wp_error($resp) ? 0 : (int)wp_remote_retrieve_response_code($resp);
+                    $raw = is_wp_error($resp) ? ($resp->get_error_message() ?: '') : (string)wp_remote_retrieve_body($resp);
+                    $ok = ($status === 200);
+                    $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                    $u = [ 'input'=>0,'output'=>0,'total'=>0,'duration_ms' => (int) round((microtime(true)-$t0)*1000) ];
+                    return [ $ok, $status, $raw, $body, $u, $plJson ];
+                };
+                [ $pok, $pstatus, $praw, $pbody, $pusage, $pjson ] = $makePlanReq($planningModel);
+                if (!$pok && in_array((int)$pstatus, [400,404,422], true) && $planningModel !== $use_model){
+                    [ $pok2, $pstatus2, $praw2, $pbody2, $pusage2, $pjson2 ] = $makePlanReq($use_model);
+                    if ($pok2){ $pok=true; $pstatus=$pstatus2; $praw=$praw2; $pbody=$pbody2; $pusage=$pusage2; $pjson=$pjson2; $planningModel=$use_model; }
+                }
+                // Extract plan text
+                $planText = '';
+                if (is_array($pbody)){
+                    try {
+                        if (isset($pbody['choices'][0]['message']['content']) && is_string($pbody['choices'][0]['message']['content'])){
+                            $planText = (string)$pbody['choices'][0]['message']['content'];
+                        } elseif (isset($pbody['choices'][0]['text']) && is_string($pbody['choices'][0]['text'])){
+                            $planText = (string)$pbody['choices'][0]['text'];
+                        } elseif (isset($pbody['output_text']) && is_string($pbody['output_text'])){
+                            $planText = (string)$pbody['output_text'];
+                        }
+                    } catch (\Throwable $e) { $planText=''; }
+                }
+                $planDecoded = $planText ? json_decode($planText, true) : null;
+                if (is_array($planDecoded)){
+                    $planObj = $planDecoded; $planUsage = $pusage;
+                    // Minimal light filtering: supports only op=contains over selected columns
+                    $filters = is_array($planObj['filters'] ?? null) ? $planObj['filters'] : [];
+                    // Build normalized label => field_ids map (labels may repeat across forms, but here only one form)
+                    $normalize = function($s){
+                        $s = is_scalar($s) ? (string)$s : '';
+                        $s = str_replace(["\xE2\x80\x8C"], [''], $s); // ZWNJ
+                        $s = str_replace(["ي","ك"],["ی","ک"], $s);
+                        $s = preg_replace('/\s+/u',' ', $s);
+                        $s = trim(mb_strtolower($s, 'UTF-8'));
+                        return $s;
+                    };
+                    $labelToIds = [];
+                    foreach ($fmeta as $fm){ $lab = (string)($fm['label'] ?? ''); $fidm = (int)($fm['id'] ?? 0); if ($lab===''||$fidm<=0) continue; $labN = $normalize($lab); if (!isset($labelToIds[$labN])) $labelToIds[$labN] = []; $labelToIds[$labN][] = $fidm; }
+                    $activeFilters = [];
+                    foreach ($filters as $flt){
+                        $flab = $normalize($flt['field'] ?? ''); $val = $normalize($flt['value'] ?? ''); $op = strtolower((string)($flt['op'] ?? 'contains'));
+                        if ($flab !== '' && $val !== '' && ($op === 'contains')){
+                            $fids = $labelToIds[$flab] ?? [];
+                            if (!empty($fids)) $activeFilters[] = [ 'field_ids'=>$fids, 'value'=>$val ];
+                        }
+                    }
+                    if (!empty($activeFilters)){
+                        $keep = [];
+                        foreach ($sliceIds as $sid){
+                            $vals = $valuesMap[$sid] ?? [];
+                            $byField = [];
+                            foreach ($vals as $v){ $fidv=(int)($v['field_id'] ?? 0); $val=(string)($v['value'] ?? ''); if ($fidv>0){ if (!isset($byField[$fidv])) $byField[$fidv] = []; if ($val!=='') $byField[$fidv][] = $val; } }
+                            $okAll = true;
+                            foreach ($activeFilters as $af){
+                                $hit = false;
+                                foreach ($af['field_ids'] as $fidNeed){
+                                    $cell = isset($byField[$fidNeed]) ? implode(' | ', $byField[$fidNeed]) : '';
+                                    $cellN = $normalize($cell);
+                                    if ($cellN !== '' && strpos($cellN, (string)$af['value']) !== false){ $hit = true; break; }
+                                }
+                                if (!$hit){ $okAll = false; break; }
+                            }
+                            if ($okAll) $keep[] = $sid;
+                        }
+                        if (!empty($keep)){
+                            $filteredIds = $keep; $planningApplied = true;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) { /* planning step optional; ignore errors */ }
+            // Header labels
+            $labels = [];
+            $idToLabel = [];
+            foreach ($fmeta as $fm){
+                $fidm = (int)($fm['id'] ?? 0);
+                $labm = (string)($fm['label'] ?? '');
+                if ($labm === '') { $labm = 'فیلد #' . $fidm; }
+                $idToLabel[$fidm] = $labm;
+                $labels[] = $labm;
+            }
+            $rowsCsv = [];
+            $idsForCsv = !empty($filteredIds) ? $filteredIds : $sliceIds;
+            if (!empty($labels)){
+                $rowsCsv[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $labels));
+                foreach ($idsForCsv as $sid){
+                    $vals = $valuesMap[$sid] ?? [];
+                    $map = [];
+                    foreach ($vals as $v){
+                        $fidv = (int)($v['field_id'] ?? 0);
+                        $lab = (string)($idToLabel[$fidv] ?? ''); if ($lab==='') $lab = 'فیلد #'.$fidv;
+                        $val = trim((string)($v['value'] ?? ''));
+                        if (!isset($map[$lab])) $map[$lab] = [];
+                        if ($val !== '') $map[$lab][] = $val;
+                    }
+                    $rowsCsv[] = implode(',', array_map(function($h) use ($map){ $v = isset($map[$h]) ? implode(' | ', $map[$h]) : ''; return '"'.str_replace('"','""',$v).'"'; }, $labels));
+                }
+            }
+            $tableCsv = implode("\r\n", $rowsCsv);
+            // Heuristic model selection for cost vs depth
+            $qLower = mb_strtolower($question, 'UTF-8');
+            $isHeavy = (bool)(
+                preg_match('/\b(compare|correlat|trend|distribution|variance|std|median|quartile|regression|cluster|segment|chart|bar|pie|line)\b/i', $qLower)
+                || preg_match('/(?:مقایسه|همبستگی|روند|میانگین|میانه|نمودار|نمودار(?:\s*میله|\s*دایره|\s*خط)|واریانس|انحراف\s*معیار)/u', $qLower)
+            );
+            $use_model_struct = $use_model;
+            if ($isHeavy) {
+                // If configured model looks like a mini/cheap variant, upgrade to gpt-4o for this call
+                if (preg_match('/mini|3\.5|4o\-mini/i', (string)$use_model_struct)){
+                    $use_model_struct = 'gpt-4o';
+                }
+            }
+            // Build structured system prompt
+            $sys = 'You are Hoshang, a Persian analytics assistant. Strict rules:\n'
+                . '1) Map column labels to semantic concepts when needed. Examples (not exhaustive):\n'
+                . '   - name: "نام"، "اسم"، "نام و نام خانوادگی"، "first name"، "last name"، "full name".\n'
+                . '   - phone: "شماره تلفن"، "شماره تماس"، "موبایل"، "تلفن"، "تلفن همراه"، "mobile"، "phone".\n'
+                . '   - mood_text: "امروز اوضاع و احوالتون چطوره"، "حال و احوال"، "حال"، "روحیه".\n'
+                . '   - mood_score: "به حال دلت چه امتیازی میدی"، "امتیاز حال دل"، "نمره حال".\n'
+                . '2) Normalize Persian text when matching: treat ی/ي and ک/ك as the same; remove zero-width joiners (U+200C) and diacritics; ignore punctuation and extra spaces; match case-insensitively; allow partial substring matches.\n'
+                . '3) When searching by a person/entity name in the question (e.g., "نیما"), locate rows where any name-like column contains that name (after normalization), then extract the requested field (e.g., phone, mood) from the same row.\n'
+                . '   - Table cells may contain multiple values joined by a delimiter like " | "; split and inspect each value.\n'
+                . '   - For phone answers: extract and return the phone number digits for the best-matching row.\n'
+                . '4) Interpret the question and link it to the most relevant fields; perform comparisons, summaries, and basic aggregations only from provided data.\n'
+                . '5) Never hallucinate values; if insufficient data: return answer="No matching data found."\n'
+                . '6) Return JSON ONLY (no markdown/text outside JSON). Keys in English. Values/text (answer) in Persian.\n'
+                . '7) If charts are implied, include minimal chart_data array of objects (e.g., name/label and value/score).\n'
+                . '8) Keep outputs concise.';
+            $messages = [ [ 'role' => 'system', 'content' => $sys ] ];
+            foreach ($history as $h){ $messages[] = $h; }
+            $payloadUser = [
+                'question' => $question,
+                'form_id' => $fid,
+                'data_format' => 'table',
+                'table_csv' => $tableCsv,
+                'fields_meta' => $fmeta,
+                // Define desired JSON schema explicitly
+                'output_schema' => [
+                    'answer' => 'string (Persian)',
+                    'fields_used' => ['string'],
+                    'aggregations' => new \stdClass(),
+                    'chart_data' => [ new \stdClass() ],
+                    'confidence' => 'low|medium|high'
+                ]
+            ];
+            $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
+            $payload = [ 'model' => $use_model_struct, 'messages' => $messages, 'temperature' => 0.2, 'max_tokens' => $max_tokens ];
+            $payloadJson = wp_json_encode($payload);
+            if ($debug){
+                $prevMsgs = [];
+                foreach ($messages as $m){ $c=(string)($m['content'] ?? ''); if (strlen($c)>1800) $c=substr($c,0,1800)."\n…[truncated]"; $prevMsgs[] = [ 'role'=>$m['role'] ?? '', 'content'=>$c ]; }
+                $dbgEntry = [ 'form_id'=>$fid, 'endpoint'=>$endpoint, 'request_preview'=>[ 'model'=>$use_model_struct, 'max_tokens'=>$max_tokens, 'temperature'=>0.2, 'messages'=>$prevMsgs ], 'routing' => [ 'hosh_mode'=>$hoshMode, 'structured'=>true, 'auto'=>$autoStructured, 'trigger'=>$structTrigger ] ];
+                if ($planningApplied || $planObj){ $dbgEntry['planning'] = [ 'applied' => (bool)$planningApplied, 'model' => (string)$planningModel, 'plan' => $planObj, 'filtered_rows' => is_array($idsForCsv)? count($idsForCsv) : 0, 'total_rows' => count($sliceIds) ]; }
+                $debugInfo[] = $dbgEntry;
+            }
+            // Perform request with 1-shot fallback to gpt-4o on 400/404/422
+            $makeReq = function($modelName) use ($endpoint, $http_timeout, $headers, $messages, $max_tokens){
+                $pl = [ 'model'=>$modelName, 'messages'=>$messages, 'temperature'=>0.2, 'max_tokens'=>$max_tokens ];
+                $plJson = wp_json_encode($pl);
+                $t0 = microtime(true);
+                $resp = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=>$plJson ]);
+                $status = is_wp_error($resp) ? 0 : (int)wp_remote_retrieve_response_code($resp);
+                $raw = is_wp_error($resp) ? ($resp->get_error_message() ?: '') : (string)wp_remote_retrieve_body($resp);
+                $ok = ($status === 200);
+                $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                $usage = [ 'input'=>0,'output'=>0,'total'=>0,'duration_ms' => (int) round((microtime(true)-$t0)*1000) ];
+                return [ $ok, $status, $raw, $body, $usage, $plJson ];
+            };
+            [ $ok, $status, $rawBody, $body, $usage, $plJson ] = $makeReq($use_model_struct);
+            $finalModel = $use_model_struct;
+            if (!$ok && in_array((int)$status, [400,404,422], true) && $use_model_struct !== 'gpt-4o'){
+                [ $ok2, $status2, $rawBody2, $body2, $usage2, $plJson2 ] = $makeReq('gpt-4o');
+                if ($ok2){ $ok=true; $status=$status2; $rawBody=$rawBody2; $body=$body2; $usage=$usage2; $plJson=$plJson2; $finalModel='gpt-4o'; }
+            }
+            // Extract text and usage
+            $text = '';
+            if (is_array($body)){
+                try {
+                    if (isset($body['choices'][0]['message']['content']) && is_string($body['choices'][0]['message']['content'])){
+                        $text = (string)$body['choices'][0]['message']['content'];
+                    } elseif (isset($body['choices'][0]['text']) && is_string($body['choices'][0]['text'])){
+                        $text = (string)$body['choices'][0]['text'];
+                    } elseif (isset($body['output_text']) && is_string($body['output_text'])){
+                        $text = (string)$body['output_text'];
+                    }
+                } catch (\Throwable $e) { $text=''; }
+                $u = $body['usage'] ?? [];
+                $in = (int)($u['prompt_tokens'] ?? $u['input_tokens'] ?? ($u['input'] ?? 0));
+                $out = (int)($u['completion_tokens'] ?? $u['output_tokens'] ?? ($u['output'] ?? 0));
+                $tot = (int)($u['total_tokens'] ?? $u['total'] ?? 0);
+                if ((!$in && !$out && !$tot) && is_array($body)){
+                    // try headers
+                    // Note: $resp isn’t available here; usage already has duration. Estimate instead.
+                }
+                if (!$in && !$out && !$tot){
+                    $promptApprox = strlen((string)$plJson);
+                    $compApprox = strlen((string)$text);
+                    $in=(int)ceil($promptApprox/4); $out=(int)ceil($compApprox/4); $tot=$in+$out;
+                }
+                $usage['input']=$in; $usage['output']=$out; $usage['total']=$tot;
+            }
+            // Parse structured JSON from model content
+            $result = null;
+            if (is_string($text) && $text !== ''){
+                $decoded = json_decode($text, true);
+                if (is_array($decoded)){
+                    $result = $decoded;
+                } else {
+                    // Stage 3: JSON repair mini-call — extract/fix JSON if model returned fenced or noisy content
+                    $repairDbg = null;
+                    try {
+                        $repairModel = (preg_match('/mini/i', (string)$use_model_struct)) ? $use_model_struct : 'gpt-4o-mini';
+                        $schema = [
+                            'answer' => 'string (Persian)',
+                            'fields_used' => ['string'],
+                            'aggregations' => new \stdClass(),
+                            'chart_data' => [ new \stdClass() ],
+                            'confidence' => 'low|medium|high'
+                        ];
+                        $repSys = 'You are a strict JSON repair tool. Input may include markdown fences or surrounding text. Task: extract and FIX a single JSON object matching the expected schema (keys in English). Output ONLY the JSON with no backticks or commentary.';
+                        $repUser = [ 'schema' => $schema, 'text' => (string)$text ];
+                        $repMsgs = [ [ 'role'=>'system','content'=>$repSys ], [ 'role'=>'user','content'=>json_encode($repUser, JSON_UNESCAPED_UNICODE) ] ];
+                        $makeRepairReq = function($modelName) use ($endpoint, $http_timeout, $headers, $repMsgs){
+                            $pl = [ 'model'=>$modelName, 'messages'=>$repMsgs, 'temperature'=>0.0, 'max_tokens'=>600 ];
+                            $plJson = wp_json_encode($pl);
+                            $t0 = microtime(true);
+                            $resp = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=>$plJson ]);
+                            $status = is_wp_error($resp) ? 0 : (int)wp_remote_retrieve_response_code($resp);
+                            $raw = is_wp_error($resp) ? ($resp->get_error_message() ?: '') : (string)wp_remote_retrieve_body($resp);
+                            $ok = ($status === 200);
+                            $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                            $usage = [ 'input'=>0,'output'=>0,'total'=>0,'duration_ms'=>(int)round((microtime(true)-$t0)*1000) ];
+                            return [ $ok, $status, $raw, $body, $usage, $plJson ];
+                        };
+                        [ $rok, $rstatus, $rraw, $rbody, $rusage, $rjson ] = $makeRepairReq($repairModel);
+                        $repairFinalModel = $repairModel;
+                        if (!$rok && in_array((int)$rstatus, [400,404,422], true) && $repairModel !== $use_model_struct){
+                            [ $rok2, $rstatus2, $rraw2, $rbody2, $rusage2, $rjson2 ] = $makeRepairReq($use_model_struct);
+                            if ($rok2){ $rok=true; $rstatus=$rstatus2; $rraw=$rraw2; $rbody=$rbody2; $rusage=$rusage2; $rjson=$rjson2; $repairFinalModel=$use_model_struct; }
+                        }
+                        $repaired = '';
+                        if (is_array($rbody)){
+                            try {
+                                if (isset($rbody['choices'][0]['message']['content']) && is_string($rbody['choices'][0]['message']['content'])){ $repaired = (string)$rbody['choices'][0]['message']['content']; }
+                                elseif (isset($rbody['choices'][0]['text']) && is_string($rbody['choices'][0]['text'])){ $repaired = (string)$rbody['choices'][0]['text']; }
+                                elseif (isset($rbody['output_text']) && is_string($rbody['output_text'])){ $repaired = (string)$rbody['output_text']; }
+                            } catch (\Throwable $e) { $repaired=''; }
+                        }
+                        $fixed = $repaired !== '' ? json_decode($repaired, true) : null;
+                        if (is_array($fixed)){
+                            $result = $fixed;
+                            // Log repair usage separately
+                            self::log_ai_usage('hoshang-repair', $repairFinalModel, $rusage, [ 'form_id'=>$fid, 'repair'=>1 ]);
+                            if ($debug){
+                                $repairDbg = [ 'model'=>$repairFinalModel, 'http_status'=>$rstatus, 'ok'=>true ];
+                                try { $repairDbg['raw'] = (strlen((string)$rraw)>1200? substr((string)$rraw,0,1200)."\n…[truncated]" : (string)$rraw); } catch (\Throwable $e) { /* noop */ }
+                            }
+                        } else {
+                            // Fallback: wrap original plain text into schema
+                            $result = [ 'answer' => $text, 'fields_used' => [], 'aggregations' => new \stdClass(), 'chart_data' => [], 'confidence' => 'low' ];
+                            if ($debug){ $repairDbg = [ 'model'=>$repairModel, 'http_status'=>$rstatus, 'ok'=>false ]; }
+                        }
+                    } catch (\Throwable $e) {
+                        // Final fallback when repair stage fails unexpectedly
+                        $result = [ 'answer' => $text, 'fields_used' => [], 'aggregations' => new \stdClass(), 'chart_data' => [], 'confidence' => 'low' ];
+                    }
+                }
+            } else {
+                $result = [ 'answer' => 'No matching data found.', 'fields_used' => [], 'aggregations' => new \stdClass(), 'chart_data' => [], 'confidence' => 'low' ];
+            }
+            // Attach clarify if available and not already present
+            if (is_array($clarify) && empty($result['clarify'])){ $result['clarify'] = $clarify; }
+            $summary = (string)($result['answer'] ?? '');
+            // Log usage (include planning call if available) and persist assistant turn
+            self::log_ai_usage($agentName, $finalModel, $usage, [ 'form_id'=>$fid, 'rows'=>count($rowsAll) ]);
+            if (is_array($planUsage)){ self::log_ai_usage('hoshang-plan', $planningModel ?: $use_model, $planUsage, [ 'form_id'=>$fid, 'rows'=>count($rowsAll) ]); }
+            $usages[] = [ 'form_id'=>$fid, 'usage'=>$usage ];
+            try {
+                if ($session_id > 0){
+                    global $wpdb; $tblSess = \Arshline\Support\Helpers::tableName('ai_chat_sessions'); $tblMsg = \Arshline\Support\Helpers::tableName('ai_chat_messages');
+                    $wpdb->insert($tblMsg, [
+                        'session_id' => $session_id,
+                        'role' => 'assistant',
+                        'content' => $summary,
+                        'usage_input' => max(0, (int)$usage['input']),
+                        'usage_output' => max(0, (int)$usage['output']),
+                        'usage_total' => max(0, (int)$usage['total']),
+                        'duration_ms' => max(0, (int)$usage['duration_ms']),
+                        'meta' => wp_json_encode([ 'form_ids'=>$form_ids, 'format'=>'json', 'structured'=>true ], JSON_UNESCAPED_UNICODE),
+                    ]);
+                    $wpdb->update($tblSess, [ 'last_message_at' => current_time('mysql') ], [ 'id'=>$session_id ]);
+                }
+            } catch (\Throwable $e) { /* ignore */ }
+            $respPayload = [ 'result' => $result, 'summary' => $summary, 'usage' => $usages, 'voice' => $voice, 'session_id' => $session_id, 'model' => $finalModel ];
+            if ($debug){
+                $dbg = [ 'form_id'=>$fid, 'endpoint'=>$endpoint, 'request_preview'=>[ 'model'=>$finalModel, 'max_tokens'=>$max_tokens, 'temperature'=>0.2 ], 'final_model'=>$finalModel, 'routing' => [ 'hosh_mode'=>$hoshMode, 'structured'=>true, 'auto'=>$autoStructured, 'trigger'=>$structTrigger, 'auto_format'=>$autoFormat ] ];
+                try { $dbg['raw'] = (strlen((string)$rawBody)>1800? substr((string)$rawBody,0,1800)."\n…[truncated]" : (string)$rawBody); } catch (\Throwable $e) { /* noop */ }
+                if (!empty($clarify)) { $dbg['clarify'] = $clarify; }
+                // Attach planning and optional repair meta when present
+                $respPayload['debug'] = [ $dbg ];
+            }
+            return new WP_REST_Response($respPayload, 200);
+        }
         foreach ($tables as $t){
             $rows = $t['rows']; $fid = $t['form_id'];
             // Simple chunking by N rows; we serialize minimally to reduce tokens
@@ -3991,11 +4719,23 @@ class Api
                 $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sliceIds);
                 // Optionally build a tabular CSV (header=field labels, rows=submissions) to help the model
                 $tableCsv = '';
-                if ($format === 'table'){
+                // Allow tabular grounding for all non-greeting questions to improve extraction (entity lookups, filters, etc.)
+                // The system prompt forbids dumping raw CSV unless explicitly requested, so this is safe.
+                $allowTableGrounding = ($format === 'table') || (!$isGreeting);
+                if ($allowTableGrounding){
                     $labels = [];
                     $idToLabel = [];
-                    foreach (($t['fields_meta'] ?? []) as $fm){ $idToLabel[(int)($fm['id'] ?? 0)] = (string)($fm['label'] ?? ''); }
-                    $labels = array_values(array_filter(array_map(function($fm){ return (string)($fm['label'] ?? ''); }, ($t['fields_meta'] ?? [])), function($s){ return $s!==''; }));
+                    foreach (($t['fields_meta'] ?? []) as $fm){
+                        $fidm = (int)($fm['id'] ?? 0);
+                        $labm = (string)($fm['label'] ?? '');
+                        if ($labm === '') { $labm = 'فیلد #' . $fidm; }
+                        $idToLabel[$fidm] = $labm;
+                    }
+                    $labels = array_values(array_map(function($fm){
+                        $fidm = (int)($fm['id'] ?? 0);
+                        $labm = (string)($fm['label'] ?? '');
+                        return $labm !== '' ? $labm : ('فیلد #'.$fidm);
+                    }, ($t['fields_meta'] ?? [])));
                     if (!empty($labels)){
                         $rowsCsv = [];
                         $rowsCsv[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $labels));
@@ -4004,7 +4744,7 @@ class Api
                             $map = [];
                             foreach ($vals as $v){
                                 $fidv = (int)($v['field_id'] ?? 0);
-                                $lab = (string)($idToLabel[$fidv] ?? ''); if ($lab==='') continue;
+                                $lab = (string)($idToLabel[$fidv] ?? ''); if ($lab==='') $lab = 'فیلد #'.$fidv;
                                 $val = trim((string)($v['value'] ?? ''));
                                 if (!isset($map[$lab])) $map[$lab] = [];
                                 if ($val !== '') $map[$lab][] = $val;
@@ -4022,9 +4762,15 @@ class Api
 2) زبان خروجی: فقط فارسی.
 3) بدون مقدمه یا توضیح اضافی؛ فقط پاسخ مستقیم طبق قالب خواسته‌شده.
 4) اگر پاسخ با اتکا به داده‌های فرم ممکن نیست، دقیقاً بنویس: «اطلاعات لازم در فرم پیدا نمی‌کنم».
-5) اگر intent یا out_format داده شد، همان را رعایت کن (list_names, list_fields, show_all_compact_preview | list/table/plain).
+5) اگر intent یا out_format داده شد، همان را رعایت کن (list_names, list_fields, list_field_values, field_value, show_all_compact_preview | list/table/plain).
+6) اگر پرسش مبهم یا صرفاً خوش‌وبش/سلام بود، یک خوشامدگویی خیلی کوتاه بده و یک سؤال روشن‌کنندهٔ کوتاه بپرس؛ از نمایش خام داده‌ها یا جدول خودداری کن مگر کاربر صریحاً درخواست «نمایش/لیست/جدول» کرده باشد.
+راهنمای جست‌وجوی مقدار:
+- اگر سؤال شامل نام فرد/موجودیت بود (مثل «نیما»)، ستون‌های شبیه نام (label: نام/اسم/name/first/last/full) را پیدا کن و با تطبیق جزئی (case-insensitive) ردیف/ردیف‌های مرتبط را بیاب؛ سپس مقدار ستون مرتبط با سؤال را بازگو کن.
+- توجه: واژهٔ «اسم» به‌تنهایی به معنی «نام شخص» نیست. فقط اگر نام خاصی در سؤال آمده باشد (مثلاً «نیما»)، از ستون‌های نام اشخاص استفاده کن. اگر عبارت «اسم X» آمده باشد (مثل «اسم میوه»)، منظور ستون «X» است نه نام شخص.
+- اگر در سؤال به یک فیلد اشاره شد (مثل «میوه»)، از fields_meta برچسب‌های شامل آن واژه را پیدا کن (با نادیده‌گرفتن فاصله/HTML entities مثل &nbsp;) و از همان ستون مقدار را استخراج کن.
+- خروجی را کوتاه و دقیق بنویس (مثلاً فقط نام میوه)، مگر explicitly «لیست/جدول» خواسته شده باشد.
 راهنمای فرمت جدول:
-- اگر data_format=table و table_csv موجود است، همان CSV منبع پاسخ است: هدرها نام ستون‌ها هستند. برای list_names ستون‌های شبیه نام را شناسایی کن و مقادیر غیرتکراری را فهرست کن. برای show_all_compact_preview تعداد کل سطرها و حداکثر ۲۰ سطر اول را فشرده نمایش بده.
+- فقط وقتی data_format=table و کاربر واقعاً درخواست «لیست/نمایش/جدول» کرده، CSV را مبنای پاسخ قرار بده. هرگز CSV خام، هدرها یا داده‌ها را بدون درخواست صریح چاپ نکن؛ صرفاً خروجی خواسته‌شده را فشرده و کاربردی ارائه کن.
 داده‌ها:
 - fields_meta: [{id,label,type}]، rows: [{id,...}]، values: {submission_id: [{field_id,value}]}
 '
@@ -4033,16 +4779,30 @@ class Api
                 if (!empty($history)){
                     foreach ($history as $h){ $messages[] = $h; }
                 }
-                $intent = $isShowAllIntent ? 'show_all_compact_preview' : ($isFieldsIntent ? 'list_fields' : ($isNamesIntent ? 'list_names' : null));
-                if ($format === 'table' && $tableCsv !== ''){
+                // Derive intent with field-aware hints
+                $intent = null;
+                if ($isShowAllIntent || $isAnswersIntent) {
+                    $intent = 'show_all_compact_preview';
+                } elseif ($isFieldsIntent) {
+                    $intent = 'list_fields';
+                } elseif ($field_hint !== '' && $isListOut) {
+                    $intent = 'list_field_values';
+                } elseif ($field_hint !== '') {
+                    $intent = 'field_value';
+                } elseif ($isNamesIntent) {
+                    $intent = 'list_names';
+                }
+                if ($allowTableGrounding && $tableCsv !== ''){
                     $payloadUser = [ 'question'=>$question, 'form_id'=>$fid, 'data_format'=>'table', 'table_csv'=>$tableCsv, 'fields_meta'=>$t['fields_meta'] ?? [] ];
                     if ($intent) { $payloadUser['intent'] = $intent; }
                     if ($out_format) { $payloadUser['out_format'] = $out_format; }
+                    if ($field_hint !== '') { $payloadUser['field_hint'] = $field_hint; }
                     $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
                 } else {
                     $payloadUser = [ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ];
                     if ($intent) { $payloadUser['intent'] = $intent; }
                     if ($out_format) { $payloadUser['out_format'] = $out_format; }
+                    if ($field_hint !== '') { $payloadUser['field_hint'] = $field_hint; }
                     $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
                 }
                 $payload = [
@@ -4061,11 +4821,11 @@ class Api
                         if (strlen($c) > 1800) { $c = substr($c, 0, 1800) . "\n…[truncated]"; }
                         $prevMsgs[] = [ 'role'=>$m['role'] ?? '', 'content'=>$c ];
                     }
-                    $debugInfo[] = [ 'form_id'=>$fid, 'chunk_index'=>$i, 'request_preview'=>[ 'model'=>$use_model, 'max_tokens'=>$max_tokens, 'temperature'=>0.2, 'messages'=>$prevMsgs ] ];
+                    $debugInfo[] = [ 'form_id'=>$fid, 'chunk_index'=>$i, 'endpoint'=>$endpoint, 'request_preview'=>[ 'model'=>$use_model, 'max_tokens'=>$max_tokens, 'temperature'=>0.2, 'messages'=>$prevMsgs ] ];
                 }
                 $resp = wp_remote_post($endpoint, [ 'timeout'=> $http_timeout, 'headers'=>$headers, 'body'=> $payloadJson ]);
                 $ok = is_array($resp) && !is_wp_error($resp) && (int)wp_remote_retrieve_response_code($resp) === 200;
-                $rawBody = $ok ? wp_remote_retrieve_body($resp) : '';
+                $rawBody = is_array($resp) ? (string)wp_remote_retrieve_body($resp) : '';
                 $body = $ok ? json_decode($rawBody, true) : null;
                 $text = '';
                 $usage = [ 'input'=>0,'output'=>0,'total'=>0,'cost'=>null,'duration_ms'=> (int) round((microtime(true)-$t0)*1000) ];
@@ -4154,7 +4914,7 @@ class Api
                 // Log usage
                 self::log_ai_usage($agentName, $use_model, $usage, [ 'form_id'=>$fid, 'rows'=>count($slice) ]);
                 $usages[] = [ 'form_id'=>$fid, 'usage'=>$usage ];
-                if ($debug){
+                if ($debug || !$ok || $text === ''){
                     $dbg = [
                         'form_id' => $fid,
                         'chunk_index' => $i,
@@ -4164,8 +4924,7 @@ class Api
                         'http_status' => is_array($resp) ? (int)wp_remote_retrieve_response_code($resp) : null,
                         'usage' => $usage,
                     ];
-                    // Attach a truncated raw response sample for diagnostics
-                    try { $dbg['raw'] = (strlen($rawBody) > 1800) ? (substr($rawBody, 0, 1800) . '\n…[truncated]') : $rawBody; } catch (\Throwable $e) { /* noop */ }
+                    try { $dbg['raw'] = (strlen($rawBody) > 1800) ? (substr($rawBody, 0, 1800) . "\n…[truncated]") : $rawBody; } catch (\Throwable $e) { /* noop */ }
                     $debugInfo[] = $dbg;
                 }
             }
@@ -4192,8 +4951,213 @@ class Api
                 $wpdb->update($tblSess, [ 'last_message_at' => current_time('mysql') ], [ 'id'=>$session_id ]);
             }
         } catch (\Throwable $e) { /* ignore persistence errors */ }
-        if ($debug){ $respPayload['debug'] = $debugInfo; }
+    if ($debug || !empty($debugInfo)){ $respPayload['debug'] = $debugInfo; }
         return new WP_REST_Response($respPayload, 200);
+    }
+
+    /**
+     * POST /ai/simple-chat — Minimal chat proxy to LLM.
+     * Body: { message: string, history?: [{role, content}], model?, max_tokens?, temperature? }
+     * Returns: { reply: string, usage?: {...}, debug?: {...} }
+     */
+    public static function ai_simple_chat(WP_REST_Request $request)
+    {
+        try {
+            $p = $request->get_json_params(); if (!is_array($p)) $p = $request->get_params();
+            $message = is_scalar($p['message'] ?? null) ? trim((string)$p['message']) : '';
+            if ($message === '') return new WP_REST_Response(['error'=>'message_required'], 400);
+            $session_id = isset($p['session_id']) && is_numeric($p['session_id']) ? (int)$p['session_id'] : 0;
+            $history = [];
+            if (isset($p['history']) && is_array($p['history'])){
+                foreach ($p['history'] as $h){
+                    if (!is_array($h)) continue; $role = (string)($h['role'] ?? ''); $content = (string)($h['content'] ?? '');
+                    if ($content==='') continue; if (!in_array($role, ['user','assistant','system'], true)) $role='user';
+                    $history[] = [ 'role'=>$role, 'content'=>$content ];
+                }
+            }
+            $model = is_scalar($p['model'] ?? null) ? (string)$p['model'] : '';
+            $max_tokens = isset($p['max_tokens']) && is_numeric($p['max_tokens']) ? max(16, min(2048, (int)$p['max_tokens'])) : 800;
+            $temperature = isset($p['temperature']) && is_numeric($p['temperature']) ? max(0.0, min(2.0, (float)$p['temperature'])) : 0.3;
+            $wantDebug = !empty($p['debug']);
+
+            // Load AI config
+            $gs = get_option('arshline_settings', []);
+            $base = is_scalar($gs['ai_base_url'] ?? null) ? trim((string)$gs['ai_base_url']) : '';
+            $api_key = is_scalar($gs['ai_api_key'] ?? null) ? (string)$gs['ai_api_key'] : '';
+            $enabled = !empty($gs['ai_enabled']);
+            $default_model = is_scalar($gs['ai_model'] ?? null) ? (string)$gs['ai_model'] : 'gpt-4o';
+            if (!$enabled || $base === '' || $api_key === ''){
+                return new WP_REST_Response([ 'error' => 'ai_disabled' ], 400);
+            }
+            $use_model = $model !== '' ? $model : $default_model;
+
+            // Normalize base URL to avoid double /v1 when admins paste a base ending with /v1
+            $baseNorm = rtrim($base, '/');
+            if (preg_match('#/v\d+$#', $baseNorm)) {
+                $baseNorm = preg_replace('#/v\d+$#', '', $baseNorm);
+            }
+            // If someone provided a full endpoint already, respect it
+            if (preg_match('#/chat/(?:completions|completion)$#', $baseNorm)) {
+                $endpoint = $baseNorm;
+            } else {
+                $endpoint = $baseNorm . '/v1/chat/completions';
+            }
+            $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
+            $http_timeout = 45;
+
+            // Build conversation history intelligently: prefer persisted session history; fall back to provided history
+            $messages = [ [ 'role' => 'system', 'content' => 'فقط فارسی پاسخ بده. پاسخ را کوتاه و مستقیم بنویس. اگر سوال مبهم بود، یک سوال کوتاه برای روشن‌تر شدن بپرس.' ] ];
+            $persisted = [];
+            $includedHistoryPreview = [];
+            try {
+                if ($session_id > 0){
+                    global $wpdb; $uid = get_current_user_id();
+                    $tblSess = \Arshline\Support\Helpers::tableName('ai_chat_sessions');
+                    $tblMsg = \Arshline\Support\Helpers::tableName('ai_chat_messages');
+                    $s = $wpdb->get_row($wpdb->prepare("SELECT id, user_id FROM {$tblSess} WHERE id = %d", $session_id), ARRAY_A);
+                    if (!$s || ($uid && (int)($s['user_id'] ?? 0) && (int)$s['user_id'] !== (int)$uid)){
+                        // Invalid or foreign session — drop it silently
+                        $session_id = 0;
+                    }
+                    // Fetch last 20 messages for this session (ascending by id for chronological order)
+                    if ($session_id > 0){
+                        $persisted = $wpdb->get_results($wpdb->prepare("SELECT role, content FROM {$tblMsg} WHERE session_id = %d ORDER BY id ASC", $session_id), ARRAY_A) ?: [];
+                    }
+                }
+            } catch (\Throwable $e) { $persisted = []; }
+            // Heuristic: include more history for follow-ups or short/elliptic prompts
+            $ql = function_exists('mb_strtolower') ? mb_strtolower($message, 'UTF-8') : strtolower($message);
+            $isFollowUp = (bool)preg_match('/(?:ادامه|بیشتر|جزییات|جزئیات|قبلی|بالا|همان|همین|این|آن|قبلی|توضیح|چرا|چطور|continue|more|explain|previous|again|same|that|it|they|he|she|follow\s*up)/ui', $ql);
+            $shortPrompt = strlen($message) < 36;
+            $maxTurns = ($isFollowUp || $shortPrompt) ? 16 : 8; // turns = individual messages
+            // Merge: use persisted first; if empty, consider provided transient history
+            $merged = [];
+            if (!empty($persisted)){
+                $merged = $persisted;
+            } elseif (!empty($history)){
+                $merged = $history;
+            }
+            // Trim to last N messages and append to messages
+            if (!empty($merged)){
+                $slice = array_slice($merged, -$maxTurns);
+                foreach ($slice as $m){
+                    $role = in_array(($m['role'] ?? ''), ['user','assistant','system'], true) ? ($m['role'] ?? 'user') : 'user';
+                    $content = (string)($m['content'] ?? ''); if ($content==='') continue;
+                    $messages[] = [ 'role'=>$role, 'content'=>$content ];
+                    if ($wantDebug){ $includedHistoryPreview[] = [ 'role'=>$role, 'content' => (strlen($content)>400? (substr($content,0,400).'…[truncated]') : $content) ]; }
+                }
+            }
+            // Current user message last
+            $messages[] = [ 'role' => 'user', 'content' => $message ];
+
+            $makeAttempt = function(string $modelName) use ($messages, $temperature, $max_tokens, $endpoint, $headers, $http_timeout) {
+                $payload = [ 'model'=>$modelName, 'messages'=>$messages, 'temperature'=>$temperature, 'max_tokens'=>$max_tokens ];
+                $payloadJson = wp_json_encode($payload);
+                $t0 = microtime(true);
+                $resp0 = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=>$payloadJson ]);
+                $status = is_wp_error($resp0) ? 0 : (int)wp_remote_retrieve_response_code($resp0);
+                $raw = is_wp_error($resp0) ? ($resp0->get_error_message() ?: '') : (string)wp_remote_retrieve_body($resp0);
+                $ok = ($status === 200);
+                $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                $text = '';
+                $usage = [ 'input'=>0,'output'=>0,'total'=>0,'duration_ms'=> (int) round((microtime(true)-$t0)*1000) ];
+                return [ $ok, $status, $raw, $body, $text, $usage, $payloadJson ];
+            };
+
+            // First attempt with the requested/default model
+            [ $ok, $status, $rawBody, $body, $text, $usage, $payloadJson ] = $makeAttempt($use_model);
+
+            // Optional one-shot fallback to a known model if model/path is invalid
+            $finalModel = $use_model;
+            if (!$ok && in_array((int)$status, [400, 404, 422], true)){
+                $fallback = 'gpt-4o';
+                if ($fallback !== $use_model){
+                    [ $ok2, $status2, $rawBody2, $body2, $text2, $usage2, $payloadJson2 ] = $makeAttempt($fallback);
+                    if ($ok2){
+                        $ok = true; $status = $status2; $rawBody = $rawBody2; $body = $body2; $text = $text2; $usage = $usage2; $payloadJson = $payloadJson2; $finalModel = $fallback;
+                    } else {
+                        // Keep the first attempt’s artifacts but expose the second in debug attempts
+                    }
+                }
+            }
+
+            if (is_array($body)){
+                try {
+                    if (isset($body['choices'][0]['message']['content']) && is_string($body['choices'][0]['message']['content'])){
+                        $text = (string)$body['choices'][0]['message']['content'];
+                    } elseif (isset($body['choices'][0]['text']) && is_string($body['choices'][0]['text'])) {
+                        $text = (string)$body['choices'][0]['text'];
+                    } elseif (isset($body['output_text']) && is_string($body['output_text'])) {
+                        $text = (string)$body['output_text'];
+                    }
+                } catch (\Throwable $e) { $text=''; }
+                $u = $body['usage'] ?? [];
+                $in = (int)($u['prompt_tokens'] ?? $u['input_tokens'] ?? ($u['input'] ?? 0));
+                $out = (int)($u['completion_tokens'] ?? $u['output_tokens'] ?? ($u['output'] ?? 0));
+                $tot = (int)($u['total_tokens'] ?? $u['total'] ?? 0);
+                // Fallback: rough approximation if provider didn't return usage
+                if (!$in && !$out && !$tot){ $promptApprox=strlen((string)$payloadJson); $compApprox=strlen((string)$text); $in=(int)ceil($promptApprox/4); $out=(int)ceil($compApprox/4); $tot=$in+$out; }
+                $usage['input']=$in; $usage['output']=$out; $usage['total']=$tot;
+            }
+            // Ensure session persistence: create session on demand and store turns
+            try {
+                global $wpdb; $uid = get_current_user_id();
+                $tblSess = \Arshline\Support\Helpers::tableName('ai_chat_sessions');
+                $tblMsg  = \Arshline\Support\Helpers::tableName('ai_chat_messages');
+                if ($session_id <= 0){
+                    $wpdb->insert($tblSess, [
+                        'user_id' => $uid ?: null,
+                        'title' => function_exists('mb_substr') ? mb_substr($message, 0, 190) : substr($message,0,190),
+                        'meta' => wp_json_encode([ 'agent' => 'hoshang-chat' ], JSON_UNESCAPED_UNICODE),
+                        'last_message_at' => current_time('mysql'),
+                    ]);
+                    $session_id = (int)$wpdb->insert_id;
+                }
+                if ($session_id > 0){
+                    // Save user turn
+                    $wpdb->insert($tblMsg, [ 'session_id'=>$session_id, 'role'=>'user', 'content'=>$message, 'meta'=>wp_json_encode(['agent'=>'hoshang-chat'], JSON_UNESCAPED_UNICODE) ]);
+                }
+            } catch (\Throwable $e) { /* ignore */ }
+
+            // Save assistant turn and usage; also log usage aggregate
+            try {
+                global $wpdb; $tblSess = \Arshline\Support\Helpers::tableName('ai_chat_sessions'); $tblMsg = \Arshline\Support\Helpers::tableName('ai_chat_messages');
+                if ($session_id > 0){
+                    $wpdb->insert($tblMsg, [
+                        'session_id' => $session_id,
+                        'role' => 'assistant',
+                        'content' => ($text !== '' ? $text : '—'),
+                        'usage_input' => max(0, (int)($usage['input'] ?? 0)),
+                        'usage_output' => max(0, (int)($usage['output'] ?? 0)),
+                        'usage_total' => max(0, (int)($usage['total'] ?? 0)),
+                        'duration_ms' => max(0, (int)($usage['duration_ms'] ?? 0)),
+                        'meta' => wp_json_encode([ 'agent'=>'hoshang-chat' ], JSON_UNESCAPED_UNICODE),
+                    ]);
+                    $wpdb->update($tblSess, [ 'last_message_at' => current_time('mysql') ], [ 'id'=>$session_id ]);
+                }
+            } catch (\Throwable $e) { /* ignore */ }
+            self::log_ai_usage('hoshang-chat', $finalModel, $usage, [ 'session_id' => $session_id ]);
+
+            $res = [ 'reply' => ($text !== '' ? $text : '—') , 'usage' => $usage, 'model' => $finalModel, 'session_id' => $session_id ];
+            if ($wantDebug){
+                $prevMsgs = [];
+                foreach ($messages as $m){ $c = (string)($m['content'] ?? ''); if (strlen($c) > 1800) $c = substr($c,0,1800) . "\n…[truncated]"; $prevMsgs[] = [ 'role'=>$m['role'] ?? '', 'content'=>$c ]; }
+                $dbg = [
+                    'endpoint' => $endpoint,
+                    'request_preview' => [ 'model'=>$use_model, 'max_tokens'=>$max_tokens, 'temperature'=>$temperature, 'messages'=>$prevMsgs ],
+                    'http_status' => $ok ? 200 : (int)$status,
+                    'raw' => (strlen((string)$rawBody)>1800? substr((string)$rawBody,0,1800)."\n…[truncated]": (string)$rawBody),
+                    'final_model' => $finalModel,
+                    'used_history_count' => count($messages) - 2, // excluding system + current user
+                    'session_id' => $session_id,
+                    'included_history_preview' => $includedHistoryPreview,
+                ];
+                $res['debug'] = $dbg;
+            }
+            return new WP_REST_Response($res, 200);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response([ 'error' => 'server_error' ], 500);
+        }
     }
 
     // ===== Chat history endpoints =====
