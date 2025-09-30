@@ -3911,7 +3911,8 @@ class Api
             preg_match('/\b(fields?|questions?)\b/i', $ql) || preg_match('/فیلد(?:های)?\s*فرم/u', $ql)
         );
         $isShowAllIntent = (bool)(
-            preg_match('/\b(all\s+data|show\s+all|dump)\b/i', $ql) || preg_match('/تمام\s*اطلاعات|همه\s*داده/u', $ql)
+            preg_match('/\b(all\s+data|show\s+all|dump)\b/i', $ql)
+            || preg_match('/تمام\s*اطلاعات|همه\s*داده|لیست\s*اطلاعات(?:\s*فرم)?|خلاصه\s*اطلاعات(?:\s*فرم)?/u', $ql)
         );
         if ($format !== 'table' && ($isFieldsIntent || $isShowAllIntent)) {
             $format = 'table';
@@ -4017,7 +4018,7 @@ Principles (in order):
 3) If the question cannot be strictly answered from the provided data (and it is not a greeting/identity), respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم».
 4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for lists, return a bullet list; when the user asks for counts, return a single number and a one-line justification from the provided values.
 5) If the user asks for the form fields, list them using fields_meta as bullet items like: «برچسب (type)». If type is missing, omit it.
-6) If the user asks to show all form data, do NOT dump everything; instead, provide a compact preview: total rows count and the first up to 20 rows as a simple list or table based ONLY on the provided rows/values.
+6) If the user asks to show all form data (phrases include: «همه/تمام اطلاعات»، «لیست اطلاعات فرم»، «خلاصه اطلاعات فرم»), do NOT dump everything; instead, provide a compact preview: total rows count and the first up to 20 rows as a simple list or table based ONLY on the provided rows/values.
 Data shapes:
 - fields_meta: array of objects { id: number, label: string, type: string }.
 - rows: array of submission objects { id: number, ... }.
