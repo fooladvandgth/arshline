@@ -3768,23 +3768,39 @@ class Api
         }
         $use_model = $model !== '' ? $model : $default_model;
 
-        // Collect data rows per form, capped by max_rows total
+        // Collect data rows per form, capped by max_rows total, and include minimal fields meta for grounding
         $total_rows = 0; $tables = [];
         foreach ($form_ids as $fid){
             $remaining = max(0, $max_rows - $total_rows); if ($remaining <= 0) break;
             $rows = SubmissionRepository::listByFormAll($fid, [], min($remaining, $chunk_size));
             $total_rows += count($rows);
-            $tables[] = [ 'form_id' => $fid, 'rows' => $rows ];
+            // fields_meta: id, label, type (from props)
+            $fmeta = [];
+            try {
+                $fieldsForMeta = FieldRepository::listByForm($fid);
+                foreach (($fieldsForMeta ?: []) as $f){
+                    $p = is_array($f['props'] ?? null) ? $f['props'] : [];
+                    $label = (string)($p['label'] ?? $p['title'] ?? $p['name'] ?? '');
+                    $type = (string)($p['type'] ?? '');
+                    $fmeta[] = [ 'id' => (int)($f['id'] ?? 0), 'label' => $label, 'type' => $type ];
+                }
+            } catch (\Throwable $e) { /* ignore meta errors */ }
+            $tables[] = [ 'form_id' => $fid, 'rows' => $rows, 'fields_meta' => $fmeta ];
         }
         if ($total_rows === 0){
             return new WP_REST_Response([ 'summary' => 'داده‌ای برای تحلیل یافت نشد.', 'chunks' => [], 'usage' => [] ], 200);
         }
 
-        // Quick structural intent: answer "how many items/questions" without LLM
+        // Quick structural intent: answer "how many items/questions/fields" without LLM
         $ql = mb_strtolower($question, 'UTF-8');
-        $isCountIntent = (bool) (preg_match('/\bhow\s+many\b/i', $ql)
-            || preg_match('/\b(question|questions|fields|items)\b/i', $ql)
-            || preg_match('/چند\s*(?:سوال|سوال\s*|آیتم|گزینه|فیلد)/u', $ql));
+        $isCountIntent = (bool) (
+            // English variants
+            preg_match('/\bhow\s+many\s+(?:questions?|items?|fields?)\b/i', $ql)
+            || preg_match('/\bcount\s+(?:questions?|items?|fields?)\b/i', $ql)
+            || preg_match('/\bnumber\s+of\s+(?:questions?|items?|fields?)\b/i', $ql)
+            // Persian variants: "چند" / "چند تا" / "تعداد" + noun
+            || preg_match('/(?:(?:چند\s*تا|چند|تعداد)\s*(?:سوال|سؤال|آیتم|گزینه|فیلد)s?)/u', $ql)
+        );
         if ($isCountIntent){
             $supported = [ 'short_text'=>1,'long_text'=>1,'multiple_choice'=>1,'dropdown'=>1,'rating'=>1 ];
             $lines = [];
@@ -3821,8 +3837,8 @@ class Api
                 $payload = [
                     'model' => $use_model,
                     'messages' => [
-                        [ 'role' => 'system', 'content' => 'You are Hoshang, a Persian data analyst. Answer in Persian. Summarize patterns concisely.' ],
-                        [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'rows'=>$slice ], JSON_UNESCAPED_UNICODE) ]
+                        [ 'role' => 'system', 'content' => 'You are Hoshang, a precise Persian data analyst. Rules: 1) ONLY use the provided data: fields_meta and rows. 2) Do NOT invent facts beyond these. 3) If the answer cannot be derived strictly from provided data, respond with "نامشخص" and explain what is missing. 4) Answer in Persian. 5) Be concise and structured.' ],
+                        [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice ], JSON_UNESCAPED_UNICODE) ]
                     ],
                     'temperature' => 0.2,
                 ];
