@@ -3820,6 +3820,59 @@ class Api
             return new WP_REST_Response([ 'summary' => $sum, 'chunks' => [], 'usage' => [], 'voice' => $voice ], 200);
         }
 
+        // Quick structural intent: list names of submitters (detect name-like fields and list their values)
+        $isNamesIntent = (bool) (
+            preg_match('/(?:لیست|فهرست)?\s*(?:اسامی|اسم|نام)/u', $ql)
+            || preg_match('/\bnames?\b/i', $ql)
+        );
+        if ($isNamesIntent){
+            $lines = [];
+            foreach ($tables as $t){
+                $fid = (int)$t['form_id'];
+                $fmeta = is_array($t['fields_meta'] ?? null) ? $t['fields_meta'] : [];
+                // find name-like fields
+                $nameFieldIds = [];
+                foreach ($fmeta as $fm){
+                    $label = mb_strtolower((string)($fm['label'] ?? ''), 'UTF-8');
+                    $type  = (string)($fm['type'] ?? '');
+                    if ($label === '') continue;
+                    if (preg_match('/\bname\b|first\s*name|last\s*name|full\s*name|surname|family/i', $label)
+                        || preg_match('/نام(?:\s*خانوادگی)?|اسم/u', $label)){
+                        $nameFieldIds[] = (int)($fm['id'] ?? 0);
+                    }
+                }
+                $nameFieldIds = array_values(array_unique(array_filter($nameFieldIds, function($v){ return $v>0; })));
+                if (empty($nameFieldIds)){
+                    $lines[] = "فرم " . $fid . ": نامشخص (فیلد نام یافت نشد)";
+                    continue;
+                }
+                // fetch values for current table rows in batch
+                $sids = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, ($t['rows'] ?? [])), function($v){ return $v>0; }));
+                $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sids);
+                $names = [];
+                foreach ($sids as $sid){
+                    $vals = $valuesMap[$sid] ?? [];
+                    $parts = [];
+                    foreach ($vals as $v){
+                        $fidv = (int)($v['field_id'] ?? 0);
+                        if (in_array($fidv, $nameFieldIds, true)){
+                            $val = trim((string)($v['value'] ?? ''));
+                            if ($val !== '') $parts[] = $val;
+                        }
+                    }
+                    $name = trim(implode(' ', $parts));
+                    if ($name !== '' && !in_array($name, $names, true)) $names[] = $name;
+                }
+                if (!empty($names)){
+                    $lines[] = "فرم " . $fid . ":\n- " . implode("\n- ", $names);
+                } else {
+                    $lines[] = "فرم " . $fid . ": نامشخص (هیچ نامی در داده‌های انتخاب‌شده یافت نشد)";
+                }
+            }
+            $sum = implode("\n\n", $lines);
+            return new WP_REST_Response([ 'summary' => $sum, 'chunks' => [], 'usage' => [], 'voice' => $voice ], 200);
+        }
+
         // For each table, build chunks and call LLM with a compact prompt
         $baseUrl = rtrim($base, '/');
         $endpoint = $baseUrl . '/v1/chat/completions';
@@ -3834,11 +3887,14 @@ class Api
             // Simple chunking by N rows; we serialize minimally to reduce tokens
             for ($i=0; $i<count($rows); $i+=$chunk_size){
                 $slice = array_slice($rows, $i, $chunk_size);
+                // Fetch submission values in batch for this slice to ground the model
+                $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $slice), function($v){ return $v>0; }));
+                $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sliceIds);
                 $payload = [
                     'model' => $use_model,
                     'messages' => [
-                        [ 'role' => 'system', 'content' => 'You are Hoshang, a precise Persian data analyst. Rules: 1) ONLY use the provided data: fields_meta and rows. 2) Do NOT invent facts beyond these. 3) If the answer cannot be derived strictly from provided data, respond with "نامشخص" and explain what is missing. 4) Answer in Persian. 5) Be concise and structured.' ],
-                        [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice ], JSON_UNESCAPED_UNICODE) ]
+                        [ 'role' => 'system', 'content' => 'You are Hoshang, a precise Persian data analyst. Rules: 1) ONLY use the provided data: fields_meta, submissions (rows), and values. 2) Do NOT invent facts beyond these. 3) If the answer cannot be derived strictly from provided data, respond with "نامشخص" and briefly say what is missing. 4) Answer in Persian. 5) Be concise and structured (bullets/tables when appropriate).' ],
+                        [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ], JSON_UNESCAPED_UNICODE) ]
                     ],
                     'temperature' => 0.2,
                 ];
