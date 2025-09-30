@@ -3752,13 +3752,15 @@ class Api
         if (empty($form_ids)) return new WP_REST_Response([ 'error' => 'form_ids_required' ], 400);
         $question = is_scalar($p['question'] ?? null) ? trim((string)$p['question']) : '';
         if ($question === '') return new WP_REST_Response([ 'error' => 'question_required' ], 400);
-        $max_rows = isset($p['max_rows']) && is_numeric($p['max_rows']) ? max(50, min(10000, (int)$p['max_rows'])) : 2000;
-        $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
-        $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
-        $voice = is_scalar($p['voice'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['voice']), 0, 50) : '';
+    $max_rows = isset($p['max_rows']) && is_numeric($p['max_rows']) ? max(50, min(10000, (int)$p['max_rows'])) : 2000;
+    $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
+    $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
+    $voice = is_scalar($p['voice'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['voice']), 0, 50) : '';
+    $mode = is_scalar($p['mode'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['mode']), 0, 20)) : '';
+    $structuredParam = isset($p['structured']) ? (bool)$p['structured'] : null;
 
         // Load AI config
-        $cur = get_option('arshline_settings', []);
+    $cur = get_option('arshline_settings', []);
         $base = is_scalar($cur['ai_base_url'] ?? null) ? trim((string)$cur['ai_base_url']) : '';
         $api_key = is_scalar($cur['ai_api_key'] ?? null) ? (string)$cur['ai_api_key'] : '';
         $enabled = !empty($cur['ai_enabled']);
@@ -3767,6 +3769,19 @@ class Api
             return new WP_REST_Response([ 'error' => 'ai_disabled' ], 400);
         }
         $use_model = $model !== '' ? $model : $default_model;
+        // Whether to use structural shortcuts (count, names, ...). Default: disabled (LLM-only), can be enabled via param/setting/filter.
+        $allowStructural = false;
+        if ($mode === 'structured') { $allowStructural = true; }
+        if ($mode === 'llm') { $allowStructural = false; }
+        if ($structuredParam !== null) { $allowStructural = (bool)$structuredParam; }
+        if ($mode === '' && $structuredParam === null) {
+            // fallback to global option, default false
+            $allowStructural = !empty($cur['analytics_structured_intents']);
+        }
+        // Allow theme/plugins to override
+        if (function_exists('apply_filters')){
+            $allowStructural = (bool)apply_filters('arshline_analytics_structured_intents', $allowStructural, $p);
+        }
 
         // Collect data rows per form, capped by max_rows total, and include minimal fields meta for grounding
         $total_rows = 0; $tables = [];
@@ -3801,7 +3816,7 @@ class Api
             // Persian variants: "چند" / "چند تا" / "تعداد" + noun
             || preg_match('/(?:(?:چند\s*تا|چند|تعداد)\s*(?:سوال|سؤال|آیتم|گزینه|فیلد)s?)/u', $ql)
         );
-        if ($isCountIntent){
+    if ($allowStructural && $isCountIntent){
             $supported = [ 'short_text'=>1,'long_text'=>1,'multiple_choice'=>1,'dropdown'=>1,'rating'=>1 ];
             $lines = [];
             foreach ($form_ids as $fid){
@@ -3825,7 +3840,7 @@ class Api
             preg_match('/(?:لیست|فهرست)?\s*(?:اسامی|اسم|نام)/u', $ql)
             || preg_match('/\bnames?\b/i', $ql)
         );
-        if ($isNamesIntent){
+    if ($allowStructural && $isNamesIntent){
             $lines = [];
             foreach ($tables as $t){
                 $fid = (int)$t['form_id'];
