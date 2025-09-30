@@ -4019,6 +4019,9 @@ Principles (in order):
 4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for lists, return a bullet list; when the user asks for counts, return a single number and a one-line justification from the provided values.
 5) If the user asks for the form fields, list them using fields_meta as bullet items like: «برچسب (type)». If type is missing, omit it.
 6) If the user asks to show all form data (phrases include: «همه/تمام اطلاعات»، «لیست اطلاعات فرم»، «خلاصه اطلاعات فرم»), do NOT dump everything; instead, provide a compact preview: total rows count and the first up to 20 rows as a simple list or table based ONLY on the provided rows/values.
+7) You may receive an intent field (e.g., "list_names", "list_fields", "show_all_compact_preview"). Respect it when forming the answer.
+Special guidance for table format:
+- If data_format is "table" and table_csv is provided, treat that CSV as the dataset. Identify columns by header labels. For list_names intent, pick columns whose headers match name-like patterns (as above) and list distinct non-empty values (avoid duplicates). For show_all_compact_preview, compute total row count and show up to the first 20 rows compactly.
 Data shapes:
 - fields_meta: array of objects { id: number, label: string, type: string }.
 - rows: array of submission objects { id: number, ... }.
