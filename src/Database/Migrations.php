@@ -112,6 +112,22 @@ class Migrations
                 KEY scope_action (scope, action),
                 KEY target (target_id),
                 UNIQUE KEY undo_token_unique (undo_token)
+            ) ENGINE=InnoDB;",
+            // AI usage log: token/cost tracking for assistants (هوشیار/هوشنگ)
+            'ai_usage' => "CREATE TABLE IF NOT EXISTS {prefix}x_ai_usage (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED NULL,
+                agent VARCHAR(32) NOT NULL,
+                model VARCHAR(100) NOT NULL,
+                tokens_input INT UNSIGNED DEFAULT 0,
+                tokens_output INT UNSIGNED DEFAULT 0,
+                tokens_total INT UNSIGNED DEFAULT 0,
+                cost DECIMAL(10,6) NULL,
+                duration_ms INT UNSIGNED DEFAULT 0,
+                meta JSON NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                KEY agent_idx (agent),
+                KEY user_idx (user_id)
             ) ENGINE=InnoDB;"
         ];
     }

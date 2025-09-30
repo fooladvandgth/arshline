@@ -153,7 +153,7 @@
       // Nested route: users/ug => گروه‌های کاربری
   var seg1 = (parts[1]||'').split('?')[0];
   if (parts[0]==='users' && seg1==='ug'){ renderUsersUG(); return; }
-  if (['dashboard','forms','reports','users','settings','messaging'].includes(seg0)){ arRenderTab(seg0); return; }
+  if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(seg0)){ arRenderTab(seg0); return; }
   if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
   if (seg0==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id2, idx:idx, parts:parts }); if (id2) { renderFormEditor(id2, { index: isNaN(idx)?0:idx }); return; } }
   if (seg0==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { renderFormPreview(id3); return; } }
@@ -297,7 +297,7 @@
     function renderTab(tab){
       try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
       try {
-        if (['dashboard','forms','reports','users','settings','messaging'].includes(tab)){
+  if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(tab)){
           var _h = (location.hash||'').replace('#','');
           var _seg0 = (_h.split('/')[0]||'').split('?')[0];
           if (_seg0 !== tab) setHash(tab); // don't clobber query (e.g., messaging?tab=...)
@@ -382,6 +382,58 @@
           if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
           load(30);
           try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart && chart.config && chart.config.data && chart.config.data.labels; var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data; if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v); var a = parseInt((document.getElementById('arKpiFormsActive')||{}).textContent||'0')||0; var d = parseInt((document.getElementById('arKpiFormsDisabled')||{}).textContent||'0')||0; renderDonut(a, d); } catch(_){ } }); } } catch(_){ }
+        })();
+      } else if (tab === 'analytics'){
+        setActive('analytics');
+        content.innerHTML = ''+
+        '<div class="card glass" style="padding:1rem;">'+
+          '<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem">'+
+            '<span class="title">تحلیل‌ها (هوشنگ)</span>'+
+            '<span class="hint">انتخاب چند فرم و پرسش؛ خلاصهٔ فارسی</span>'+
+          '</div>'+
+          '<div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem">'+
+            '<select id="arAnaForms" class="ar-select" multiple size="6" style="min-width:260px"></select>'+
+            '<input id="arAnaQ" class="ar-input" placeholder="سوال شما…" style="min-width:280px;flex:1 1 320px" />'+
+            '<input id="arAnaChunk" class="ar-input" type="number" value="800" min="50" max="2000" style="width:120px" title="سایز قطعه" />'+
+            '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+
+            '<button id="arAnaSpeak" class="ar-btn ar-btn--soft" title="خواندن خلاصه">گویا</button>'+
+          '</div>'+
+          '<div id="arAnaOut" class="card glass" style="padding:1rem;white-space:pre-wrap;line-height:1.7"></div>'+
+        '</div>';
+        (function initAna(){
+          var sel = document.getElementById('arAnaForms');
+          var out = document.getElementById('arAnaOut');
+          var run = document.getElementById('arAnaRun');
+          var q = document.getElementById('arAnaQ');
+          var speak = document.getElementById('arAnaSpeak');
+          var chunk = document.getElementById('arAnaChunk');
+          // Load minimal config and then list forms
+          fetch(ARSHLINE_REST + 'analytics/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ return r.json(); }).then(function(cfg){ if(!cfg.enabled){ notify('هوشنگ غیرفعال است (AI)؛ ابتدا کلید/مبنا را تنظیم کنید.', 'warn'); } }).catch(function(){ });
+          fetch(ARSHLINE_REST + 'forms', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ if(!r.ok){ if(r.status===401 && typeof handle401==='function') handle401(); throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { var arr = Array.isArray(data) ? data : (Array.isArray(data.items)?data.items:[]); sel.innerHTML = arr.map(function(f){ return '<option value="'+String(f.id)+'">#'+String(f.id)+' — '+(f.title||'بی‌عنوان')+'</option>'; }).join(''); } catch(_){ } }).catch(function(err){ console.error(err); notify('دریافت لیست فرم‌ها ناموفق بود','error'); });
+          function getSelected(){ return Array.from(sel.options).filter(function(o){ return o.selected; }).map(function(o){ return parseInt(o.value||'0'); }).filter(function(v){ return v>0; }); }
+          function doRun(){ try {
+            var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
+            var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
+            out.textContent = 'در حال پردازش…';
+            fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+              .then(function(r){ return r.json(); })
+              .then(function(j){
+                try {
+                  if (j.error){ out.textContent = 'خطا: '+j.error; return; }
+                  out.textContent = j.summary || '';
+                  // Optionally show a brief usage footer
+                  if (Array.isArray(j.usage) && j.usage.length){
+                    var tot = j.usage.reduce(function(a,b){ var u=b.usage||{}; return { input:(a.input||0)+(u.input||0), output:(a.output||0)+(u.output||0), total:(a.total||0)+(u.total||0) }; }, {});
+                    var m = document.createElement('div'); m.className='hint'; m.style.marginTop = '.6rem'; m.textContent = 'مصرف توکن — ورودی: '+(tot.input||0)+' ؛ خروجی: '+(tot.output||0)+' ؛ کل: '+(tot.total||0);
+                    out.appendChild(m);
+                  }
+                } catch(e){ out.textContent = 'خطا در نمایش خروجی'; }
+              })
+              .catch(function(err){ console.error(err); out.textContent = 'درخواست ناموفق بود.'; });
+          } catch(e){ console.error(e); notify('خطا در اجرای تحلیل','error'); }
+          }
+          if (run) run.addEventListener('click', doRun);
+          if (speak) speak.addEventListener('click', function(){ try { var t = (out && out.textContent) ? out.textContent : ''; if(!t){ notify('متنی برای خواندن وجود ندارد','warn'); return; } var u = new (window.SpeechSynthesisUtterance||function(s){ this.text=s; })(); u.text = t; u.lang = 'fa-IR'; try { window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } catch(_){ } } catch(_){ } });
         })();
       } else if (tab === 'forms'){
         content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\

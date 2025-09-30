@@ -446,6 +446,18 @@ class Api
                 'permission_callback' => [self::class, 'user_can_manage_settings'],
             ]
         ]);
+
+        // Analytics (هوشنگ) endpoints
+        register_rest_route('arshline/v1', '/analytics/config', [
+            'methods' => 'GET',
+            'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'callback' => [self::class, 'get_analytics_config'],
+        ]);
+        register_rest_route('arshline/v1', '/analytics/analyze', [
+            'methods' => 'POST',
+            'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'callback' => [self::class, 'analytics_analyze'],
+        ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_form'],
@@ -3716,6 +3728,119 @@ class Api
         } catch (\Throwable $e) {
             return new WP_REST_Response(['ok'=>false,'error'=>'undo_error'], 500);
         }
+    }
+
+    /**
+     * GET /analytics/config — current AI settings relevant to analytics (هوشنگ)
+     */
+    public static function get_analytics_config(WP_REST_Request $request)
+    {
+        $gs = self::get_global_settings();
+        $base = (string)($gs['ai_base_url'] ?? '');
+        $model = (string)($gs['ai_model'] ?? 'gpt-4o-mini');
+        $enabled = !empty($gs['ai_enabled']);
+        return new WP_REST_Response(['enabled'=>$enabled,'base_url'=>$base,'model'=>$model], 200);
+    }
+
+    /**
+     * POST /analytics/analyze — multi-form analysis with chunking; logs token usage
+     */
+    public static function analytics_analyze(WP_REST_Request $request)
+    {
+        $p = $request->get_json_params(); if (!is_array($p)) $p = $request->get_params();
+        $form_ids = array_values(array_filter(array_map('intval', (array)($p['form_ids'] ?? [])), function($v){ return $v>0; }));
+        if (empty($form_ids)) return new WP_REST_Response([ 'error' => 'form_ids_required' ], 400);
+        $question = is_scalar($p['question'] ?? null) ? trim((string)$p['question']) : '';
+        if ($question === '') return new WP_REST_Response([ 'error' => 'question_required' ], 400);
+        $max_rows = isset($p['max_rows']) && is_numeric($p['max_rows']) ? max(50, min(10000, (int)$p['max_rows'])) : 2000;
+        $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
+        $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
+        $voice = is_scalar($p['voice'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['voice']), 0, 50) : '';
+
+        // Load AI config
+        $cur = get_option('arshline_settings', []);
+        $base = is_scalar($cur['ai_base_url'] ?? null) ? trim((string)$cur['ai_base_url']) : '';
+        $api_key = is_scalar($cur['ai_api_key'] ?? null) ? (string)$cur['ai_api_key'] : '';
+        $enabled = !empty($cur['ai_enabled']);
+        $default_model = is_scalar($cur['ai_model'] ?? null) ? (string)$cur['ai_model'] : 'gpt-4o-mini';
+        if (!$enabled || $base === '' || $api_key === ''){
+            return new WP_REST_Response([ 'error' => 'ai_disabled' ], 400);
+        }
+        $use_model = $model !== '' ? $model : $default_model;
+
+        // Collect data rows per form, capped by max_rows total
+        $total_rows = 0; $tables = [];
+        foreach ($form_ids as $fid){
+            $remaining = max(0, $max_rows - $total_rows); if ($remaining <= 0) break;
+            $rows = SubmissionRepository::listByFormAll($fid, [], min($remaining, $chunk_size));
+            $total_rows += count($rows);
+            $tables[] = [ 'form_id' => $fid, 'rows' => $rows ];
+        }
+        if ($total_rows === 0){
+            return new WP_REST_Response([ 'summary' => 'داده‌ای برای تحلیل یافت نشد.', 'chunks' => [], 'usage' => [] ], 200);
+        }
+
+        // For each table, build chunks and call LLM with a compact prompt
+        $baseUrl = rtrim($base, '/');
+        $endpoint = $baseUrl . '/v1/chat/completions';
+        $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
+        $agentName = 'hoshang';
+        $usages = [];
+        $answers = [];
+        foreach ($tables as $t){
+            $rows = $t['rows']; $fid = $t['form_id'];
+            // Simple chunking by N rows; we serialize minimally to reduce tokens
+            for ($i=0; $i<count($rows); $i+=$chunk_size){
+                $slice = array_slice($rows, $i, $chunk_size);
+                $payload = [
+                    'model' => $use_model,
+                    'messages' => [
+                        [ 'role' => 'system', 'content' => 'You are Hoshang, a Persian data analyst. Answer in Persian. Summarize patterns concisely.' ],
+                        [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'rows'=>$slice ], JSON_UNESCAPED_UNICODE) ]
+                    ],
+                    'temperature' => 0.2,
+                ];
+                $resp = wp_remote_post($endpoint, [ 'timeout'=> 30, 'headers'=>$headers, 'body'=> wp_json_encode($payload) ]);
+                $ok = is_array($resp) && !is_wp_error($resp) && (int)wp_remote_retrieve_response_code($resp) === 200;
+                $body = $ok ? json_decode(wp_remote_retrieve_body($resp), true) : null;
+                $text = '';
+                $usage = [ 'input'=>0,'output'=>0,'total'=>0,'cost'=>null,'duration_ms'=>0 ];
+                if (is_array($body)){
+                    $text = (string)($body['choices'][0]['message']['content'] ?? '');
+                    $u = $body['usage'] ?? [];
+                    $usage['input'] = (int)($u['prompt_tokens'] ?? 0);
+                    $usage['output'] = (int)($u['completion_tokens'] ?? 0);
+                    $usage['total'] = (int)($u['total_tokens'] ?? ($usage['input'] + $usage['output']));
+                }
+                $answers[] = [ 'form_id'=>$fid, 'chunk'=> [ 'index'=>$i, 'size'=>count($slice) ], 'text'=>$text ];
+                // Log usage
+                self::log_ai_usage($agentName, $use_model, $usage, [ 'form_id'=>$fid, 'rows'=>count($slice) ]);
+                $usages[] = [ 'form_id'=>$fid, 'usage'=>$usage ];
+            }
+        }
+        // Merge answers: concatenate with headings per form/chunk
+        $summary = implode("\n\n", array_map(function($a){ return "[فرم " . $a['form_id'] . ", قطعه " . ($a['chunk']['index']+1) . "]\n" . trim((string)$a['text']); }, $answers));
+        return new WP_REST_Response([ 'summary' => $summary, 'chunks' => $answers, 'usage' => $usages, 'voice' => $voice ], 200);
+    }
+
+    /** Insert a row into ai_usage table. */
+    protected static function log_ai_usage(string $agent, string $model, array $usage, array $meta = []): void
+    {
+        try {
+            global $wpdb; $table = Helpers::tableName('ai_usage');
+            $user_id = get_current_user_id();
+            $wpdb->insert($table, [
+                'user_id' => $user_id ?: null,
+                'agent' => substr($agent, 0, 32),
+                'model' => substr($model, 0, 100),
+                'tokens_input' => max(0, (int)($usage['input'] ?? 0)),
+                'tokens_output' => max(0, (int)($usage['output'] ?? 0)),
+                'tokens_total' => max(0, (int)($usage['total'] ?? 0)),
+                'cost' => isset($usage['cost']) ? (float)$usage['cost'] : null,
+                'duration_ms' => max(0, (int)($usage['duration_ms'] ?? 0)),
+                'meta' => wp_json_encode($meta, JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (\Throwable $e) { /* ignore */ }
     }
 
     /**
