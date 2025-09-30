@@ -473,6 +473,9 @@
             try { out.scrollTop = out.scrollHeight; } catch(_){ }
             return { wrap: wrap, bubble: bubble };
           }
+          // Debug helpers
+          function _truncate(s, n){ try { s = String(s||''); return s.length>n ? (s.slice(0,n) + '\n…[truncated]') : s; } catch(_){ return String(s||''); } }
+          function _pretty(o){ try { return JSON.stringify(o, null, 2); } catch(_){ try { return String(o); } catch(__){ return ''; } } }
           function doRun(){ try {
             var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
             var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
@@ -485,14 +488,29 @@
             if (formatTableChk && formatTableChk.checked){ body.format = 'table'; }
             if (ANA_DEBUG) body.debug = true;
             try { if (maxTok){ var mt = parseInt(maxTok.value||'0')||0; if (mt>0) body.max_tokens = Math.max(16, Math.min(2048, mt)); } } catch(_){ }
-            if (ANA_DEBUG) { try { console.info('[ARSH][ANA] request', body); } catch(_){ } }
+            if (ANA_DEBUG) {
+              try {
+                console.groupCollapsed('[ARSH][ANA] request');
+                console.log('Selected forms:', ids);
+                console.log('Question:', body.question);
+                console.log('Options:', { chunk_size: body.chunk_size, format: body.format||'json', mode: body.mode, session_id: body.session_id||0, max_tokens: body.max_tokens||undefined, history_len: (body.history||[]).length, debug: !!body.debug });
+                console.groupEnd();
+              } catch(_){ }
+            }
             var old = run.textContent; run.disabled=true; run.textContent='در حال پردازش…';
             // render user message and a pending assistant bubble
             var userMsg = (q.value||'').trim();
             if (userMsg){ _appendChatMessage('user', userMsg); }
             var pending = _appendChatMessage('assistant', 'در حال پردازش…');
+            var t0 = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
             fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
-              .then(async function(r){ var txt=''; try{ txt=await r.clone().text(); }catch(_){ } if(!r.ok){ var msg='HTTP '+r.status; try{ var j=txt?JSON.parse(txt):await r.json(); msg = (j && (j.error||j.message)) || msg; }catch(_){ } throw new Error(msg); } try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; } })
+              .then(async function(r){
+                var txt='';
+                try{ txt=await r.clone().text(); }catch(_){ }
+                if (ANA_DEBUG){ try { var t1=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now(); console.groupCollapsed('[ARSH][ANA] http'); console.log('status:', r.status); console.log('roundtrip_ms:', Math.round(t1 - t0)); console.log('raw_len:', (txt||'').length); console.groupEnd(); } catch(_){ } }
+                if(!r.ok){ var msg='HTTP '+r.status; try{ var j=txt?JSON.parse(txt):await r.json(); msg = (j && (j.error||j.message)) || msg; }catch(_){ } throw new Error(msg); }
+                try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; }
+              })
               .then(function(j){
                 try {
                   if (j.error){ if (pending && pending.bubble) pending.bubble.textContent = 'خطا: '+j.error; return; }
@@ -509,16 +527,30 @@
                     var m = document.createElement('div'); m.className='hint'; m.style.marginTop = '.6rem'; m.textContent = 'مصرف توکن — ورودی: '+(tot.input||0)+' ؛ خروجی: '+(tot.output||0)+' ؛ کل: '+(tot.total||0);
                     if (pending && pending.wrap) pending.wrap.appendChild(m); else out.appendChild(m);
                   }
-                  // Render debug details if available
+                  // Render and log debug details if available
                   if (j.debug && pending && pending.wrap && ANA_DEBUG){
                     try {
+                      // Console rich logs per chunk
+                      try {
+                        console.groupCollapsed('[ARSH][ANA] debug');
+                        (Array.isArray(j.debug)? j.debug : [j.debug]).forEach(function(dbg, idx){
+                          console.groupCollapsed('chunk #'+(idx+1)+' — form_id:'+(dbg && dbg.form_id) + ' rows:'+(dbg && dbg.rows));
+                          if (dbg && dbg.request_preview) console.log('request_preview:', dbg.request_preview);
+                          if (dbg && dbg.model) console.log('model:', dbg.model);
+                          if (dbg && dbg.usage) console.log('usage:', dbg.usage);
+                          if (dbg && dbg.http_status!=null) console.log('http_status:', dbg.http_status);
+                          if (dbg && dbg.raw) console.log('raw:\n'+_truncate(dbg.raw, 2000));
+                          console.groupEnd();
+                        });
+                        console.groupEnd();
+                      } catch(_){ }
+                      // UI collapsible block with first debug entry
+                      var first = Array.isArray(j.debug) ? j.debug[0] : j.debug;
                       var det = document.createElement('details'); det.style.marginTop = '.4rem';
                       var sum = document.createElement('summary'); sum.textContent = 'جزئیات دیباگ'; det.appendChild(sum);
-                      var pre = document.createElement('pre'); pre.style.whiteSpace = 'pre-wrap'; pre.style.direction = 'ltr'; pre.style.maxHeight='260px'; pre.style.overflow='auto';
-                      var dbgStr = '';
-                      try { dbgStr = JSON.stringify(j.debug, null, 2); } catch(_) { dbgStr = String(j.debug); }
-                      if (dbgStr.length > 4000) dbgStr = dbgStr.slice(0, 4000) + '\n…[truncated]';
-                      pre.textContent = dbgStr; det.appendChild(pre);
+                      var pre = document.createElement('pre'); pre.style.whiteSpace = 'pre-wrap'; pre.style.direction = 'ltr'; pre.style.maxHeight='300px'; pre.style.overflow='auto';
+                      pre.textContent = _truncate(_pretty(first), 3000);
+                      det.appendChild(pre);
                       pending.wrap.appendChild(det);
                     } catch(_){ }
                   }

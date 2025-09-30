@@ -3855,7 +3855,7 @@ class Api
             return new WP_REST_Response([ 'summary' => 'داده‌ای برای تحلیل یافت نشد.', 'chunks' => [], 'usage' => [] ], 200);
         }
 
-        // Quick structural intent: answer "how many items/questions/fields" without LLM
+    // Quick structural intent: answer "how many items/questions/fields" without LLM
         $isCountIntent = (bool) (
             // English variants
             preg_match('/\bhow\s+many\s+(?:questions?|items?|fields?)\b/i', $ql)
@@ -3906,6 +3906,16 @@ class Api
             preg_match('/(?:لیست|فهرست)?\s*(?:اسامی|اسم|نام)/u', $ql)
             || preg_match('/\bnames?\b/i', $ql)
         );
+        // Help the model by using table format for intents that benefit from tabular grounding
+        $isFieldsIntent = (bool)(
+            preg_match('/\b(fields?|questions?)\b/i', $ql) || preg_match('/فیلد(?:های)?\s*فرم/u', $ql)
+        );
+        $isShowAllIntent = (bool)(
+            preg_match('/\b(all\s+data|show\s+all|dump)\b/i', $ql) || preg_match('/تمام\s*اطلاعات|همه\s*داده/u', $ql)
+        );
+        if ($format !== 'table' && ($isFieldsIntent || $isShowAllIntent)) {
+            $format = 'table';
+        }
     if ($allowStructural && $isNamesIntent){
             $lines = [];
             foreach ($tables as $t){
@@ -4008,6 +4018,11 @@ Principles (in order):
 4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for lists, return a bullet list; when the user asks for counts, return a single number and a one-line justification from the provided values.
 5) If the user asks for the form fields, list them using fields_meta as bullet items like: «برچسب (type)». If type is missing, omit it.
 6) If the user asks to show all form data, do NOT dump everything; instead, provide a compact preview: total rows count and the first up to 20 rows as a simple list or table based ONLY on the provided rows/values.
+Data shapes:
+- fields_meta: array of objects { id: number, label: string, type: string }.
+- rows: array of submission objects { id: number, ... }.
+- values: object mapping submission id to array of { field_id: number, value: string }.
+When needed, join values by matching submission id and field_id to fields_meta.id.
 '
                     ]
                 ];
