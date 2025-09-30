@@ -3957,7 +3957,8 @@ class Api
         // For each table, build chunks and call LLM with a compact prompt
         $baseUrl = rtrim($base, '/');
         $endpoint = $baseUrl . '/v1/chat/completions';
-        $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
+    $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
+    $http_timeout = 45; // allow a bit more time for larger tables
         $agentName = 'hoshang';
         $usages = [];
         $answers = [];
@@ -4005,6 +4006,8 @@ Principles (in order):
 2) ONLY use the provided data: fields_meta, submissions (rows), and values. Do NOT invent facts beyond these.
 3) If the question cannot be strictly answered from the provided data (and it is not a greeting/identity), respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم».
 4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for lists, return a bullet list; when the user asks for counts, return a single number and a one-line justification from the provided values.
+5) If the user asks for the form fields, list them using fields_meta as bullet items like: «برچسب (type)». If type is missing, omit it.
+6) If the user asks to show all form data, do NOT dump everything; instead, provide a compact preview: total rows count and the first up to 20 rows as a simple list or table based ONLY on the provided rows/values.
 '
                     ]
                 ];
@@ -4024,7 +4027,17 @@ Principles (in order):
                 ];
                 $payloadJson = wp_json_encode($payload);
                 $t0 = microtime(true);
-                $resp = wp_remote_post($endpoint, [ 'timeout'=> 30, 'headers'=>$headers, 'body'=> $payloadJson ]);
+                if ($debug){
+                    // Attach a lightweight request preview (truncate large fields) for debugging
+                    $prevMsgs = [];
+                    foreach ($messages as $m){
+                        $c = (string)($m['content'] ?? '');
+                        if (strlen($c) > 1800) { $c = substr($c, 0, 1800) . "\n…[truncated]"; }
+                        $prevMsgs[] = [ 'role'=>$m['role'] ?? '', 'content'=>$c ];
+                    }
+                    $debugInfo[] = [ 'form_id'=>$fid, 'chunk_index'=>$i, 'request_preview'=>[ 'model'=>$use_model, 'max_tokens'=>$max_tokens, 'temperature'=>0.2, 'messages'=>$prevMsgs ] ];
+                }
+                $resp = wp_remote_post($endpoint, [ 'timeout'=> $http_timeout, 'headers'=>$headers, 'body'=> $payloadJson ]);
                 $ok = is_array($resp) && !is_wp_error($resp) && (int)wp_remote_retrieve_response_code($resp) === 200;
                 $rawBody = $ok ? wp_remote_retrieve_body($resp) : '';
                 $body = $ok ? json_decode($rawBody, true) : null;
@@ -4133,6 +4146,8 @@ Principles (in order):
                         'http_status' => is_array($resp) ? (int)wp_remote_retrieve_response_code($resp) : null,
                         'usage' => $usage,
                     ];
+                    // Attach a truncated raw response sample for diagnostics
+                    try { $dbg['raw'] = (strlen($rawBody) > 1800) ? (substr($rawBody, 0, 1800) . '\n…[truncated]') : $rawBody; } catch (\Throwable $e) { /* noop */ }
                     $debugInfo[] = $dbg;
                 }
             }
