@@ -3764,8 +3764,10 @@ class Api
     public static function analytics_analyze(WP_REST_Request $request)
     {
         $p = $request->get_json_params(); if (!is_array($p)) $p = $request->get_params();
-        $form_ids = array_values(array_filter(array_map('intval', (array)($p['form_ids'] ?? [])), function($v){ return $v>0; }));
+    $form_ids = array_values(array_filter(array_map('intval', (array)($p['form_ids'] ?? [])), function($v){ return $v>0; }));
         if (empty($form_ids)) return new WP_REST_Response([ 'error' => 'form_ids_required' ], 400);
+    // Persona requires using only one selected form; restrict to the first
+    if (count($form_ids) > 1) { $form_ids = [ $form_ids[0] ]; }
         $question = is_scalar($p['question'] ?? null) ? trim((string)$p['question']) : '';
         if ($question === '') return new WP_REST_Response([ 'error' => 'question_required' ], 400);
         $session_id = isset($p['session_id']) ? max(0, (int)$p['session_id']) : 0;
@@ -3803,7 +3805,11 @@ class Api
         $allowStructural = false;
 
         // Always delegate answers to the model (no local greeting or canned responses)
-        $ql = mb_strtolower($question, 'UTF-8');
+    $ql = mb_strtolower($question, 'UTF-8');
+    // Derive requested output format hint from question
+    $isTableOut = (bool)(preg_match('/\btable\b/i', $ql) || preg_match('/جدول/u', $ql));
+    $isListOut  = (bool)(preg_match('/\blist\b|bullet|bulleted/i', $ql) || preg_match('/(?:فهرست|لیست|بولت|نقطه(?:‌|)ای)/u', $ql));
+    $out_format = $isTableOut ? 'table' : ($isListOut ? 'list' : 'plain');
 
         // Ensure chat session exists and store the user message immediately
         try {
@@ -3914,7 +3920,7 @@ class Api
             preg_match('/\b(all\s+data|show\s+all|dump)\b/i', $ql)
             || preg_match('/تمام\s*اطلاعات|همه\s*داده|لیست\s*اطلاعات(?:\s*فرم)?|خلاصه\s*اطلاعات(?:\s*فرم)?/u', $ql)
         );
-        if ($format !== 'table' && ($isFieldsIntent || $isShowAllIntent)) {
+        if ($format !== 'table' && ($isFieldsIntent || $isShowAllIntent || $out_format==='table')) {
             $format = 'table';
         }
     if ($allowStructural && $isNamesIntent){
@@ -4011,22 +4017,16 @@ class Api
 
                 // Build chat messages: system + history + current user payload (grounded data)
                 $messages = [
-                    [ 'role' => 'system', 'content' => 'You are Hoshang, a Persian assistant and data analyst.
-Principles (in order):
-1) If the user message is a greeting (e.g., سلام/درود/hi/hello) or an identity question (e.g., "اسم شما چیه؟", "کی هستی؟", "who are you?", "what\'s your name?"), ALWAYS reply briefly and politely in Persian (e.g., "سلام! من هوشنگ هستم."). Do not output the fallback phrase for greetings/identity.
-2) ONLY use the provided data: fields_meta, submissions (rows), and values. Do NOT invent facts beyond these.
-3) If the question cannot be strictly answered from the provided data (and it is not a greeting/identity), respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم».
-4) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable). When the user asks for names, look for name-like fields by label patterns (e.g., name, first name, last name, full name, surname, family, «نام», «نام خانوادگی») and aggregate their values from submissions. When the user asks for lists, return a bullet list; when the user asks for counts, return a single number and a one-line justification from the provided values.
-5) If the user asks for the form fields, list them using fields_meta as bullet items like: «برچسب (type)». If type is missing, omit it.
-6) If the user asks to show all form data (phrases include: «همه/تمام اطلاعات»، «لیست اطلاعات فرم»، «خلاصه اطلاعات فرم»), do NOT dump everything; instead, provide a compact preview: total rows count and the first up to 20 rows as a simple list or table based ONLY on the provided rows/values.
-7) You may receive an intent field (e.g., "list_names", "list_fields", "show_all_compact_preview"). Respect it when forming the answer.
-Special guidance for table format:
-- If data_format is "table" and table_csv is provided, treat that CSV as the dataset. Identify columns by header labels. For list_names intent, pick columns whose headers match name-like patterns (as above) and list distinct non-empty values (avoid duplicates). For show_all_compact_preview, compute total row count and show up to the first 20 rows compactly.
-Data shapes:
-- fields_meta: array of objects { id: number, label: string, type: string }.
-- rows: array of submission objects { id: number, ... }.
-- values: object mapping submission id to array of { field_id: number, value: string }.
-When needed, join values by matching submission id and field_id to fields_meta.id.
+                    [ 'role' => 'system', 'content' => 'You are a Persian-only answering model. Follow strictly:
+1) پاسخ فقط و فقط بر اساس داده‌های همین فرم ارسالی (fields_meta, rows, values یا table_csv). هیچ دانش خارجی، مثال عمومی، یا حدس مجاز نیست.
+2) زبان خروجی: فقط فارسی.
+3) بدون مقدمه یا توضیح اضافی؛ فقط پاسخ مستقیم طبق قالب خواسته‌شده.
+4) اگر پاسخ با اتکا به داده‌های فرم ممکن نیست، دقیقاً بنویس: «اطلاعات لازم در فرم پیدا نمی‌کنم».
+5) اگر intent یا out_format داده شد، همان را رعایت کن (list_names, list_fields, show_all_compact_preview | list/table/plain).
+راهنمای فرمت جدول:
+- اگر data_format=table و table_csv موجود است، همان CSV منبع پاسخ است: هدرها نام ستون‌ها هستند. برای list_names ستون‌های شبیه نام را شناسایی کن و مقادیر غیرتکراری را فهرست کن. برای show_all_compact_preview تعداد کل سطرها و حداکثر ۲۰ سطر اول را فشرده نمایش بده.
+داده‌ها:
+- fields_meta: [{id,label,type}]، rows: [{id,...}]، values: {submission_id: [{field_id,value}]}
 '
                     ]
                 ];
@@ -4037,10 +4037,12 @@ When needed, join values by matching submission id and field_id to fields_meta.i
                 if ($format === 'table' && $tableCsv !== ''){
                     $payloadUser = [ 'question'=>$question, 'form_id'=>$fid, 'data_format'=>'table', 'table_csv'=>$tableCsv, 'fields_meta'=>$t['fields_meta'] ?? [] ];
                     if ($intent) { $payloadUser['intent'] = $intent; }
+                    if ($out_format) { $payloadUser['out_format'] = $out_format; }
                     $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
                 } else {
                     $payloadUser = [ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ];
                     if ($intent) { $payloadUser['intent'] = $intent; }
+                    if ($out_format) { $payloadUser['out_format'] = $out_format; }
                     $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
                 }
                 $payload = [
@@ -4146,15 +4148,7 @@ When needed, join values by matching submission id and field_id to fields_meta.i
                     $usage['total'] = $usage['input'] + $usage['output'];
                 }
                 if ($text === '' || !is_string($text)){
-                    // Heuristic: if user asked a greeting/identity question, provide a short Persian reply instead of the generic fallback
-                    $qnorm = mb_strtolower(preg_replace('/\s+/u', ' ', (string)$question));
-                    $isGreeting = (bool)preg_match('/\b(hi|hello|salam|salam|سلام|درود)\b/u', $qnorm);
-                    $isIdentity = (bool)(preg_match('/(اسم\s*شما\s*چیه|کی\s*هستی|کیستی|who\s*are\s*you|what\'?s\s*your\s*name)/u', $qnorm));
-                    if ($isGreeting || $isIdentity){
-                        $text = 'سلام! من هوشنگ هستم.';
-                    } else {
-                        $text = 'اطلاعات لازم در فرم پیدا نمی‌کنم';
-                    }
+                    $text = 'اطلاعات لازم در فرم پیدا نمی‌کنم';
                 }
                 $answers[] = [ 'form_id'=>$fid, 'chunk'=> [ 'index'=>$i, 'size'=>count($slice) ], 'text'=>$text ];
                 // Log usage
@@ -4176,12 +4170,8 @@ When needed, join values by matching submission id and field_id to fields_meta.i
                 }
             }
         }
-        // Merge answers: when only one chunk, return plain text; otherwise, show headings per chunk
-        if (count($answers) === 1){
-            $summary = trim((string)($answers[0]['text'] ?? ''));
-        } else {
-            $summary = implode("\n\n", array_map(function($a){ return "[فرم " . $a['form_id'] . ", قطعه " . ($a['chunk']['index']+1) . "]\n" . trim((string)$a['text']); }, $answers));
-        }
+        // Merge answers: no headings or preface; join texts directly
+        $summary = implode("\n\n", array_map(function($a){ return trim((string)$a['text']); }, $answers));
         $respPayload = [ 'summary' => $summary, 'chunks' => $answers, 'usage' => $usages, 'voice' => $voice, 'session_id' => $session_id ];
         // Persist assistant turn with aggregated usage
         try {
