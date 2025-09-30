@@ -4030,10 +4030,15 @@ When needed, join values by matching submission id and field_id to fields_meta.i
                 if (!empty($history)){
                     foreach ($history as $h){ $messages[] = $h; }
                 }
+                $intent = $isShowAllIntent ? 'show_all_compact_preview' : ($isFieldsIntent ? 'list_fields' : ($isNamesIntent ? 'list_names' : null));
                 if ($format === 'table' && $tableCsv !== ''){
-                    $messages[] = [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'data_format'=>'table', 'table_csv'=>$tableCsv, 'fields_meta'=>$t['fields_meta'] ?? [] ], JSON_UNESCAPED_UNICODE) ];
+                    $payloadUser = [ 'question'=>$question, 'form_id'=>$fid, 'data_format'=>'table', 'table_csv'=>$tableCsv, 'fields_meta'=>$t['fields_meta'] ?? [] ];
+                    if ($intent) { $payloadUser['intent'] = $intent; }
+                    $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
                 } else {
-                    $messages[] = [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ], JSON_UNESCAPED_UNICODE) ];
+                    $payloadUser = [ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ];
+                    if ($intent) { $payloadUser['intent'] = $intent; }
+                    $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
                 }
                 $payload = [
                     'model' => $use_model,
@@ -4168,8 +4173,12 @@ When needed, join values by matching submission id and field_id to fields_meta.i
                 }
             }
         }
-        // Merge answers: concatenate with headings per form/chunk
-        $summary = implode("\n\n", array_map(function($a){ return "[فرم " . $a['form_id'] . ", قطعه " . ($a['chunk']['index']+1) . "]\n" . trim((string)$a['text']); }, $answers));
+        // Merge answers: when only one chunk, return plain text; otherwise, show headings per chunk
+        if (count($answers) === 1){
+            $summary = trim((string)($answers[0]['text'] ?? ''));
+        } else {
+            $summary = implode("\n\n", array_map(function($a){ return "[فرم " . $a['form_id'] . ", قطعه " . ($a['chunk']['index']+1) . "]\n" . trim((string)$a['text']); }, $answers));
+        }
         $respPayload = [ 'summary' => $summary, 'chunks' => $answers, 'usage' => $usages, 'voice' => $voice, 'session_id' => $session_id ];
         // Persist assistant turn with aggregated usage
         try {
