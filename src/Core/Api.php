@@ -3802,8 +3802,9 @@ class Api
                     ],
                     'temperature' => 0.2,
                 ];
+                $payloadJson = wp_json_encode($payload);
                 $t0 = microtime(true);
-                $resp = wp_remote_post($endpoint, [ 'timeout'=> 30, 'headers'=>$headers, 'body'=> wp_json_encode($payload) ]);
+                $resp = wp_remote_post($endpoint, [ 'timeout'=> 30, 'headers'=>$headers, 'body'=> $payloadJson ]);
                 $ok = is_array($resp) && !is_wp_error($resp) && (int)wp_remote_retrieve_response_code($resp) === 200;
                 $body = $ok ? json_decode(wp_remote_retrieve_body($resp), true) : null;
                 $text = '';
@@ -3845,7 +3846,7 @@ class Api
                     }
                     // As a very rough fallback, estimate tokens from characters (approx 4 chars per token)
                     if (!$in && !$out && !$tot){
-                        $promptApprox = strlen(wp_json_encode($payload));
+                        $promptApprox = strlen((string)$payloadJson);
                         $compApprox = strlen($text);
                         $in = (int) ceil($promptApprox / 4);
                         $out = (int) ceil($compApprox / 4);
@@ -3854,6 +3855,14 @@ class Api
                     $usage['input'] = max(0, $in);
                     $usage['output'] = max(0, $out);
                     $usage['total'] = max(0, $tot ?: ($usage['input'] + $usage['output']));
+                }
+                // If provider returned no body or usage still zero, estimate from payload/response text
+                if ((!$usage['input'] && !$usage['output'] && !$usage['total'])){
+                    $promptApprox = strlen((string)$payloadJson);
+                    $compApprox = strlen((string)$text);
+                    $usage['input'] = max(1, (int) ceil($promptApprox / 4));
+                    $usage['output'] = max(0, (int) ceil($compApprox / 4));
+                    $usage['total'] = $usage['input'] + $usage['output'];
                 }
                 $answers[] = [ 'form_id'=>$fid, 'chunk'=> [ 'index'=>$i, 'size'=>count($slice) ], 'text'=>$text ];
                 // Log usage
