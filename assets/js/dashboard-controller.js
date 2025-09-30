@@ -415,6 +415,7 @@
           var q = document.getElementById('arAnaQ');
           var speak = document.getElementById('arAnaSpeak');
           var chunk = document.getElementById('arAnaChunk');
+          var ANA_DEBUG = false; try { ANA_DEBUG = (localStorage.getItem('arshAnaDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
           // Load minimal config and then list forms
           fetch(ARSHLINE_REST + 'analytics/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ return r.json(); }).then(function(cfg){ if(!cfg.enabled){ notify('هوشنگ غیرفعال است (AI)؛ ابتدا کلید/مبنا را تنظیم کنید.', 'warn'); } }).catch(function(){ });
           fetch(ARSHLINE_REST + 'forms', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ if(!r.ok){ if(r.status===401 && typeof handle401==='function') handle401(); throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { var arr = Array.isArray(data) ? data : (Array.isArray(data.items)?data.items:[]); sel.innerHTML = arr.map(function(f){ return '<option value="'+String(f.id)+'">#'+String(f.id)+' — '+(f.title||'بی‌عنوان')+'</option>'; }).join(''); } catch(_){ } }).catch(function(err){ console.error(err); notify('دریافت لیست فرم‌ها ناموفق بود','error'); });
@@ -422,6 +423,8 @@
           function doRun(){ try {
             var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
             var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
+            if (ANA_DEBUG) body.debug = true;
+            if (ANA_DEBUG) { try { console.info('[ARSH][ANA] request', body); } catch(_){ } }
             out.textContent = 'در حال پردازش…'; var old = run.textContent; run.disabled=true; run.textContent='در حال پردازش…';
             fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
               .then(async function(r){ var txt=''; try{ txt=await r.clone().text(); }catch(_){ } if(!r.ok){ var msg='HTTP '+r.status; try{ var j=txt?JSON.parse(txt):await r.json(); msg = (j && (j.error||j.message)) || msg; }catch(_){ } throw new Error(msg); } try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; } })
@@ -714,13 +717,18 @@
           if (!sel.length){ hintEl.textContent = 'متغیرها: ' + base.join('، ') + ' و فیلدهای سفارشی گروه'; return; }
           // Load fields for all selected groups and compute intersection by name
           Promise.all(sel.map(function(gid){ return smsGetGroupFields(gid); }))
-            .then(function(all){
+              .then(function(j){
               // Build a set intersection of field names across groups
+                  if (ANA_DEBUG) { try { console.info('[ARSH][ANA] response', j); } catch(_){ } }
               var nameSets = all.map(function(list){ return new Set(list.map(function(f){ return f.name; })); });
               var commonNames = [];
-              if (nameSets.length){
+                  var dbg = j.debug;
+                  if (typeof txt !== 'string' || txt === '') txt = 'پاسخی دریافت نشد.';
                 nameSets[0].forEach(function(n){ var inAll = nameSets.every(function(s){ return s.has(n); }); if (inAll) commonNames.push(n); });
-              }
+                  var footer = '';
+                  if (usage && usage.length){ footer = usage.map(function(u){ var uu=u.usage||{}; return '[مصرف توکن] ورودی: '+uu.input+' ؛ خروجی: '+uu.output+' ؛ کل: '+uu.total+(uu.duration_ms?(' ؛ زمان: '+uu.duration_ms+'ms'):''); }).join('\n'); }
+                  if (dbg && ANA_DEBUG){ try { footer += (footer?'\n':'') + '--- DEBUG ---\n' + JSON.stringify(dbg, null, 2); } catch(_){ } }
+                  out.textContent = txt + (footer? ('\n\n'+footer) : '');
               // Render as #fieldName placeholders
               var custom = commonNames.map(function(n){ return '#' + n; });
               var out = base.concat(custom);

@@ -3787,6 +3787,8 @@ class Api
         $agentName = 'hoshang';
         $usages = [];
         $answers = [];
+        $debug = !empty($p['debug']);
+        $debugInfo = [];
         foreach ($tables as $t){
             $rows = $t['rows']; $fid = $t['form_id'];
             // Simple chunking by N rows; we serialize minimally to reduce tokens
@@ -3857,11 +3859,25 @@ class Api
                 // Log usage
                 self::log_ai_usage($agentName, $use_model, $usage, [ 'form_id'=>$fid, 'rows'=>count($slice) ]);
                 $usages[] = [ 'form_id'=>$fid, 'usage'=>$usage ];
+                if ($debug){
+                    $dbg = [
+                        'form_id' => $fid,
+                        'chunk_index' => $i,
+                        'rows' => count($slice),
+                        'endpoint' => $endpoint,
+                        'model' => $use_model,
+                        'http_status' => is_array($resp) ? (int)wp_remote_retrieve_response_code($resp) : null,
+                        'usage' => $usage,
+                    ];
+                    $debugInfo[] = $dbg;
+                }
             }
         }
         // Merge answers: concatenate with headings per form/chunk
         $summary = implode("\n\n", array_map(function($a){ return "[فرم " . $a['form_id'] . ", قطعه " . ($a['chunk']['index']+1) . "]\n" . trim((string)$a['text']); }, $answers));
-        return new WP_REST_Response([ 'summary' => $summary, 'chunks' => $answers, 'usage' => $usages, 'voice' => $voice ], 200);
+        $respPayload = [ 'summary' => $summary, 'chunks' => $answers, 'usage' => $usages, 'voice' => $voice ];
+        if ($debug){ $respPayload['debug'] = $debugInfo; }
+        return new WP_REST_Response($respPayload, 200);
     }
 
     /** Insert a row into ai_usage table. */
