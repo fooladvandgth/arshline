@@ -438,6 +438,35 @@
           fetch(ARSHLINE_REST + 'analytics/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ return r.json(); }).then(function(cfg){ if(!cfg.enabled){ notify('هوشنگ غیرفعال است (AI)؛ ابتدا کلید/مبنا را تنظیم کنید.', 'warn'); } }).catch(function(){ });
           fetch(ARSHLINE_REST + 'forms', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ if(!r.ok){ if(r.status===401 && typeof handle401==='function') handle401(); throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { var arr = Array.isArray(data) ? data : (Array.isArray(data.items)?data.items:[]); sel.innerHTML = arr.map(function(f){ return '<option value="'+String(f.id)+'">#'+String(f.id)+' — '+(f.title||'بی‌عنوان')+'</option>'; }).join(''); } catch(_){ } }).catch(function(err){ console.error(err); notify('دریافت لیست فرم‌ها ناموفق بود','error'); });
           function getSelected(){ return Array.from(sel.options).filter(function(o){ return o.selected; }).map(function(o){ return parseInt(o.value||'0'); }).filter(function(v){ return v>0; }); }
+          // helpers for chat-style rendering
+          function _appendChatMessage(role, text){
+            if (!out) return null;
+            var wrap = document.createElement('div');
+            wrap.className = 'ar-chat-msg '+role;
+            wrap.style.display = 'flex';
+            wrap.style.gap = '.6rem';
+            wrap.style.marginBottom = '.7rem';
+            wrap.style.alignItems = 'flex-start';
+            var bubble = document.createElement('div');
+            bubble.className = 'ar-chat-bubble';
+            bubble.style.whiteSpace = 'pre-wrap';
+            bubble.style.lineHeight = '1.7';
+            bubble.style.padding = '.6rem .8rem';
+            bubble.style.borderRadius = '12px';
+            bubble.style.maxWidth = '100%';
+            if (role === 'user'){
+              bubble.style.background = 'var(--ar-c-bg-soft, rgba(0,0,0,.04))';
+              wrap.style.justifyContent = 'flex-end';
+            } else {
+              bubble.style.background = 'var(--ar-c-surface, rgba(0,0,0,.03))';
+              wrap.style.justifyContent = 'flex-start';
+            }
+            bubble.textContent = text || '';
+            wrap.appendChild(bubble);
+            out.appendChild(wrap);
+            try { out.scrollTop = out.scrollHeight; } catch(_){ }
+            return { wrap: wrap, bubble: bubble };
+          }
           function doRun(){ try {
             var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
             var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
@@ -450,17 +479,20 @@
             if (formatTableChk && formatTableChk.checked){ body.format = 'table'; }
             if (ANA_DEBUG) body.debug = true;
             if (ANA_DEBUG) { try { console.info('[ARSH][ANA] request', body); } catch(_){ } }
-            out.textContent = 'در حال پردازش…'; var old = run.textContent; run.disabled=true; run.textContent='در حال پردازش…';
+            var old = run.textContent; run.disabled=true; run.textContent='در حال پردازش…';
+            // render user message and a pending assistant bubble
+            var userMsg = (q.value||'').trim();
+            if (userMsg){ _appendChatMessage('user', userMsg); }
+            var pending = _appendChatMessage('assistant', 'در حال پردازش…');
             fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
               .then(async function(r){ var txt=''; try{ txt=await r.clone().text(); }catch(_){ } if(!r.ok){ var msg='HTTP '+r.status; try{ var j=txt?JSON.parse(txt):await r.json(); msg = (j && (j.error||j.message)) || msg; }catch(_){ } throw new Error(msg); } try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; } })
               .then(function(j){
                 try {
-                  if (j.error){ out.textContent = 'خطا: '+j.error; return; }
-                  out.textContent = j.summary || '';
+                  if (j.error){ if (pending && pending.bubble) pending.bubble.textContent = 'خطا: '+j.error; return; }
+                  if (pending && pending.bubble) pending.bubble.textContent = j.summary || '';
                   if (j.session_id){ chatSessionId = parseInt(j.session_id)||0; try{ localStorage.setItem('arshAnaSessionId', String(chatSessionId||0)); }catch(_){ } }
                   if (ANA_DEBUG) { try { console.info('[ARSH][ANA] response', j); } catch(_){ } }
                   // append to history for better multi-turn chat
-                  var userMsg = (q.value||'').trim();
                   var assistantMsg = String(j.summary||'');
                   if (userMsg){ chatHistory.push({ role:'user', content:userMsg }); }
                   if (assistantMsg){ chatHistory.push({ role:'assistant', content:assistantMsg }); }
@@ -468,16 +500,16 @@
                   if (Array.isArray(j.usage) && j.usage.length){
                     var tot = j.usage.reduce(function(a,b){ var u=b.usage||{}; return { input:(a.input||0)+(u.input||0), output:(a.output||0)+(u.output||0), total:(a.total||0)+(u.total||0) }; }, {});
                     var m = document.createElement('div'); m.className='hint'; m.style.marginTop = '.6rem'; m.textContent = 'مصرف توکن — ورودی: '+(tot.input||0)+' ؛ خروجی: '+(tot.output||0)+' ؛ کل: '+(tot.total||0);
-                    out.appendChild(m);
+                    if (pending && pending.wrap) pending.wrap.appendChild(m); else out.appendChild(m);
                   }
                 } catch(e){ out.textContent = 'خطا در نمایش خروجی'; }
               })
-              .catch(function(err){ console.error(err); out.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); })
+              .catch(function(err){ console.error(err); if (pending && pending.bubble) pending.bubble.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); else if (out) out.textContent = 'درخواست ناموفق بود: '+String(err && err.message || err); })
               .finally(function(){ run.disabled=false; run.textContent=old; });
           } catch(e){ console.error(e); notify('خطا در اجرای تحلیل','error'); }
           }
           if (run) run.addEventListener('click', doRun);
-          if (clearBtn) clearBtn.addEventListener('click', function(){ chatHistory = []; chatSessionId = 0; try{ localStorage.removeItem('arshAnaSessionId'); }catch(_){ } notify('گفتگو پاک شد','info'); });
+          if (clearBtn) clearBtn.addEventListener('click', function(){ chatHistory = []; chatSessionId = 0; try{ localStorage.removeItem('arshAnaSessionId'); }catch(_){ } if (out){ out.innerHTML=''; } notify('گفتگو پاک شد','info'); });
           if (exportBtn) exportBtn.addEventListener('click', function(){ try { if (!chatSessionId){ notify('ابتدا یک پیام بفرستید تا گفتگویی ایجاد شود','warn'); return; } var url = new URL(ARSHLINE_REST + 'analytics/sessions/'+chatSessionId+'/export'); url.searchParams.set('format', (formatTableChk && formatTableChk.checked)?'csv':'json'); window.open(url.toString(), '_blank'); } catch(e){ console.error(e); notify('امکان خروجی وجود ندارد','error'); } });
           function speakFa(text){
             try {
@@ -497,7 +529,7 @@
               try { window.speechSynthesis.speak(u); } catch(_){ }
             } catch(_){ }
           }
-          if (speak) speak.addEventListener('click', function(){ try { var t = (out && out.textContent) ? out.textContent : ''; if(!t){ notify('متنی برای خواندن وجود ندارد','warn'); return; } speakFa(t); } catch(_){ } });
+          if (speak) speak.addEventListener('click', function(){ try { var t = ''; if (out){ var bubbles = out.querySelectorAll('.ar-chat-msg.assistant .ar-chat-bubble'); if (bubbles && bubbles.length){ t = bubbles[bubbles.length-1].textContent || ''; } else { t = out.textContent || ''; } } if(!t){ notify('متنی برای خواندن وجود ندارد','warn'); return; } speakFa(t); } catch(_){ } });
         })();
       } else if (tab === 'forms'){
         content.innerHTML = '<div class="card glass card--static" style="padding:1rem;">\

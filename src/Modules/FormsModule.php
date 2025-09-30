@@ -86,7 +86,7 @@ class FormsModule
 
         // Ensure new module tables exist (user groups, mapping). If plugin was activated before these tables
         // were introduced, they may be missing in existing installs.
-        $required = [ 'user_groups', 'user_group_fields', 'user_group_members', 'form_group_access', 'ai_usage' ];
+    $required = [ 'user_groups', 'user_group_fields', 'user_group_members', 'form_group_access', 'ai_usage', 'ai_chat_sessions', 'ai_chat_messages' ];
         $missing = [];
         foreach ($required as $key){
             $t = Helpers::tableName($key);
