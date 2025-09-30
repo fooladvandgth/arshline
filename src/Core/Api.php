@@ -3936,7 +3936,7 @@ class Api
                 $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sliceIds);
                 // Build chat messages: system + history + current user payload (grounded data)
                 $messages = [
-                    [ 'role' => 'system', 'content' => 'You are Hoshang, a precise Persian data analyst. Rules: 1) ONLY use the provided data: fields_meta, submissions (rows), and values. 2) Do NOT invent facts beyond these. 3) If the answer cannot be derived strictly from provided data, respond with "نامشخص" and briefly say what is missing. 4) Answer in Persian. 5) Be concise and structured (bullets/tables when appropriate).' ]
+                    [ 'role' => 'system', 'content' => 'You are Hoshang, a Persian assistant and data analyst. Rules: 1) ONLY use the provided data: fields_meta, submissions (rows), and values. 2) Do NOT invent facts beyond these. 3) For greetings or pleasantries, you may respond politely in Persian. 4) For questions unrelated to the provided form data or when information cannot be strictly derived, respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم». 5) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable).' ]
                 ];
                 if (!empty($history)){
                     foreach ($history as $h){ $messages[] = $h; }
@@ -4034,7 +4034,7 @@ class Api
                     $usage['total'] = $usage['input'] + $usage['output'];
                 }
                 if ($text === '' || !is_string($text)){
-                    $text = 'نامشخص';
+                    $text = 'اطلاعات لازم در فرم پیدا نمی‌کنم';
                 }
                 $answers[] = [ 'form_id'=>$fid, 'chunk'=> [ 'index'=>$i, 'size'=>count($slice) ], 'text'=>$text ];
                 // Log usage
