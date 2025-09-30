@@ -814,7 +814,17 @@ class Api
         $search = (string)($r->get_param('search') ?? ''); if ($search !== ''){ $args['search'] = '*'.esc_attr($search).'*'; }
         $role = (string)($r->get_param('role') ?? ''); if ($role !== ''){ $args['role'] = $role; }
         $users = get_users($args);
-        $items = array_map(function($u){ return [ 'id'=>$u->ID, 'user_login'=>$u->user_login, 'display_name'=>$u->display_name, 'email'=>$u->user_email, 'roles'=>$u->roles ]; }, $users);
+        $items = array_map(function($u){
+            $disabled = (bool) get_user_meta($u->ID, 'arsh_disabled', true);
+            return [
+                'id' => $u->ID,
+                'user_login' => $u->user_login,
+                'display_name' => $u->display_name,
+                'email' => $u->user_email,
+                'roles' => $u->roles,
+                'disabled' => $disabled,
+            ];
+        }, $users);
         return new WP_REST_Response([ 'items'=>$items, 'count'=>count($items) ], 200);
     }
     public static function create_user(WP_REST_Request $r)
@@ -837,6 +847,11 @@ class Api
             $u = new \WP_User($uid);
             foreach ($u->roles as $r0){ $u->remove_role($r0); }
             foreach ($roles as $r1){ if (is_string($r1) && $r1!=='') $u->add_role($r1); }
+        }
+        if ($r->offsetExists('disabled')){
+            $disabled = (bool)$r->get_param('disabled');
+            if ($disabled) { update_user_meta($uid, 'arsh_disabled', 1); }
+            else { delete_user_meta($uid, 'arsh_disabled'); }
         }
         return new WP_REST_Response(['ok'=>true], 200);
     }

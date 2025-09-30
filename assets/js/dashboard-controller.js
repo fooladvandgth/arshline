@@ -797,30 +797,85 @@
             .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
             .then(function(j){ var roles = Array.isArray(j.roles)? j.roles: []; var opts = '<option value="">همه نقش‌ها</option>' + roles.map(function(r){ return '<option value="'+escapeAttr(r.key)+'">'+escapeHtml(r.name||r.key)+'</option>'; }).join(''); if (roleSelect) roleSelect.innerHTML = opts; if (newRoleSel){ newRoleSel.innerHTML = '<option value="">نقش (اختیاری)</option>' + roles.map(function(r){ return '<option value="'+escapeAttr(r.key)+'">'+escapeHtml(r.name||r.key)+'</option>'; }).join(''); } return roles; })
             .catch(function(e){ (roleSelect)&&(roleSelect.innerHTML='<option value="">همه نقش‌ها</option>'); return []; }); }
-          function renderUsers(items){ if (!listBox) return; if (!Array.isArray(items)||items.length===0){ listBox.innerHTML = '<div class="hint">کاربری یافت نشد.</div>'; return; } listBox.innerHTML = items.map(function(u){ var roles = Array.isArray(u.roles)?u.roles:[]; return '\
-            <div class="card glass" data-uid="'+u.id+'" style="padding:.6rem;margin-bottom:.5rem">\
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap">\
-                <div>\
-                  <div class="title" style="font-size:1rem">'+escapeHtml(u.user_login||('user#'+u.id))+'</div>\
-                  <div class="hint">'+escapeHtml(u.email||'')+'</div>\
-                </div>\
-                <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">\
-                  <span class="hint">نقش‌ها:</span>\
-                  <select class="uRoles ar-select" multiple size="3" style="min-width:180px"></select>\
-                  <button class="uSaveRoles ar-btn ar-btn--soft">ذخیره نقش‌ها</button>\
-                  <button class="uDelete ar-btn ar-btn--danger" title="حذف کاربر">حذف</button>\
-                </div>\
-              </div>\
-            </div>';
-          }).join('');
-          // populate role selects
-          fetch(ARSHLINE_REST + 'roles', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-            .then(function(r){ return r.json(); })
-            .then(function(j){ var all = Array.isArray(j.roles)? j.roles: []; var map = all.reduce(function(m,r){ m[r.key]=r.name||r.key; return m; }, {}); listBox.querySelectorAll('.card[data-uid]').forEach(function(card){ var uid = parseInt(card.getAttribute('data-uid')||'0'); var sel = card.querySelector('.uRoles'); if (!sel) return; var user = items.find(function(x){ return parseInt(x.id)===uid; }) || { roles: [] }; var html = all.map(function(r){ var selAttr = (user.roles||[]).indexOf(r.key)>=0 ? ' selected' : ''; return '<option value="'+escapeAttr(r.key)+'"'+selAttr+'>'+escapeHtml(r.name||r.key)+'</option>'; }).join(''); sel.innerHTML = html; });
-              // bind buttons
-              listBox.querySelectorAll('.uSaveRoles').forEach(function(btn){ btn.addEventListener('click', function(){ var card=btn.closest('.card[data-uid]'); if (!card) return; var uid=parseInt(card.getAttribute('data-uid')||'0'); var sel = card.querySelector('.uRoles'); var roles = []; try { roles = Array.from(sel.selectedOptions).map(function(o){ return o.value; }); } catch(_){ roles=[]; } fetch(ARSHLINE_REST + 'users/'+uid, { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ roles: roles }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('نقش‌های کاربر ذخیره شد', 'success'); __u_load(); }).catch(function(){ notify('ذخیره نقش‌ها ناموفق بود', 'error'); }); }); });
-              listBox.querySelectorAll('.uDelete').forEach(function(btn){ btn.addEventListener('click', function(){ var card=btn.closest('.card[data-uid]'); if (!card) return; var uid=parseInt(card.getAttribute('data-uid')||'0'); if (!uid) return; if (!confirm('حذف کاربر #'+uid+'؟')) return; fetch(ARSHLINE_REST + 'users/'+uid, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); }).then(function(res){ if (res.ok && res.body && res.body.ok){ notify('کاربر حذف شد', 'success'); __u_load(); } else { notify('حذف کاربر ناموفق بود', 'error'); } }).catch(function(){ notify('حذف کاربر ناموفق بود', 'error'); }); }); });
-            });
+          function renderUsers(items){
+            if (!listBox) return;
+            if (!Array.isArray(items) || items.length === 0){
+              listBox.innerHTML = '<div class="hint">کاربری یافت نشد.</div>';
+              return;
+            }
+            // Table header
+            var html = ''
+              + '<div class="ar-table-wrap">'
+              + '  <table class="ar-table" style="width:100%;border-collapse:separate;border-spacing:0 6px">'
+              + '    <thead><tr>'
+              + '      <th style="text-align:right;padding:.4rem .6rem">کاربر</th>'
+              + '      <th style="text-align:right;padding:.4rem .6rem;width:30%">نقش</th>'
+              + '      <th style="text-align:right;padding:.4rem .6rem;width:20%">وضعیت</th>'
+              + '      <th style="text-align:right;padding:.4rem .6rem;width:20%">عملیات</th>'
+              + '    </tr></thead>'
+              + '    <tbody>'
+              + items.map(function(u){
+                  var role = Array.isArray(u.roles) && u.roles.length ? u.roles[0] : '';
+                  var disabled = !!u.disabled;
+                  return ''
+                    + '<tr data-uid="'+u.id+'" class="glass" style="background:var(--surface,#fff);box-shadow:0 2px 8px rgba(0,0,0,.06)">'
+                    + '  <td style="padding:.5rem .6rem">'
+                    + '    <div class="title" style="font-size:1rem">'+escapeHtml(u.user_login||('user#'+u.id))+'</div>'
+                    + '    <div class="hint">'+escapeHtml(u.email||'')+'</div>'
+                    + '  </td>'
+                    + '  <td style="padding:.5rem .6rem">'
+                    + '    <div class="uRoleView">'+escapeHtml(role||'—')+'</div>'
+                    + '    <div class="uRoleEdit" style="display:none">'
+                    + '      <select class="uRoleSel ar-select" style="min-width:180px"></select>'
+                    + '    </div>'
+                    + '  </td>'
+                    + '  <td style="padding:.5rem .6rem">'
+                    + '    <span class="uStatus">'+(disabled?'<span class="badge badge--danger">غیرفعال</span>':'<span class="badge badge--success">فعال</span>')+'</span>'
+                    + '  </td>'
+                    + '  <td style="padding:.5rem .6rem;display:flex;gap:.4rem;flex-wrap:wrap">'
+                    + '    <button class="uEditRole ar-btn ar-btn--soft">ویرایش نقش</button>'
+                    + '    <button class="uSaveRole ar-btn" style="display:none">ذخیره</button>'
+                    + '    <button class="uCancelRole ar-btn ar-btn--outline" style="display:none">انصراف</button>'
+                    + '    <button class="uToggleEnable ar-btn '+(disabled?'':'ar-btn--soft')+'">'+(disabled?'فعال‌سازی':'غیرفعالسازی')+'</button>'
+                    + '    <button class="uDelete ar-btn ar-btn--danger">حذف</button>'
+                    + '  </td>'
+                    + '</tr>';
+                }).join('')
+              + '    </tbody>'
+              + '  </table>'
+              + '</div>';
+            listBox.innerHTML = html;
+            // Load roles and populate single-selects
+            fetch(ARSHLINE_REST + 'roles', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+              .then(function(r){ return r.json(); })
+              .then(function(j){
+                var all = Array.isArray(j.roles)? j.roles: [];
+                listBox.querySelectorAll('tr[data-uid]').forEach(function(tr){
+                  var uid = parseInt(tr.getAttribute('data-uid')||'0');
+                  var user = items.find(function(x){ return parseInt(x.id)===uid; }) || { roles: [] };
+                  var role = Array.isArray(user.roles) && user.roles.length ? user.roles[0] : '';
+                  var sel = tr.querySelector('.uRoleSel');
+                  if (sel){ sel.innerHTML = '<option value="">—</option>' + all.map(function(r){ return '<option value="'+escapeAttr(r.key)+'"'+(r.key===role?' selected':'')+'>'+escapeHtml(r.name||r.key)+'</option>'; }).join(''); }
+                });
+                // Wire actions per row
+                listBox.querySelectorAll('tr[data-uid]').forEach(function(tr){
+                  var uid = parseInt(tr.getAttribute('data-uid')||'0');
+                  var editBtn = tr.querySelector('.uEditRole');
+                  var saveBtn = tr.querySelector('.uSaveRole');
+                  var cancelBtn = tr.querySelector('.uCancelRole');
+                  var roleView = tr.querySelector('.uRoleView');
+                  var roleEdit = tr.querySelector('.uRoleEdit');
+                  var sel = tr.querySelector('.uRoleSel');
+                  var toggleBtn = tr.querySelector('.uToggleEnable');
+                  var delBtn = tr.querySelector('.uDelete');
+                  function toggleEdit(on){ if (on){ roleView.style.display='none'; roleEdit.style.display='block'; editBtn.style.display='none'; saveBtn.style.display='inline-flex'; cancelBtn.style.display='inline-flex'; } else { roleView.style.display='block'; roleEdit.style.display='none'; editBtn.style.display='inline-flex'; saveBtn.style.display='none'; cancelBtn.style.display='none'; } }
+                  if (editBtn) editBtn.addEventListener('click', function(){ toggleEdit(true); });
+                  if (cancelBtn) cancelBtn.addEventListener('click', function(){ toggleEdit(false); });
+                  if (saveBtn) saveBtn.addEventListener('click', function(){ var role = String(sel && sel.value || '').trim(); fetch(ARSHLINE_REST + 'users/'+uid, { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ role: role }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify('نقش کاربر ذخیره شد', 'success'); __u_load(); }).catch(function(){ notify('ذخیره نقش ناموفق بود', 'error'); }); });
+                  if (toggleBtn) toggleBtn.addEventListener('click', function(){ var isDis = toggleBtn.textContent.indexOf('فعال‌سازی')===-1 ? false : true; var want = isDis; fetch(ARSHLINE_REST + 'users/'+uid, { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ disabled: want }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(){ notify(want?'کاربر غیرفعال شد':'کاربر فعال شد', 'success'); __u_load(); }).catch(function(){ notify('عملیات ناموفق بود', 'error'); }); });
+                  if (delBtn) delBtn.addEventListener('click', function(){ if (!confirm('حذف کاربر #'+uid+'؟')) return; fetch(ARSHLINE_REST + 'users/'+uid, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().then(function(j){ return { ok:r.ok, status:r.status, body:j }; }); }).then(function(res){ if (res.ok && res.body && res.body.ok){ notify('کاربر حذف شد', 'success'); __u_load(); } else { notify('حذف کاربر ناموفق بود', 'error'); } }).catch(function(){ notify('حذف کاربر ناموفق بود', 'error'); }); });
+                });
+              });
           }
           function __u_load(){ if (listBox) listBox.innerHTML = '<div class="hint">در حال بارگذاری...</div>'; var qs=new URLSearchParams(); var s=String(document.getElementById('uSearch')?.value||'').trim(); var rf=String(document.getElementById('uRoleFilter')?.value||'').trim(); if (s) qs.set('search', s); if (rf) qs.set('role', rf); fetch(ARSHLINE_REST + 'users' + (qs.toString()?('?'+qs.toString()):''), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if (r.status===403){ return r.json().then(function(){ throw new Error('forbidden'); }); } if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(obj){ renderUsers(obj.items||[]); }).catch(function(e){ if (listBox) listBox.innerHTML = '<div class="hint">دسترسی به مدیریت کاربران ندارید.</div>'; }); }
           // Wire controls
