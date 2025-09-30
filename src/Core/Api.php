@@ -458,6 +458,22 @@ class Api
             'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
             'callback' => [self::class, 'analytics_analyze'],
         ]);
+        // Chat history endpoints
+        register_rest_route('arshline/v1', '/analytics/sessions', [
+            'methods' => 'GET',
+            'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'callback' => [self::class, 'list_chat_sessions'],
+        ]);
+        register_rest_route('arshline/v1', '/analytics/sessions/(?P<session_id>\d+)', [
+            'methods' => 'GET',
+            'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'callback' => [self::class, 'get_chat_messages'],
+        ]);
+        register_rest_route('arshline/v1', '/analytics/sessions/(?P<session_id>\d+)/export', [
+            'methods' => 'GET',
+            'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'callback' => [self::class, 'export_chat_session'],
+        ]);
         register_rest_route('arshline/v1', '/forms/(?P<form_id>\\d+)', [
             'methods' => 'GET',
             'callback' => [self::class, 'get_form'],
@@ -3752,6 +3768,7 @@ class Api
         if (empty($form_ids)) return new WP_REST_Response([ 'error' => 'form_ids_required' ], 400);
         $question = is_scalar($p['question'] ?? null) ? trim((string)$p['question']) : '';
         if ($question === '') return new WP_REST_Response([ 'error' => 'question_required' ], 400);
+        $session_id = isset($p['session_id']) ? max(0, (int)$p['session_id']) : 0;
     $max_rows = isset($p['max_rows']) && is_numeric($p['max_rows']) ? max(50, min(10000, (int)$p['max_rows'])) : 2000;
     $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
         $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
@@ -3786,6 +3803,33 @@ class Api
 
         // Always delegate answers to the model (no local greeting or canned responses)
         $ql = mb_strtolower($question, 'UTF-8');
+
+        // Ensure chat session exists and store the user message immediately
+        try {
+            global $wpdb; $uid = get_current_user_id();
+            $tblSess = \Arshline\Support\Helpers::tableName('ai_chat_sessions');
+            $tblMsg  = \Arshline\Support\Helpers::tableName('ai_chat_messages');
+            if ($session_id <= 0){
+                $wpdb->insert($tblSess, [
+                    'user_id' => $uid ?: null,
+                    'title' => mb_substr($question, 0, 190),
+                    'meta' => wp_json_encode([ 'form_ids'=>$form_ids ], JSON_UNESCAPED_UNICODE),
+                    'last_message_at' => current_time('mysql'),
+                ]);
+                $session_id = (int)$wpdb->insert_id;
+            }
+            // record user turn
+            if ($session_id > 0){
+                $wpdb->insert($tblMsg, [
+                    'session_id' => $session_id,
+                    'role' => 'user',
+                    'content' => $question,
+                    'meta' => wp_json_encode([ 'form_ids'=>$form_ids, 'format'=>$format, 'mode'=>'llm' ], JSON_UNESCAPED_UNICODE),
+                ]);
+                // touch session
+                $wpdb->update($tblSess, [ 'last_message_at' => current_time('mysql') ], [ 'id'=>$session_id ]);
+            }
+        } catch (\Throwable $e) { /* ignore persistence errors */ }
 
         // Collect data rows per form, capped by max_rows total, and include minimal fields meta for grounding
         $total_rows = 0; $tables = [];
@@ -4078,9 +4122,79 @@ class Api
         }
         // Merge answers: concatenate with headings per form/chunk
         $summary = implode("\n\n", array_map(function($a){ return "[فرم " . $a['form_id'] . ", قطعه " . ($a['chunk']['index']+1) . "]\n" . trim((string)$a['text']); }, $answers));
-        $respPayload = [ 'summary' => $summary, 'chunks' => $answers, 'usage' => $usages, 'voice' => $voice ];
+        $respPayload = [ 'summary' => $summary, 'chunks' => $answers, 'usage' => $usages, 'voice' => $voice, 'session_id' => $session_id ];
+        // Persist assistant turn with aggregated usage
+        try {
+            if ($session_id > 0){
+                $tot = [ 'input'=>0,'output'=>0,'total'=>0,'duration_ms'=>0 ];
+                foreach ($usages as $u){ $uu = $u['usage'] ?? []; $tot['input'] += (int)($uu['input'] ?? 0); $tot['output'] += (int)($uu['output'] ?? 0); $tot['total'] += (int)($uu['total'] ?? 0); $tot['duration_ms'] += (int)($uu['duration_ms'] ?? 0); }
+                global $wpdb; $tblSess = \Arshline\Support\Helpers::tableName('ai_chat_sessions'); $tblMsg = \Arshline\Support\Helpers::tableName('ai_chat_messages');
+                $wpdb->insert($tblMsg, [
+                    'session_id' => $session_id,
+                    'role' => 'assistant',
+                    'content' => $summary,
+                    'usage_input' => max(0, (int)$tot['input']),
+                    'usage_output' => max(0, (int)$tot['output']),
+                    'usage_total' => max(0, (int)$tot['total']),
+                    'duration_ms' => max(0, (int)$tot['duration_ms']),
+                    'meta' => wp_json_encode([ 'form_ids'=>$form_ids, 'format'=>$format ], JSON_UNESCAPED_UNICODE),
+                ]);
+                $wpdb->update($tblSess, [ 'last_message_at' => current_time('mysql') ], [ 'id'=>$session_id ]);
+            }
+        } catch (\Throwable $e) { /* ignore persistence errors */ }
         if ($debug){ $respPayload['debug'] = $debugInfo; }
         return new WP_REST_Response($respPayload, 200);
+    }
+
+    // ===== Chat history endpoints =====
+    public static function list_chat_sessions(\WP_REST_Request $r)
+    {
+        try {
+            global $wpdb; $uid = get_current_user_id();
+            $t = \Arshline\Support\Helpers::tableName('ai_chat_sessions');
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT id, user_id, title, last_message_at, created_at, updated_at FROM {$t} WHERE user_id %s ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT 200", $uid ? '=' : 'IS', $uid ?: null), ARRAY_A);
+            if (!is_array($rows)) $rows = [];
+            return new \WP_REST_Response([ 'items' => $rows ], 200);
+        } catch (\Throwable $e) { return new \WP_REST_Response([ 'items'=>[] ], 200); }
+    }
+    public static function get_chat_messages(\WP_REST_Request $r)
+    {
+        $sid = (int)$r['session_id']; if ($sid<=0) return new \WP_REST_Response(['error'=>'invalid_session'], 400);
+        try {
+            global $wpdb; $uid = get_current_user_id();
+            $t = \Arshline\Support\Helpers::tableName('ai_chat_sessions');
+            $tm= \Arshline\Support\Helpers::tableName('ai_chat_messages');
+            $s = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id = %d", $sid), ARRAY_A);
+            if (!$s) return new \WP_REST_Response(['error'=>'not_found'], 404);
+            if ($uid && (int)($s['user_id'] ?? 0) && (int)$s['user_id'] !== $uid){ return new \WP_REST_Response(['error'=>'forbidden'], 403); }
+            $msgs = $wpdb->get_results($wpdb->prepare("SELECT id, role, content, usage_input, usage_output, usage_total, duration_ms, created_at FROM {$tm} WHERE session_id = %d ORDER BY id ASC", $sid), ARRAY_A) ?: [];
+            return new \WP_REST_Response(['session'=>['id'=>$sid,'title'=>$s['title'] ?? ''],'messages'=>$msgs], 200);
+        } catch (\Throwable $e) { return new \WP_REST_Response(['error'=>'server_error'], 500); }
+    }
+    public static function export_chat_session(\WP_REST_Request $r)
+    {
+        $sid = (int)$r['session_id']; if ($sid<=0) return new \WP_REST_Response(['error'=>'invalid_session'], 400);
+        $format = strtolower((string)($r->get_param('format') ?? 'json'));
+        try {
+            global $wpdb; $uid = get_current_user_id();
+            $t = \Arshline\Support\Helpers::tableName('ai_chat_sessions');
+            $tm= \Arshline\Support\Helpers::tableName('ai_chat_messages');
+            $s = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id = %d", $sid), ARRAY_A);
+            if (!$s) return new \WP_REST_Response(['error'=>'not_found'], 404);
+            if ($uid && (int)($s['user_id'] ?? 0) && (int)$s['user_id'] !== $uid){ return new \WP_REST_Response(['error'=>'forbidden'], 403); }
+            $msgs = $wpdb->get_results($wpdb->prepare("SELECT role, content, usage_input, usage_output, usage_total, duration_ms, created_at FROM {$tm} WHERE session_id = %d ORDER BY id ASC", $sid), ARRAY_A) ?: [];
+            if ($format === 'csv'){
+                $rows = [ ['created_at','role','usage_input','usage_output','usage_total','duration_ms','content'] ];
+                foreach ($msgs as $m){ $rows[] = [ $m['created_at'],$m['role'],(int)$m['usage_input'],(int)$m['usage_output'],(int)$m['usage_total'],(int)$m['duration_ms'],$m['content'] ]; }
+                $csv = '';
+                foreach ($rows as $r0){ $csv .= implode(',', array_map(function($v){ $s=is_string($v)?$v:json_encode($v); return '"'.str_replace('"','""',$s).'"'; }, $r0)) . "\r\n"; }
+                $resp = new \WP_REST_Response($csv, 200); $resp->header('Content-Type','text/csv; charset=UTF-8'); $resp->header('Content-Disposition','attachment; filename="chat-session-'.$sid.'.csv"'); return $resp;
+            }
+            // default json
+            $resp = new \WP_REST_Response([ 'session'=>['id'=>$sid,'title'=>$s['title'] ?? ''],'messages'=>$msgs ], 200);
+            $resp->header('Content-Disposition','attachment; filename="chat-session-'.$sid.'.json"');
+            return $resp;
+        } catch (\Throwable $e) { return new \WP_REST_Response(['error'=>'server_error'], 500); }
     }
 
     /** Insert a row into ai_usage table. */

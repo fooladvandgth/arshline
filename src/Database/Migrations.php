@@ -128,7 +128,33 @@ class Migrations
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 KEY agent_idx (agent),
                 KEY user_idx (user_id)
-            ) ENGINE=InnoDB;"
+            ) ENGINE=InnoDB;",
+            // AI chat sessions/messages: persist conversation history for analytics assistant (هوشنگ)
+            'ai_chat_sessions' => "CREATE TABLE IF NOT EXISTS {prefix}x_ai_chat_sessions (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED NULL,
+                title VARCHAR(190) NULL,
+                meta JSON NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                last_message_at DATETIME NULL,
+                KEY user_idx (user_id),
+                KEY last_msg_idx (last_message_at)
+            ) ENGINE=InnoDB;",
+            'ai_chat_messages' => "CREATE TABLE IF NOT EXISTS {prefix}x_ai_chat_messages (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                session_id BIGINT UNSIGNED NOT NULL,
+                role VARCHAR(16) NOT NULL,
+                content MEDIUMTEXT,
+                usage_input INT UNSIGNED DEFAULT 0,
+                usage_output INT UNSIGNED DEFAULT 0,
+                usage_total INT UNSIGNED DEFAULT 0,
+                duration_ms INT UNSIGNED DEFAULT 0,
+                meta JSON NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES {prefix}x_ai_chat_sessions(id) ON DELETE CASCADE,
+                KEY session_idx (session_id)
+            ) ENGINE=InnoDB;",
         ];
     }
 }

@@ -412,6 +412,7 @@
             '<span class="hint" style="opacity:.8">حالت: مدل زبانی (LLM)</span>'+
             '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaFormatTable" type="checkbox"/> ارسال جدول</label>'+
             '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+
+            '<button id="arAnaExport" class="ar-btn ar-btn--outline" title="خروجی گفتگو">خروجی</button>'+
             '<button id="arAnaSpeak" class="ar-btn ar-btn--soft" title="خواندن خلاصه">گویا</button>'+
             '<button id="arAnaClear" class="ar-btn ar-btn--outline" title="پاک‌کردن گفتگو">پاک‌کردن گفتگو</button>'+
           '</div>'+
@@ -427,8 +428,11 @@
           var structuredChk = null; // حذف حالت ساختاری؛ فقط LLM
           var formatTableChk = document.getElementById('arAnaFormatTable');
           var clearBtn = document.getElementById('arAnaClear');
+          var exportBtn = document.getElementById('arAnaExport');
           // simple in-memory chat history for this session
           var chatHistory = [];
+          // persistent session id to store chat server-side
+          var chatSessionId = 0; try { chatSessionId = parseInt(localStorage.getItem('arshAnaSessionId')||'0')||0; } catch(_){ }
           var ANA_DEBUG = false; try { ANA_DEBUG = (localStorage.getItem('arshAnaDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
           // Load minimal config and then list forms
           fetch(ARSHLINE_REST + 'analytics/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ return r.json(); }).then(function(cfg){ if(!cfg.enabled){ notify('هوشنگ غیرفعال است (AI)؛ ابتدا کلید/مبنا را تنظیم کنید.', 'warn'); } }).catch(function(){ });
@@ -437,6 +441,7 @@
           function doRun(){ try {
             var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
             var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
+            if (chatSessionId>0) body.session_id = chatSessionId;
             // pass conversation history (limit last 8 turns for brevity)
             if (chatHistory.length){ body.history = chatHistory.slice(-16); }
             // حالت فقط LLM
@@ -452,6 +457,7 @@
                 try {
                   if (j.error){ out.textContent = 'خطا: '+j.error; return; }
                   out.textContent = j.summary || '';
+                  if (j.session_id){ chatSessionId = parseInt(j.session_id)||0; try{ localStorage.setItem('arshAnaSessionId', String(chatSessionId||0)); }catch(_){ } }
                   if (ANA_DEBUG) { try { console.info('[ARSH][ANA] response', j); } catch(_){ } }
                   // append to history for better multi-turn chat
                   var userMsg = (q.value||'').trim();
@@ -471,7 +477,8 @@
           } catch(e){ console.error(e); notify('خطا در اجرای تحلیل','error'); }
           }
           if (run) run.addEventListener('click', doRun);
-          if (clearBtn) clearBtn.addEventListener('click', function(){ chatHistory = []; notify('گفتگو پاک شد','info'); });
+          if (clearBtn) clearBtn.addEventListener('click', function(){ chatHistory = []; chatSessionId = 0; try{ localStorage.removeItem('arshAnaSessionId'); }catch(_){ } notify('گفتگو پاک شد','info'); });
+          if (exportBtn) exportBtn.addEventListener('click', function(){ try { if (!chatSessionId){ notify('ابتدا یک پیام بفرستید تا گفتگویی ایجاد شود','warn'); return; } var url = new URL(ARSHLINE_REST + 'analytics/sessions/'+chatSessionId+'/export'); url.searchParams.set('format', (formatTableChk && formatTableChk.checked)?'csv':'json'); window.open(url.toString(), '_blank'); } catch(e){ console.error(e); notify('امکان خروجی وجود ندارد','error'); } });
           function speakFa(text){
             try {
               if (!('speechSynthesis' in window)) { notify('مرورگر از خواندن متن پشتیبانی نمی‌کند','warn'); return; }
