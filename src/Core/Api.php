@@ -3756,6 +3756,7 @@ class Api
     $chunk_size = isset($p['chunk_size']) && is_numeric($p['chunk_size']) ? max(50, min(2000, (int)$p['chunk_size'])) : 800;
         $model = is_scalar($p['model'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', (string)$p['model']), 0, 100) : '';
     $voice = is_scalar($p['voice'] ?? null) ? substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['voice']), 0, 50) : '';
+    $format = is_scalar($p['format'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['format']), 0, 20)) : '';
     $mode = is_scalar($p['mode'] ?? null) ? strtolower(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$p['mode']), 0, 20)) : '';
     $structuredParam = isset($p['structured']) ? (bool)$p['structured'] : null;
         // Optional chat history: array of {role:'user'|'assistant'|'system', content:string}
@@ -3794,6 +3795,17 @@ class Api
             $allowStructural = (bool)apply_filters('arshline_analytics_structured_intents', $allowStructural, $p);
         }
 
+        // Quick greeting intent — allow polite greeting regardless of data availability
+        $ql = mb_strtolower($question, 'UTF-8');
+        $isGreeting = (bool)(
+            preg_match('/\b(hi|hello|salam|salaam)\b/i', $ql)
+            || preg_match('/^(?:سلام|درود|وقت\s*بخیر)/u', $ql)
+        );
+        if ($isGreeting){
+            $greet = 'سلام! من هوشنگ هستم؛ دستیار تحلیل داده‌های فرم. هر سوالی دربارهٔ این فرم دارید بپرسید.';
+            return new WP_REST_Response([ 'summary' => $greet, 'chunks' => [], 'usage' => [], 'voice' => $voice ], 200);
+        }
+
         // Collect data rows per form, capped by max_rows total, and include minimal fields meta for grounding
         $total_rows = 0; $tables = [];
         foreach ($form_ids as $fid){
@@ -3818,7 +3830,6 @@ class Api
         }
 
         // Quick structural intent: answer "how many items/questions/fields" without LLM
-        $ql = mb_strtolower($question, 'UTF-8');
         $isCountIntent = (bool) (
             // English variants
             preg_match('/\bhow\s+many\s+(?:questions?|items?|fields?)\b/i', $ql)
@@ -3934,6 +3945,32 @@ class Api
                 // Fetch submission values in batch for this slice to ground the model
                 $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $slice), function($v){ return $v>0; }));
                 $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                // Optionally build a tabular CSV (header=field labels, rows=submissions) to help the model
+                $tableCsv = '';
+                if ($format === 'table'){
+                    $labels = [];
+                    $idToLabel = [];
+                    foreach (($t['fields_meta'] ?? []) as $fm){ $idToLabel[(int)($fm['id'] ?? 0)] = (string)($fm['label'] ?? ''); }
+                    $labels = array_values(array_filter(array_map(function($fm){ return (string)($fm['label'] ?? ''); }, ($t['fields_meta'] ?? [])), function($s){ return $s!==''; }));
+                    if (!empty($labels)){
+                        $rowsCsv = [];
+                        $rowsCsv[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $labels));
+                        foreach ($sliceIds as $sid){
+                            $vals = $valuesMap[$sid] ?? [];
+                            $map = [];
+                            foreach ($vals as $v){
+                                $fidv = (int)($v['field_id'] ?? 0);
+                                $lab = (string)($idToLabel[$fidv] ?? ''); if ($lab==='') continue;
+                                $val = trim((string)($v['value'] ?? ''));
+                                if (!isset($map[$lab])) $map[$lab] = [];
+                                if ($val !== '') $map[$lab][] = $val;
+                            }
+                            $rowsCsv[] = implode(',', array_map(function($h) use ($map){ $v = isset($map[$h]) ? implode(' | ', $map[$h]) : ''; return '"'.str_replace('"','""',$v).'"'; }, $labels));
+                        }
+                        $tableCsv = implode("\r\n", $rowsCsv);
+                    }
+                }
+
                 // Build chat messages: system + history + current user payload (grounded data)
                 $messages = [
                     [ 'role' => 'system', 'content' => 'You are Hoshang, a Persian assistant and data analyst. Rules: 1) ONLY use the provided data: fields_meta, submissions (rows), and values. 2) Do NOT invent facts beyond these. 3) For greetings or pleasantries, you may respond politely in Persian. 4) For questions unrelated to the provided form data or when information cannot be strictly derived, respond exactly with: «اطلاعات لازم در فرم پیدا نمی‌کنم». 5) Otherwise, answer in Persian, concisely and clearly (use bullets/tables when suitable).' ]
@@ -3941,7 +3978,11 @@ class Api
                 if (!empty($history)){
                     foreach ($history as $h){ $messages[] = $h; }
                 }
-                $messages[] = [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ], JSON_UNESCAPED_UNICODE) ];
+                if ($format === 'table' && $tableCsv !== ''){
+                    $messages[] = [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'data_format'=>'table', 'table_csv'=>$tableCsv, 'fields_meta'=>$t['fields_meta'] ?? [] ], JSON_UNESCAPED_UNICODE) ];
+                } else {
+                    $messages[] = [ 'role' => 'user', 'content' => json_encode([ 'question'=>$question, 'form_id'=>$fid, 'fields_meta'=>$t['fields_meta'] ?? [], 'rows'=>$slice, 'values'=>$valuesMap ], JSON_UNESCAPED_UNICODE) ];
+                }
                 $payload = [
                     'model' => $use_model,
                     'messages' => $messages,

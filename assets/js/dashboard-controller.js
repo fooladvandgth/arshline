@@ -451,6 +451,7 @@
                 try {
                   if (j.error){ out.textContent = 'خطا: '+j.error; return; }
                   out.textContent = j.summary || '';
+                  if (ANA_DEBUG) { try { console.info('[ARSH][ANA] response', j); } catch(_){ } }
                   // append to history for better multi-turn chat
                   var userMsg = (q.value||'').trim();
                   var assistantMsg = String(j.summary||'');
