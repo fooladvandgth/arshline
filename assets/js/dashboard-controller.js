@@ -408,8 +408,11 @@
             '<select id="arAnaForms" class="ar-select" multiple size="6" style="min-width:260px"></select>'+
             '<input id="arAnaQ" class="ar-input" placeholder="سوال شما…" style="min-width:280px;flex:1 1 320px" />'+
             '<input id="arAnaChunk" class="ar-input" type="number" value="800" min="50" max="2000" style="width:120px" title="سایز قطعه" />'+
+            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaStructured" type="checkbox"/> ساختاری (سریع)</label>'+
+            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaFormatTable" type="checkbox"/> ارسال جدول</label>'+
             '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+
             '<button id="arAnaSpeak" class="ar-btn ar-btn--soft" title="خواندن خلاصه">گویا</button>'+
+            '<button id="arAnaClear" class="ar-btn ar-btn--outline" title="پاک‌کردن گفتگو">پاک‌کردن گفتگو</button>'+
           '</div>'+
           '<div id="arAnaOut" class="card glass" style="padding:1rem;white-space:pre-wrap;line-height:1.7"></div>'+
         '</div>';
@@ -420,6 +423,11 @@
           var q = document.getElementById('arAnaQ');
           var speak = document.getElementById('arAnaSpeak');
           var chunk = document.getElementById('arAnaChunk');
+          var structuredChk = document.getElementById('arAnaStructured');
+          var formatTableChk = document.getElementById('arAnaFormatTable');
+          var clearBtn = document.getElementById('arAnaClear');
+          // simple in-memory chat history for this session
+          var chatHistory = [];
           var ANA_DEBUG = false; try { ANA_DEBUG = (localStorage.getItem('arshAnaDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
           // Load minimal config and then list forms
           fetch(ARSHLINE_REST + 'analytics/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ return r.json(); }).then(function(cfg){ if(!cfg.enabled){ notify('هوشنگ غیرفعال است (AI)؛ ابتدا کلید/مبنا را تنظیم کنید.', 'warn'); } }).catch(function(){ });
@@ -428,6 +436,12 @@
           function doRun(){ try {
             var ids = getSelected(); if(ids.length===0){ notify('حداقل یک فرم انتخاب کنید','warn'); return; }
             var body = { form_ids: ids, question: (q.value||'').trim(), chunk_size: parseInt(chunk.value||'800')||800 };
+            // pass conversation history (limit last 8 turns for brevity)
+            if (chatHistory.length){ body.history = chatHistory.slice(-16); }
+            // structured/llm mode
+            if (structuredChk && structuredChk.checked){ body.mode = 'structured'; } else { body.mode = 'llm'; }
+            // preferred format
+            if (formatTableChk && formatTableChk.checked){ body.format = 'table'; }
             if (ANA_DEBUG) body.debug = true;
             if (ANA_DEBUG) { try { console.info('[ARSH][ANA] request', body); } catch(_){ } }
             out.textContent = 'در حال پردازش…'; var old = run.textContent; run.disabled=true; run.textContent='در حال پردازش…';
@@ -437,6 +451,11 @@
                 try {
                   if (j.error){ out.textContent = 'خطا: '+j.error; return; }
                   out.textContent = j.summary || '';
+                  // append to history for better multi-turn chat
+                  var userMsg = (q.value||'').trim();
+                  var assistantMsg = String(j.summary||'');
+                  if (userMsg){ chatHistory.push({ role:'user', content:userMsg }); }
+                  if (assistantMsg){ chatHistory.push({ role:'assistant', content:assistantMsg }); }
                   // Optionally show a brief usage footer
                   if (Array.isArray(j.usage) && j.usage.length){
                     var tot = j.usage.reduce(function(a,b){ var u=b.usage||{}; return { input:(a.input||0)+(u.input||0), output:(a.output||0)+(u.output||0), total:(a.total||0)+(u.total||0) }; }, {});
@@ -450,6 +469,7 @@
           } catch(e){ console.error(e); notify('خطا در اجرای تحلیل','error'); }
           }
           if (run) run.addEventListener('click', doRun);
+          if (clearBtn) clearBtn.addEventListener('click', function(){ chatHistory = []; notify('گفتگو پاک شد','info'); });
           function speakFa(text){
             try {
               if (!('speechSynthesis' in window)) { notify('مرورگر از خواندن متن پشتیبانی نمی‌کند','warn'); return; }
