@@ -145,7 +145,14 @@
     }
     function routeFromHash(){
       var raw = (location.hash||'').replace('#','').trim();
-      if (!raw){ arRenderTab('dashboard'); return; }
+      try { if (raw) localStorage.setItem('arshLastRoute', raw); } catch(_){ }
+      if (!raw){
+        try {
+          var last = localStorage.getItem('arshLastRoute') || localStorage.getItem('arshLastTab') || 'dashboard';
+          if (last && last !== 'dashboard'){ setHash(last); return; }
+          arRenderTab(last); return;
+        } catch(_){ arRenderTab('dashboard'); return; }
+      }
     var parts = raw.split('/');
     // Normalize first segment (drop query) for matches like "messaging?tab=sms"
     var seg0 = (parts[0]||'').split('?')[0];
@@ -295,7 +302,8 @@
 
     // Centralized tab renderer (ported from template)
     function renderTab(tab){
-      try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
+  try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
+  try { localStorage.setItem('arshLastRoute', tab); } catch(_){ }
       try {
   if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(tab)){
           var _h = (location.hash||'').replace('#','');
@@ -2094,8 +2102,10 @@
         // Fallback: simple initial render if router is not present
         try {
           var initial = (location.hash||'').replace('#','').trim();
-          if (!initial){ try { initial = localStorage.getItem('arshLastTab') || 'dashboard'; } catch(_){ initial = 'dashboard'; } }
-          renderTab(initial);
+          if (!initial){ try { initial = localStorage.getItem('arshLastRoute') || localStorage.getItem('arshLastTab') || 'dashboard'; } catch(_){ initial = 'dashboard'; } }
+          // If a nested route (e.g., users/ug?tab=members), drive via hash router; else direct tab render
+          if (initial.indexOf('/') >= 0 || initial.indexOf('?') >= 0){ setHash(initial); routeFromHash(); }
+          else { renderTab(initial); }
         } catch(_){ }
       }
       // Signal to template to skip inline controller block to avoid duplication
