@@ -3780,6 +3780,30 @@ class Api
             return new WP_REST_Response([ 'summary' => 'داده‌ای برای تحلیل یافت نشد.', 'chunks' => [], 'usage' => [] ], 200);
         }
 
+        // Quick structural intent: answer "how many items/questions" without LLM
+        $ql = mb_strtolower($question, 'UTF-8');
+        $isCountIntent = (bool) (preg_match('/\bhow\s+many\b/i', $ql)
+            || preg_match('/\b(question|questions|fields|items)\b/i', $ql)
+            || preg_match('/چند\s*(?:سوال|سوال\s*|آیتم|گزینه|فیلد)/u', $ql));
+        if ($isCountIntent){
+            $supported = [ 'short_text'=>1,'long_text'=>1,'multiple_choice'=>1,'dropdown'=>1,'rating'=>1 ];
+            $lines = [];
+            foreach ($form_ids as $fid){
+                try {
+                    $fields = FieldRepository::listByForm($fid);
+                    $cnt = 0;
+                    foreach (($fields ?: []) as $f){
+                        $p = isset($f['props']) && is_array($f['props']) ? $f['props'] : [];
+                        $type = (string)($p['type'] ?? '');
+                        if (isset($supported[$type])) $cnt++;
+                    }
+                    $lines[] = "فرم " . $fid . ": " . $cnt . " آیتم";
+                } catch (\Throwable $e) { $lines[] = "فرم " . $fid . ": نامشخص"; }
+            }
+            $sum = implode("\n", $lines);
+            return new WP_REST_Response([ 'summary' => $sum, 'chunks' => [], 'usage' => [], 'voice' => $voice ], 200);
+        }
+
         // For each table, build chunks and call LLM with a compact prompt
         $baseUrl = rtrim($base, '/');
         $endpoint = $baseUrl . '/v1/chat/completions';
@@ -3806,11 +3830,35 @@ class Api
                 $t0 = microtime(true);
                 $resp = wp_remote_post($endpoint, [ 'timeout'=> 30, 'headers'=>$headers, 'body'=> $payloadJson ]);
                 $ok = is_array($resp) && !is_wp_error($resp) && (int)wp_remote_retrieve_response_code($resp) === 200;
-                $body = $ok ? json_decode(wp_remote_retrieve_body($resp), true) : null;
+                $rawBody = $ok ? wp_remote_retrieve_body($resp) : '';
+                $body = $ok ? json_decode($rawBody, true) : null;
                 $text = '';
                 $usage = [ 'input'=>0,'output'=>0,'total'=>0,'cost'=>null,'duration_ms'=> (int) round((microtime(true)-$t0)*1000) ];
                 if (is_array($body)){
-                    $text = (string)($body['choices'][0]['message']['content'] ?? '');
+                    // Try to extract text from multiple common shapes
+                    $text = '';
+                    try {
+                        if (isset($body['choices']) && is_array($body['choices']) && isset($body['choices'][0])){
+                            $c0 = $body['choices'][0];
+                            if (isset($c0['message']['content'])){
+                                $mc = $c0['message']['content'];
+                                if (is_string($mc)) { $text = (string)$mc; }
+                                elseif (is_array($mc)) { // parts array
+                                    $parts = [];
+                                    foreach ($mc as $part){
+                                        if (is_string($part)) $parts[] = $part;
+                                        elseif (is_array($part) && isset($part['text']) && is_string($part['text'])) $parts[] = $part['text'];
+                                    }
+                                    $text = trim(implode("\n", $parts));
+                                }
+                            } elseif (isset($c0['text']) && is_string($c0['text'])) {
+                                $text = (string)$c0['text'];
+                            }
+                        }
+                        if ($text === '' && isset($body['output_text']) && is_string($body['output_text'])) $text = (string)$body['output_text'];
+                        if ($text === '' && isset($body['message']) && is_string($body['message'])) $text = (string)$body['message'];
+                        if ($text === '' && isset($body['content']) && is_string($body['content'])) $text = (string)$body['content'];
+                    } catch (\Throwable $e) { $text = ''; }
                     $u = $body['usage'] ?? [];
                     // Support multiple usage shapes (OpenAI-style and others)
                     $in = 0; $out = 0; $tot = 0;
