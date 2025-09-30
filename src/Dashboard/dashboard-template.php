@@ -166,7 +166,10 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     // Tabs: render content per menu item
     document.addEventListener('DOMContentLoaded', function() {
     var content = document.getElementById('arshlineDashboardContent');
+        // Sidebar nav anchors: data-tab items are handled by inline controller clicks,
+        // but there are also pure-hash links (like #users/ug) that should participate in active-state.
         var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
+        var allNavLinks = document.querySelectorAll('.arshline-sidebar nav a');
         var sidebar = document.querySelector('.arshline-sidebar');
         var sidebarToggle = document.getElementById('arSidebarToggle');
         // Debug helpers
@@ -373,14 +376,21 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var parts = hash.split('/');
             var seg0 = (parts[0]||'').split('?')[0];
             var seg1 = (parts[1]||'').split('?')[0];
-            links.forEach(function(a){
+            // Evaluate over ALL sidebar links so pure-hash items (e.g., #users/ug) can be highlighted
+            allNavLinks.forEach(function(a){
                 var dt = a.getAttribute('data-tab');
                 var href = a.getAttribute('href') || '';
                 var isUG = (seg0==='users' && seg1==='ug');
                 var isActive = (dt ? (dt === tab) : false);
                 if (!isActive && dt === 'users' && tab && tab.indexOf('users') === 0) isActive = true;
                 if (!isActive && isUG && href.indexOf('#users/ug') === 0) isActive = true;
-                if (isActive) a.classList.add('active'); else a.classList.remove('active');
+                if (isActive) {
+                    a.classList.add('active');
+                    a.setAttribute('aria-current', 'page');
+                } else {
+                    a.classList.remove('active');
+                    a.removeAttribute('aria-current');
+                }
             });
         }
         // Map type -> Ionicon name (we already load Ionicons)
