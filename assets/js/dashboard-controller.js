@@ -410,8 +410,10 @@
             '<input id="arAnaChunk" class="ar-input" type="number" value="800" min="50" max="2000" style="width:120px" title="سایز قطعه" />'+
             /* ساختاری (سریع) — حذف شد: حالت فقط LLM */
             '<span class="hint" style="opacity:.8">حالت: مدل زبانی (LLM)</span>'+
-            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaFormatTable" type="checkbox"/> ارسال جدول</label>'+
-            '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+
+            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaFormatTable" type="checkbox"/> ارسال جدول</label>'+ 
+            '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arAnaDebug" type="checkbox"/> دیباگ</label>'+ 
+            '<input id="arAnaMaxTok" class="ar-input" type="number" value="800" min="16" max="2048" style="width:120px" title="حداکثر توکن خروجی" />'+ 
+            '<button id="arAnaRun" class="ar-btn">تحلیل</button>'+ 
             '<button id="arAnaExport" class="ar-btn ar-btn--outline" title="خروجی گفتگو">خروجی</button>'+
             '<button id="arAnaSpeak" class="ar-btn ar-btn--soft" title="خواندن خلاصه">گویا</button>'+
             '<button id="arAnaClear" class="ar-btn ar-btn--outline" title="پاک‌کردن گفتگو">پاک‌کردن گفتگو</button>'+
@@ -427,6 +429,8 @@
           var chunk = document.getElementById('arAnaChunk');
           var structuredChk = null; // حذف حالت ساختاری؛ فقط LLM
           var formatTableChk = document.getElementById('arAnaFormatTable');
+          var debugChk = document.getElementById('arAnaDebug');
+          var maxTok = document.getElementById('arAnaMaxTok');
           var clearBtn = document.getElementById('arAnaClear');
           var exportBtn = document.getElementById('arAnaExport');
           // simple in-memory chat history for this session
@@ -434,6 +438,8 @@
           // persistent session id to store chat server-side
           var chatSessionId = 0; try { chatSessionId = parseInt(localStorage.getItem('arshAnaSessionId')||'0')||0; } catch(_){ }
           var ANA_DEBUG = false; try { ANA_DEBUG = (localStorage.getItem('arshAnaDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
+          try { if (debugChk){ debugChk.checked = !!ANA_DEBUG; debugChk.addEventListener('change', function(){ ANA_DEBUG = !!debugChk.checked; try { localStorage.setItem('arshAnaDebug', ANA_DEBUG ? '1' : '0'); } catch(_){ } }); } } catch(_){ }
+          try { if (maxTok){ var saved = parseInt(localStorage.getItem('arshAnaMaxTok')||'800')||800; maxTok.value = String(saved); maxTok.addEventListener('change', function(){ var v = parseInt(maxTok.value||'0')||800; if (v<16) v=16; if (v>2048) v=2048; maxTok.value = String(v); try { localStorage.setItem('arshAnaMaxTok', String(v)); } catch(_){ } }); } } catch(_){ }
           // Load minimal config and then list forms
           fetch(ARSHLINE_REST + 'analytics/config', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ return r.json(); }).then(function(cfg){ if(!cfg.enabled){ notify('هوشنگ غیرفعال است (AI)؛ ابتدا کلید/مبنا را تنظیم کنید.', 'warn'); } }).catch(function(){ });
           fetch(ARSHLINE_REST + 'forms', { headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } }).then(function(r){ if(!r.ok){ if(r.status===401 && typeof handle401==='function') handle401(); throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { var arr = Array.isArray(data) ? data : (Array.isArray(data.items)?data.items:[]); sel.innerHTML = arr.map(function(f){ return '<option value="'+String(f.id)+'">#'+String(f.id)+' — '+(f.title||'بی‌عنوان')+'</option>'; }).join(''); } catch(_){ } }).catch(function(err){ console.error(err); notify('دریافت لیست فرم‌ها ناموفق بود','error'); });
@@ -478,6 +484,7 @@
             // preferred format
             if (formatTableChk && formatTableChk.checked){ body.format = 'table'; }
             if (ANA_DEBUG) body.debug = true;
+            try { if (maxTok){ var mt = parseInt(maxTok.value||'0')||0; if (mt>0) body.max_tokens = Math.max(16, Math.min(2048, mt)); } } catch(_){ }
             if (ANA_DEBUG) { try { console.info('[ARSH][ANA] request', body); } catch(_){ } }
             var old = run.textContent; run.disabled=true; run.textContent='در حال پردازش…';
             // render user message and a pending assistant bubble
@@ -501,6 +508,19 @@
                     var tot = j.usage.reduce(function(a,b){ var u=b.usage||{}; return { input:(a.input||0)+(u.input||0), output:(a.output||0)+(u.output||0), total:(a.total||0)+(u.total||0) }; }, {});
                     var m = document.createElement('div'); m.className='hint'; m.style.marginTop = '.6rem'; m.textContent = 'مصرف توکن — ورودی: '+(tot.input||0)+' ؛ خروجی: '+(tot.output||0)+' ؛ کل: '+(tot.total||0);
                     if (pending && pending.wrap) pending.wrap.appendChild(m); else out.appendChild(m);
+                  }
+                  // Render debug details if available
+                  if (j.debug && pending && pending.wrap && ANA_DEBUG){
+                    try {
+                      var det = document.createElement('details'); det.style.marginTop = '.4rem';
+                      var sum = document.createElement('summary'); sum.textContent = 'جزئیات دیباگ'; det.appendChild(sum);
+                      var pre = document.createElement('pre'); pre.style.whiteSpace = 'pre-wrap'; pre.style.direction = 'ltr'; pre.style.maxHeight='260px'; pre.style.overflow='auto';
+                      var dbgStr = '';
+                      try { dbgStr = JSON.stringify(j.debug, null, 2); } catch(_) { dbgStr = String(j.debug); }
+                      if (dbgStr.length > 4000) dbgStr = dbgStr.slice(0, 4000) + '\n…[truncated]';
+                      pre.textContent = dbgStr; det.appendChild(pre);
+                      pending.wrap.appendChild(det);
+                    } catch(_){ }
                   }
                 } catch(e){ out.textContent = 'خطا در نمایش خروجی'; }
               })
