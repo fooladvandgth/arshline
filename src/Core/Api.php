@@ -23,6 +23,31 @@ use Arshline\Core\AccessControl;
 class Api
 {
     /**
+     * Read AI analysis configuration from options with sane defaults and filters.
+     * This aids Hybrid/Efficient/AI-Heavy modes and caps while UI is pending.
+     */
+    protected static function get_ai_analysis_config(): array
+    {
+        $gs = get_option('arshline_settings', []);
+        $mode = is_scalar($gs['ai_mode'] ?? null) ? (string)$gs['ai_mode'] : 'hybrid'; // efficient|hybrid|ai-heavy
+        $maxRows = isset($gs['ai_max_rows']) && is_numeric($gs['ai_max_rows']) ? max(50, min(1000, (int)$gs['ai_max_rows'])) : 400;
+        $allowPII = !empty($gs['ai_allow_pii']);
+        $tokTypical = isset($gs['ai_tok_typical']) && is_numeric($gs['ai_tok_typical']) ? max(1000, min(16000, (int)$gs['ai_tok_typical'])) : 8000;
+        $tokMax = isset($gs['ai_tok_max']) && is_numeric($gs['ai_tok_max']) ? max($tokTypical, min(32000, (int)$gs['ai_tok_max'])) : 32000;
+        $res = [
+            'mode' => $mode,
+            'max_rows' => $maxRows,
+            'allow_pii' => $allowPII,
+            'token_typical' => $tokTypical,
+            'token_max' => $tokMax,
+        ];
+        // Allow integrators to tune programmatically
+        if (function_exists('apply_filters')){
+            $res = apply_filters('arshline_ai_analysis_config', $res);
+        }
+        return $res;
+    }
+    /**
      * Normalize and sanitize supported meta keys to expected types.
      * Unknown keys are left as-is to keep flexibility, but callers should prefer known keys.
      */
