@@ -4474,9 +4474,25 @@ class Api
                         return ($score>1.0)?1.0:$score;
                     };
                     $bestScore = 0.0; $bestId = 0; $rowMatchDbg = [];
+                    // Tunable parameters (weights/bonuses/thresholds) via filter
+                    $matchParams = [
+                        'wTok' => 0.65,
+                        'wLev' => 0.35,
+                        'bonus_exact' => 0.20,
+                        'bonus_partial' => 0.15,
+                        'thr_one' => 0.50,
+                        'thr_two' => 0.65,
+                        'thr_three' => 0.70,
+                    ];
+                    try { if (function_exists('apply_filters')){ $tmp = apply_filters('arshline_ai_name_match_params', $matchParams, $question); if (is_array($tmp)) $matchParams = array_merge($matchParams, $tmp); } } catch (\Throwable $e) { /* ignore */ }
+                    $wTok = (float)$matchParams['wTok'];
+                    $wLev = (float)$matchParams['wLev'];
+                    $bExact = (float)$matchParams['bonus_exact'];
+                    $bPartial = (float)$matchParams['bonus_partial'];
                     // Dynamic threshold: single-token names are often noisy, be a bit more permissive
                     $tokCount = is_array($hintTokens) ? count($hintTokens) : 0;
-                    $threshold = ($tokCount <= 1) ? 0.50 : (($tokCount === 2) ? 0.65 : 0.7);
+                    $thr1 = (float)$matchParams['thr_one']; $thr2 = (float)$matchParams['thr_two']; $thr3 = (float)$matchParams['thr_three'];
+                    $threshold = ($tokCount <= 1) ? $thr1 : (($tokCount === 2) ? $thr2 : $thr3);
                     $prefilterNotes[] = 'name_threshold_'.str_replace('.', '_', (string)$threshold);
                     // Helper: pseudo-Levenshtein similarity tolerant to UTF-8 via similar_text fallback
                     $simLev = function(string $a, string $b) {
@@ -4521,11 +4537,11 @@ class Api
                                     $prefReason = '';
                                     if ($firstHint !== ''){
                                         foreach ($rowTokens as $rt){
-                                            if ($rt === $firstHint){ $bonus = 0.20; $prefReason = 'first_name_exact'; break; }
-                                            if ((mb_strlen($rt,'UTF-8')>=3 || mb_strlen($firstHint,'UTF-8')>=3) && (mb_strpos($rt,$firstHint,0,'UTF-8')===0 || mb_strpos($firstHint,$rt,0,'UTF-8')===0)){ $bonus = max($bonus, 0.15); $prefReason = $prefReason ?: 'first_name_partial'; }
+                                            if ($rt === $firstHint){ $bonus = $bExact; $prefReason = 'first_name_exact'; break; }
+                                            if ((mb_strlen($rt,'UTF-8')>=3 || mb_strlen($firstHint,'UTF-8')>=3) && (mb_strpos($rt,$firstHint,0,'UTF-8')===0 || mb_strpos($firstHint,$rt,0,'UTF-8')===0)){ $bonus = max($bonus, $bPartial); $prefReason = $prefReason ?: 'first_name_partial'; }
                                         }
                                     }
-                                    $sc = 0.65*$scTok + 0.35*$scLev + $bonus;
+                                    $sc = ($wTok*$scTok) + ($wLev*$scLev) + $bonus;
                                     if ($sc > 1.0) $sc = 1.0;
                                     if ($sc >= $threshold){ $matchedIds[] = $sid; }
                                     if ($sc > $bestScore){ $bestScore=$sc; $bestId=$sid; }
