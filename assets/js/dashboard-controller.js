@@ -66,6 +66,52 @@
     function cerror(){ if (typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
     try { window.arshSetDebug = function(v){ try { localStorage.setItem('arshDebug', v ? '1' : '0'); } catch(_){ } }; } catch(_){ }
 
+    // Console log filter — keep logs focused on AI/OpenAI by default
+    try {
+      // arlog query toggles: ?arlog=all | ai | none
+      (function(){
+        var qv = null;
+        try { qv = new URLSearchParams(window.location.search).get('arlog'); } catch(_){ }
+        if (qv === 'all' || qv === 'ai' || qv === 'none') { try { localStorage.setItem('arshLogMode', qv); } catch(_){ } }
+      })();
+      var LOG_MODE = 'ai';
+      try { LOG_MODE = (localStorage.getItem('arshLogMode') || 'ai'); } catch(_){ LOG_MODE = 'ai'; }
+      // Allow-list matcher: treat logs with explicit AI tags or known keywords as AI-related
+      var _AI_RE = /\[(ARSH)\]\[(ANA|CHAT|AI)\]|\bOpenAI\b|analytics\/analyze|hosh(ang|yar)?|هوش|هوشنگ|ai\/(?:simple\-chat|config|test)/i;
+      var _orig = { log: console.log, info: console.info, warn: console.warn, error: console.error, group: console.group, groupCollapsed: console.groupCollapsed, groupEnd: console.groupEnd };
+      function _shouldPrint(args){
+        if (LOG_MODE === 'all') return true;
+        if (LOG_MODE === 'none') return false;
+        // ai-only: check any stringy arg against allow list
+        try {
+          for (var i=0;i<args.length;i++){
+            var a = args[i];
+            if (typeof a === 'string' && _AI_RE.test(a)) return true;
+            // Objects that contain a routing hint to analytics
+            if (a && typeof a === 'object'){
+              try {
+                if ((a.routing && (a.routing.structured || a.routing.mode==='structured')) || a.request_preview || a.analytics_preview) return true;
+              } catch(_){ }
+            }
+          }
+        } catch(_){ }
+        return false;
+      }
+      // Wrap basic console methods
+      ['log','info','warn','error','group','groupCollapsed'].forEach(function(m){
+        try {
+          console[m] = function(){
+            var args = Array.prototype.slice.call(arguments);
+            if (_shouldPrint(args)) { try { _orig[m].apply(console, args); } catch(_){ } }
+          };
+        } catch(_){ }
+      });
+      // Always pass through groupEnd to avoid breaking console grouping
+      try { console.groupEnd = function(){ try { _orig.groupEnd && _orig.groupEnd.apply(console, arguments); } catch(_){ } }; } catch(_){ }
+      // Expose a quick toggle helper
+      try { window.arshSetLogMode = function(mode){ if (!mode) return; try { localStorage.setItem('arshLogMode', String(mode)); } catch(_){ } try { location.reload(); } catch(_){ } }; } catch(_){ }
+    } catch(_){ }
+
     function setSidebarClosed(closed, persist){
       if (!sidebar) return;
       sidebar.classList.toggle('closed', !!closed);
@@ -135,7 +181,12 @@
 
     // Simple hash-based router so browser Back works correctly
     var _arNavSilence = 0;
-    function setHash(h){ var target = '#' + h; if (location.hash !== target){ _arNavSilence++; location.hash = h; setTimeout(function(){ _arNavSilence = Math.max(0, _arNavSilence - 1); }, 0); } }
+    function setHash(h){
+      // Prefer centralized router if available to avoid double-handling on hashchange
+      try { if (window.ARSH_ROUTER && typeof window.ARSH_ROUTER.setHash === 'function') { return window.ARSH_ROUTER.setHash(h); } } catch(_){ }
+      var target = '#' + h;
+      if (location.hash !== target){ _arNavSilence++; location.hash = h; setTimeout(function(){ _arNavSilence = Math.max(0, _arNavSilence - 1); }, 0); }
+    }
     function arRenderTab(tab){
       try {
         if (typeof window.renderTab === 'function') return window.renderTab(tab);
@@ -410,6 +461,7 @@
           '<div id="arHoshChat" style="margin-bottom:.8rem;display:block">'+
             '<div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem">'+
               '<input id="arChatQ" class="ar-input" placeholder="پیام شما…" style="min-width:280px;flex:1 1 420px" />'+
+              '<select id="arChatForm" class="ar-select" title="فرم مرجع (اختیاری؛ فقط برای اتصال به داده‌ها استفاده می‌شود)" style="min-width:220px"><option value="">— بدون اتصال به داده —</option></select>'+
               '<label style="display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap"><input id="arChatDebug" type="checkbox"/> دیباگ</label>'+ 
               '<input id="arChatMaxTok" class="ar-input" type="number" value="800" min="16" max="2048" style="width:120px" title="حداکثر توکن خروجی" />'+ 
               '<button id="arChatSend" class="ar-btn">ارسال</button>'+ 
@@ -459,13 +511,45 @@
             var send = document.getElementById('arChatSend');
             var clearBtn = document.getElementById('arChatClear');
             var exportBtn = document.getElementById('arChatExport');
+            var formSel = document.getElementById('arChatForm');
             var debugChk = document.getElementById('arChatDebug');
             var maxTok = document.getElementById('arChatMaxTok');
+            // TEMP: fully disable Simple Chat while focusing on Advanced Analysis
+            try {
+              var msg = 'چت ساده به‌صورت موقت غیرفعال است (در حال تمرکز روی «تحلیل پیشرفته»).';
+              if (out){ out.innerHTML = ''; var d=document.createElement('div'); d.className='ar-alert'; d.textContent = msg; out.appendChild(d); }
+              if (q) q.disabled = true; if (send) send.disabled = true; if (clearBtn) clearBtn.disabled = true; if (exportBtn) exportBtn.disabled = true; if (formSel) formSel.disabled = true; if (maxTok) maxTok.disabled = true; if (debugChk) debugChk.disabled = true;
+            } catch(_){ }
+            return; // short-circuit chat wiring
             var CHAT_DEBUG = false; try { CHAT_DEBUG = (localStorage.getItem('arshChatDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
             try { if (debugChk){ debugChk.checked = !!CHAT_DEBUG; debugChk.addEventListener('change', function(){ CHAT_DEBUG = !!debugChk.checked; try { localStorage.setItem('arshChatDebug', CHAT_DEBUG ? '1' : '0'); } catch(_){ } }); } } catch(_){ }
             try { if (maxTok){ var saved = parseInt(localStorage.getItem('arshChatMaxTok')||'800')||800; maxTok.value = String(saved); maxTok.addEventListener('change', function(){ var v = parseInt(maxTok.value||'0')||800; if (v<16) v=16; if (v>2048) v=2048; maxTok.value = String(v); try { localStorage.setItem('arshChatMaxTok', String(v)); } catch(_){ } }); } } catch(_){ }
             var history = [];
             var chatSessionId = 0; try { chatSessionId = parseInt(localStorage.getItem('arshChatSessionId')||'0')||0; } catch(_){ }
+            // Load forms for optional grounding (published only)
+            (function loadChatForms(){ try {
+              if (!formSel) return; formSel.innerHTML = '<option value="">— بدون اتصال به داده —</option>';
+              // Guard missing REST/nonce
+              if (typeof ARSHLINE_REST === 'undefined' || typeof ARSHLINE_NONCE === 'undefined'){
+                var optErr=document.createElement('option'); optErr.value=''; optErr.textContent='(پیکربندی REST/Nonce یافت نشد)'; optErr.disabled=true; formSel.appendChild(optErr); return;
+              }
+              fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE } })
+                .then(function(r){ if(!r.ok){ throw new Error('HTTP '+r.status); } return r.json(); })
+                .then(function(list){ try {
+                  var arr = Array.isArray(list) ? list : (Array.isArray(list.items)? list.items : []);
+                  var published = arr.filter(function(f){ return String(f.status||'')==='published'; });
+                  if (published.length===0){ var opt=document.createElement('option'); opt.value=''; opt.textContent='(هیچ فرم منتشرشده‌ای نیست)'; opt.disabled=true; formSel.appendChild(opt); }
+                  published.forEach(function(f){ var opt=document.createElement('option'); opt.value=String(f.id); opt.textContent = '#'+f.id+' — '+(f.title||'بی‌عنوان'); formSel.appendChild(opt); });
+                } catch(_){ }
+                })
+                .catch(function(err){ try {
+                  var opt=document.createElement('option'); opt.value=''; opt.textContent='خطا در بارگذاری فرم‌ها'; opt.disabled=true; formSel.appendChild(opt);
+                  if (document && document.getElementById('arChatOut')){
+                    var out = document.getElementById('arChatOut'); var d=document.createElement('div'); d.className='ar-alert ar-alert--err'; d.style.marginBottom='.5rem'; d.textContent='خطا در دریافت لیست فرم‌ها: '+String((err&&err.message)||err); out.prepend(d);
+                  }
+                } catch(_){ }
+                });
+            } catch(_){ } })();
             function _appendChatMessage(role, text){ if (!out) return null; var wrap = document.createElement('div'); wrap.className = 'ar-chat-msg '+role; wrap.style.display='flex'; wrap.style.gap='.6rem'; wrap.style.marginBottom='.7rem'; wrap.style.alignItems='flex-start'; var bubble=document.createElement('div'); bubble.className='ar-chat-bubble'; bubble.style.whiteSpace='pre-wrap'; bubble.style.lineHeight='1.7'; bubble.style.padding='.6rem .8rem'; bubble.style.borderRadius='12px'; bubble.textContent = text || ''; if (role==='user'){ bubble.style.background='var(--primary-50, rgba(59,130,246,.12))'; wrap.style.justifyContent='flex-end'; } else { bubble.style.background='var(--surface-2, rgba(0,0,0,.06))'; wrap.style.justifyContent='flex-start'; } wrap.appendChild(bubble); out.appendChild(wrap); try { out.scrollTop = out.scrollHeight; } catch(_){ } return { wrap:wrap, bubble:bubble }; }
             function _truncate(s,n){ try { s=String(s||''); return s.length>n ? (s.slice(0,n)+'\n…[truncated]') : s; } catch(_){ return String(s||''); } }
             function _pretty(o){ try { return JSON.stringify(o,null,2); } catch(_){ try { return String(o); } catch(__){ return ''; } } }
@@ -481,10 +565,64 @@
                 } catch(_){ }
               });
             } catch(_){ } })();
-            function doSend(){ try { var text=(q.value||'').trim(); if(!text){ notify('متن پیام خالی است','warn'); return; } var body={ message:text }; if(history.length){ body.history = history.slice(-16); } if (chatSessionId>0) body.session_id = chatSessionId; if(CHAT_DEBUG) body.debug=true; try { if (maxTok){ var mt=parseInt(maxTok.value||'0')||0; if (mt>0) body.max_tokens = Math.max(16, Math.min(2048, mt)); } } catch(_){ } if (CHAT_DEBUG){ try { console.groupCollapsed('[ARSH][CHAT] request'); console.log('message:', text); console.log('options:', { session_id: body.session_id||0, max_tokens: body.max_tokens||undefined, history_len: (body.history||[]).length, debug: !!body.debug }); console.groupEnd(); } catch(_){ } } var old=send.textContent; send.disabled=true; send.textContent='در حال ارسال…'; var userMsg=text; if(userMsg){ _appendChatMessage('user', userMsg); } var pending=_appendChatMessage('assistant', 'در حال پردازش…'); var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now(); fetch(ARSHLINE_REST + 'ai/simple-chat', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+            function doSend(){ try {
+              var text=(q.value||'').trim(); if(!text){ notify('متن پیام خالی است','warn'); return; }
+              var body={ message:text };
+              if(history.length){ body.history = history.slice(-16); }
+              if (chatSessionId>0) body.session_id = chatSessionId;
+              if(CHAT_DEBUG) body.debug=true;
+              try { if (maxTok){ var mt=parseInt(maxTok.value||'0')||0; if (mt>0) body.max_tokens = Math.max(16, Math.min(2048, mt)); } } catch(_){ }
+              // If a reference form is selected, we ground via analytics; otherwise it's a plain LLM chat
+              var fid = 0; try { if (formSel){ fid = parseInt(formSel.value||'0')||0; if (fid>0) body.form_ids = [fid]; } } catch(_){ }
+              if (CHAT_DEBUG){
+                try {
+                  console.groupCollapsed('[ARSH][CHAT] request');
+                  console.log('mode:', fid>0 ? 'grounded-via-analytics' : 'plain-llm');
+                  console.log('message:', text);
+                  console.log('options:', { session_id: body.session_id||0, max_tokens: body.max_tokens||undefined, history_len: (body.history||[]).length, debug: !!body.debug, form_ids: body.form_ids||[] });
+                  console.groupEnd();
+                } catch(_){ }
+              }
+              var old=send.textContent; send.disabled=true; send.textContent='در حال ارسال…';
+              var userMsg=text; if(userMsg){ _appendChatMessage('user', userMsg); }
+              var pending=_appendChatMessage('assistant', 'در حال پردازش…');
+              var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+              fetch(ARSHLINE_REST + 'ai/simple-chat', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(body) })
               .then(async function(r){ var txt=''; try{ txt=await r.clone().text(); }catch(_){ } if (CHAT_DEBUG){ try { var t1=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now(); console.groupCollapsed('[ARSH][CHAT] http'); console.log('status:', r.status); console.log('roundtrip_ms:', Math.round(t1 - t0)); console.log('raw_len:', (txt||'').length); console.groupEnd(); } catch(_){ } } if(!r.ok){ var msg='HTTP '+r.status; try{ var jErr=txt?JSON.parse(txt):await r.json(); msg = (jErr && (jErr.error||jErr.message)) || msg; }catch(_){ } throw new Error(msg); } try{ return txt?JSON.parse(txt):await r.json(); }catch(e){ throw e; } })
-              .then(function(j){ try { if (j.error){ if(pending&&pending.bubble) pending.bubble.textContent='خطا: '+j.error; return; } if(pending&&pending.bubble) pending.bubble.textContent = j.reply || ''; if (typeof j.session_id==='number' && j.session_id>0){ chatSessionId = j.session_id; try { localStorage.setItem('arshChatSessionId', String(chatSessionId)); } catch(_){ } } if (CHAT_DEBUG){ try { console.info('[ARSH][CHAT] response', j); } catch(_){ } } var assistantMsg=String(j.reply||''); if(userMsg){ history.push({ role:'user', content:userMsg }); } if(assistantMsg){ history.push({ role:'assistant', content:assistantMsg }); } if (j.usage){ var u=j.usage||{}; var m=document.createElement('div'); m.className='hint'; m.style.marginTop='.6rem'; m.textContent='مصرف توکن — ورودی: '+(u.input||0)+' ؛ خروجی: '+(u.output||0)+' ؛ کل: '+(u.total||0); if(pending&&pending.wrap) pending.wrap.appendChild(m); else out.appendChild(m); } if (j.debug && pending && pending.wrap && CHAT_DEBUG){ try { console.groupCollapsed('[ARSH][CHAT] debug'); var dbg=j.debug; if(dbg && dbg.request_preview) console.log('request_preview:', dbg.request_preview); if(dbg && dbg.http_status!=null) console.log('http_status:', dbg.http_status); if(dbg && dbg.raw) console.log('raw:\n'+_truncate(dbg.raw, 2000)); console.groupEnd(); var det=document.createElement('details'); det.style.marginTop='.4rem'; var sum=document.createElement('summary'); sum.textContent='جزئیات دیباگ'; det.appendChild(sum); var pre=document.createElement('pre'); pre.style.whiteSpace='pre-wrap'; pre.style.direction='ltr'; pre.style.maxHeight='300px'; pre.style.overflow='auto'; pre.textContent=_truncate(_pretty(j.debug), 3000); det.appendChild(pre); pending.wrap.appendChild(det); } catch(_){ } } } catch(e){ if(out) out.textContent='خطا در نمایش خروجی'; } })
-              .catch(function(err){ console.error(err); if(pending&&pending.bubble) pending.bubble.textContent='درخواست ناموفق بود: '+String((err&&err.message)||err); else if(out) out.textContent='درخواست ناموفق بود: '+String((err&&err.message)||err); })
+              .then(function(j){ try {
+                if (j.error){ if(pending&&pending.bubble) pending.bubble.textContent='خطا: '+j.error; return; }
+                if(pending&&pending.bubble) pending.bubble.textContent = j.reply || '';
+                if (typeof j.session_id==='number' && j.session_id>0){ chatSessionId = j.session_id; try { localStorage.setItem('arshChatSessionId', String(chatSessionId)); } catch(_){ } }
+                if (CHAT_DEBUG){
+                  try {
+                    console.groupCollapsed('[ARSH][CHAT] response');
+                    var mode = (Array.isArray(j.debug && j.debug.analytics_preview ? j.debug.analytics_preview : null) ? 'grounded' : ((j.debug && j.debug.routed==='analytics')?'grounded':'plain-llm'));
+                    console.log('mode:', (j && j.debug && j.debug.routed==='analytics') ? 'grounded-via-analytics' : 'plain-llm');
+                    console.log('reply.len:', (j.reply||'').length);
+                    console.log('usage:', j.usage||{});
+                    if (j.debug){
+                      // Print concise analytics preview when available
+                      if (j.debug.analytics_preview){ console.log('analytics_preview:', j.debug.analytics_preview); }
+                      if (j.debug.request_preview){ console.log('request_preview:', j.debug.request_preview); }
+                      if (j.debug.http_status!=null){ console.log('http_status:', j.debug.http_status); }
+                      if (j.debug.raw){ console.log('raw:\n'+_truncate(j.debug.raw, 1800)); }
+                    }
+                    console.groupEnd();
+                  } catch(_){ }
+                }
+                var assistantMsg=String(j.reply||'');
+                if(userMsg){ history.push({ role:'user', content:userMsg }); }
+                if(assistantMsg){ history.push({ role:'assistant', content:assistantMsg }); }
+                if (j.usage){ var u=j.usage||{}; var m=document.createElement('div'); m.className='hint'; m.style.marginTop='.6rem'; m.textContent='مصرف توکن — ورودی: '+(u.input||0)+' ؛ خروجی: '+(u.output||0)+' ؛ کل: '+(u.total||0); if(pending&&pending.wrap) pending.wrap.appendChild(m); else out.appendChild(m); }
+                // Visible grounded badge when a reference form is selected
+                try { if (pending && pending.wrap && fid>0){ var badge=document.createElement('div'); badge.className='hint'; badge.style.opacity='.85'; badge.style.marginTop='.2rem'; badge.textContent='اتصال به داده: فرم #'+fid; pending.wrap.appendChild(badge); } } catch(_){ }
+                if (j.debug && pending && pending.wrap && CHAT_DEBUG){ try { var det=document.createElement('details'); det.style.marginTop='.4rem'; var sum=document.createElement('summary'); sum.textContent='جزئیات دیباگ'; det.appendChild(sum); var pre=document.createElement('pre'); pre.style.whiteSpace='pre-wrap'; pre.style.direction='ltr'; pre.style.maxHeight='300px'; pre.style.overflow='auto'; pre.textContent=_truncate(_pretty(j.debug), 3000); det.appendChild(pre); pending.wrap.appendChild(det); } catch(_){ } }
+              } catch(e){ if(out) out.textContent='خطا در نمایش خروجی'; } })
+              .catch(function(err){ console.error(err);
+                var msg='درخواست ناموفق بود: '+String((err&&err.message)||err);
+                if(pending&&pending.bubble) pending.bubble.textContent=msg; else if(out) out.textContent=msg;
+                try { if (out){ var d=document.createElement('div'); d.className='ar-alert ar-alert--err'; d.style.marginTop='.5rem'; d.textContent=msg; out.appendChild(d); } } catch(_){ }
+              })
               .finally(function(){ send.disabled=false; send.textContent=old; }); } catch(e){ console.error(e); notify('خطا در ارسال','error'); } }
             if (send) send.addEventListener('click', doSend);
             try { if (q){ q.addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); doSend(); } }); } } catch(_){ }
@@ -510,7 +648,9 @@
           // persistent session id to store chat server-side
           var chatSessionId = 0; try { chatSessionId = parseInt(localStorage.getItem('arshAnaSessionId')||'0')||0; } catch(_){ }
           var ANA_DEBUG = false; try { ANA_DEBUG = (localStorage.getItem('arshAnaDebug') === '1') || (localStorage.getItem('arshDebug') === '1'); } catch(_){ }
-          try { if (debugChk){ debugChk.checked = !!ANA_DEBUG; debugChk.addEventListener('change', function(){ ANA_DEBUG = !!debugChk.checked; try { localStorage.setItem('arshAnaDebug', ANA_DEBUG ? '1' : '0'); } catch(_){ } }); } } catch(_){ }
+          // Show a small badge near the debug toggle
+          (function(){ try { if (debugChk){ var badge = document.createElement('span'); badge.id='arAnaDbgBadge'; badge.className='hint'; badge.style.cssText='margin-inline-start:.25rem;color:#b91c1c;display:'+(ANA_DEBUG?'inline':'none'); badge.textContent='دیباگ فعال است'; var host = debugChk.closest('label'); if (host) host.after(badge); } } catch(_){ } })();
+          try { if (debugChk){ debugChk.checked = !!ANA_DEBUG; debugChk.addEventListener('change', function(){ ANA_DEBUG = !!debugChk.checked; try { localStorage.setItem('arshAnaDebug', ANA_DEBUG ? '1' : '0'); } catch(_){ } try { var b=document.getElementById('arAnaDbgBadge'); if (b) b.style.display = ANA_DEBUG ? 'inline' : 'none'; } catch(_){ } }); } } catch(_){ }
           try { if (maxTok){ var saved = parseInt(localStorage.getItem('arshAnaMaxTok')||'800')||800; maxTok.value = String(saved); maxTok.addEventListener('change', function(){ var v = parseInt(maxTok.value||'0')||800; if (v<16) v=16; if (v>2048) v=2048; maxTok.value = String(v); try { localStorage.setItem('arshAnaMaxTok', String(v)); } catch(_){ } }); } } catch(_){ }
           // Load minimal config and then list forms
           var ANA_AUTO_FMT = true; // default: let backend auto-decide
@@ -636,18 +776,48 @@
             function setInfo(text){ try { if (info){ info.style.display='block'; info.textContent = text||''; } } catch(_){ } }
             setPct(5);
             try {
-              // If user forced LLM-only, keep legacy behavior
-              var llmOnly = (!(!ANA_AUTO_FMT) && !(structuredChk && structuredChk.checked));
+              // Decide whether to use legacy LLM-only path or structured plan→chunk→final
+              // Legacy LLM-only should run ONLY when auto-format is OFF and user hasn't explicitly checked structured
+              // In auto-format (default), we want structured flow by default.
+              var llmOnly = (!ANA_AUTO_FMT) && !(structuredChk && structuredChk.checked);
               if (!llmOnly){
                 // Phased: plan
                 var planReq = Object.assign({}, bodyBase, { structured:true, mode:'structured', format:'json', phase:'plan', debug: !!ANA_DEBUG });
                 var rPlan = await fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(planReq) });
                 var jPlan = await rPlan.json();
                 if (!rPlan.ok || !jPlan || jPlan.phase!=='plan') throw new Error((jPlan && (jPlan.error||jPlan.message)) || 'plan failed');
+                if (ANA_DEBUG){
+                  try {
+                    console.groupCollapsed('[ARSH][ANA][plan]');
+                    console.log('request', planReq);
+                    console.log('response', jPlan);
+                    if (jPlan.plan){
+                      console.log('relevant_fields:', jPlan.plan.relevant_fields||[]);
+                      console.log('field_roles:', jPlan.plan.field_roles||{});
+                      if (Array.isArray(jPlan.plan.entities)) console.log('entities:', jPlan.plan.entities);
+                    }
+                    if (Array.isArray(jPlan.debug)){
+                      jPlan.debug.forEach(function(d){ if (d && d.request_preview){ console.log('request_preview.messages:', d.request_preview.messages); } });
+                    }
+                    console.groupEnd();
+                    // One-line PASS/FAIL summary for plan
+                    (function(){ try {
+                      var p = jPlan && jPlan.plan || {};
+                      var rf = Array.isArray(p.relevant_fields)? p.relevant_fields.slice(0,6).join(', ') : '';
+                      var roles = p.field_roles ? Object.keys(p.field_roles) : [];
+                      var ok = (typeof p.total_rows==='number') && (typeof p.number_of_chunks==='number');
+                      var msg = ok ? 'PASS' : 'WARN';
+                      console.info('[ARSH][ANA][plan]['+msg+'] total_rows:'+ (p.total_rows||0) +' · chunks:'+ (p.number_of_chunks||1) +' · fields:'+ (rf||'—') +' · roles:'+ (roles.join(', ')||'—'));
+                      if (!rf) console.warn('[ARSH][ANA][plan] relevant_fields خالی است — ممکن است نگاشت نقش فیلدها نیاز به تنظیم داشته باشد.');
+                    } catch(_){ } })();
+                  } catch(_){ }
+                }
                 var total = (jPlan.plan && jPlan.plan.total_rows) || 0;
                 var chunks = (jPlan.plan && jPlan.plan.number_of_chunks) || 1;
                 var perChunk = (jPlan.plan && jPlan.plan.chunk_size) || (bodyBase.chunk_size||800);
                 var suggestedTok = (jPlan.plan && jPlan.plan.suggested_max_tokens) || undefined;
+                var relevant = (jPlan.plan && Array.isArray(jPlan.plan.relevant_fields) ? jPlan.plan.relevant_fields : []);
+                var entities = (jPlan.plan && Array.isArray(jPlan.plan.entities) ? jPlan.plan.entities : []);
                 var doneRows = 0;
                 setInfo('مرحله برنامه‌ریزی: '+total+' ردیف · '+chunks+' قطعه');
                 if (pending && pending.bubble) pending.bubble.textContent = 'در حال پردازش قطعه 1 از '+chunks+'…'; setPct(10);
@@ -658,21 +828,90 @@
                   setPct(pct);
                   setInfo('قطعه '+i+'/'+chunks+' · پردازش '+doneRows+' از '+total+' ردیف (٪'+pct+')');
                   var chReq = Object.assign({}, bodyBase, { structured:true, mode:'structured', format:'json', phase:'chunk', chunk_index:i, chunk_size:perChunk, debug: !!ANA_DEBUG });
+                  if (relevant && relevant.length) chReq.relevant_fields = relevant;
+                  if (entities && entities.length) chReq.entities = entities;
                   if (suggestedTok) chReq.max_tokens = suggestedTok;
                   var rCh = await fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(chReq) });
                   var jCh = await rCh.json();
                   if (!rCh.ok || !jCh || jCh.phase!=='chunk') throw new Error((jCh && (jCh.error||jCh.message)) || 'chunk failed');
+                  if (ANA_DEBUG){
+                    try {
+                      console.groupCollapsed('[ARSH][ANA][chunk '+i+']');
+                      console.log('request', chReq);
+                      console.log('response', jCh);
+                      var d0 = Array.isArray(jCh.debug)? jCh.debug[0] : (jCh.debug||null);
+                      if (d0 && d0.request_preview){ console.log('request_preview.messages:', d0.request_preview.messages); }
+                      if (d0 && d0.usage){ console.log('usage:', d0.usage); }
+                      if (jCh && jCh.debug){ try { console.log('debug:', jCh.debug); } catch(_){ } }
+                      console.groupEnd();
+                      // One-line PASS/FAIL summary for chunk
+                      (function(){ try {
+                        var partial = jCh && jCh.partial || null;
+                        var ok = !!partial;
+                        // Try multiple sources for row count: chunk_summary.row_count, debug rows, or debug candidate count
+                        var rows = (partial && partial.chunk_summary && typeof partial.chunk_summary.row_count==='number') ? partial.chunk_summary.row_count : (d0 && typeof d0.rows==='number' ? d0.rows : undefined);
+                        // Use top-level fields_used if available, else fallback to debug or partial
+                        var fieldsUsed = (jCh && jCh.fields_used) ? jCh.fields_used : (partial && partial.fields_used ? partial.fields_used : (d0 && d0.fields_used ? (Array.isArray(d0.fields_used)? d0.fields_used : Object.keys(d0.fields_used||{})) : []));
+                        var matched = (d0 && d0.matched_row_ids) ? d0.matched_row_ids : (d0 && d0.candidate_row_ids ? d0.candidate_row_ids : []);
+                        var matchedTagged = (d0 && Array.isArray(d0.matched_ids_tagged)) ? d0.matched_ids_tagged : null;
+                        var notes = (partial && partial.chunk_summary && partial.chunk_summary.notes) ? partial.chunk_summary.notes : (d0 && d0.notes ? d0.notes : []);
+                        var msg = ok ? 'PASS' : 'WARN';
+                        var fieldsPreview = Array.isArray(fieldsUsed) ? (fieldsUsed.length>3 ? fieldsUsed.slice(0,3).join(', ')+'… ('+fieldsUsed.length+')' : fieldsUsed.join(', ')) : '—';
+                        var matchedPreview = Array.isArray(matched) ? (matched.length>5 ? matched.slice(0,5).join('|')+'… ('+matched.length+')' : matched.join('|')) : '—';
+                        // Compact dbg line: score/threshold/prefilter/fallback
+                        var dbgLine='';
+                        try {
+                          var sc=(typeof d0.best_match_score==='number')?(Math.round(d0.best_match_score*100)/100):null;
+                          var th=(typeof d0.name_threshold==='number')?(Math.round(d0.name_threshold*100)/100):null;
+                          var pre=(Array.isArray(notes)?(notes.find(function(n){return /name_prefilter/i.test(String(n));})||''):'');
+                          var fb=(d0.fallback_applied?('fallback_id:'+d0.fallback_row_id):'');
+                          var nearCt = (Array.isArray(d0.near_match_row_ids)? d0.near_match_row_ids.length : 0);
+                          dbgLine=(sc!=null?(' · score:'+sc):'')+(th!=null?(' · thr:'+th):'')+(pre?(' · pre:'+pre):'')+(fb?(' · '+fb):'')+(nearCt?(' · near:'+nearCt):'');
+                        } catch(_){ }
+                        var taggedPreview = (Array.isArray(matchedTagged) && matchedTagged.length) ? (' · tagged:'+ (matchedTagged.length>5 ? matchedTagged.slice(0,5).join('|')+'…('+matchedTagged.length+')' : matchedTagged.join('|'))) : '';
+                        console.info('[ARSH][ANA][chunk '+i+']['+msg+'] rows:'+(rows!=null?rows:'?')+' · fields_used:'+fieldsPreview+' · matched_ids:'+matchedPreview+taggedPreview+(notes&&notes.length?(' · notes:'+notes.join('; ')):'')+dbgLine );
+                        if (!ok) console.warn('[ARSH][ANA][chunk '+i+'] partial خالی است — احتمالاً مدل خروجی تولید نکرده یا پیش‌فیلتر نام/فیلد داده‌ای نیافته است.');
+                      } catch(_){ } })();
+                    } catch(_){ }
+                  }
                   if (jCh.partial) partials.push(jCh.partial);
                   try { var d0 = Array.isArray(jCh.debug)? jCh.debug[0] : (jCh.debug||null); if (d0 && typeof d0.rows==='number') doneRows += (d0.rows||0); else doneRows = Math.min(total, i*perChunk); } catch(_){ doneRows = Math.min(total, i*perChunk); }
                   setInfo('قطعه '+i+'/'+chunks+' · پردازش '+doneRows+' از '+total+' ردیف (٪'+pct+')');
                 }
                 if (pending && pending.bubble) pending.bubble.textContent = 'در حال ادغام نتایج…'; setPct(90); setInfo('ادغام نتایج · (٪90)');
                 var finReq = Object.assign({}, bodyBase, { structured:true, mode:'structured', format:'json', phase:'final', partials:partials, debug: !!ANA_DEBUG });
+                if (entities && entities.length) finReq.entities = entities;
                 if (pending && pending.bubble) pending.bubble.textContent = 'در حال نهایی‌سازی تحلیل…'; setPct(95); setInfo('نهایی‌سازی · (٪95)');
                 var rFin = await fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', headers:{ 'X-WP-Nonce': ARSHLINE_NONCE, 'Content-Type':'application/json' }, body: JSON.stringify(finReq) });
                 setPct(100); setInfo('انجام شد · ۱۰۰٪'); setTimeout(function(){ if (barWrap) barWrap.style.display='none'; if (info) info.style.display='none'; }, 1200);
                 var j = await rFin.json();
                 if (!rFin.ok || !j || j.phase!=='final') throw new Error((j && (j.error||j.message)) || 'final failed');
+                if (ANA_DEBUG){
+                  try {
+                    console.groupCollapsed('[ARSH][ANA][final]');
+                    console.log('request', finReq);
+                    console.log('response', j);
+                    if (j && j.debug){ try { console.log('debug:', j.debug); } catch(_){ } }
+                    var fd = Array.isArray(j.debug)? j.debug[0] : (j.debug||null);
+                    if (fd && fd.request_preview){ console.log('request_preview.messages:', fd.request_preview.messages); }
+                    if (fd && fd.usage){ console.log('usage:', fd.usage); }
+                    console.groupEnd();
+                    // One-line PASS/FAIL summary for final + overall summary line
+                    (function(){ try {
+                      var ans = (j && j.result && j.result.answer) || j.summary || '';
+                      var routed = (j && j.routing) || (fd && fd.routing) || {};
+                      var model = j && (j.model || (fd && (fd.final_model||fd.model))) || '';
+                      var ok = !!String(ans||'').trim();
+                      var msg = ok ? 'PASS' : 'WARN';
+                      console.info('[ARSH][ANA][final]['+msg+'] answer.len:'+(String(ans||'').length)+' · routed:'+(routed && routed.structured ? 'Structured' : 'LLM-only') + (routed && routed.auto ? ' (auto)' : '') + (model?(' · model:'+model):''));
+                      // Combined compact summary
+                      var p = jPlan && jPlan.plan || {};
+                      var total = p.total_rows||0, chunks = p.number_of_chunks||1;
+                      console.info('[ARSH][ANA][summary] rows:'+total+' · chunks:'+chunks+' · mode:'+(routed && routed.structured ? 'Structured' : 'LLM-only') + (routed && routed.auto ? ' (auto)' : '') + ' · answer:'+ (ok ? 'OK' : 'EMPTY'));
+                      if (!ok) console.warn('[ARSH][ANA] پاسخ نهایی خالی است — لطفاً خروجی partialها و فیلدهای مورد استفاده را بررسی کنید.');
+                    } catch(_){ } })();
+                  } catch(_){ }
+                }
                 // continue to common render below
               } else {
                 // Legacy single call
@@ -695,6 +934,8 @@
                       try {
                         var firstDbg = Array.isArray(j.debug) ? j.debug[0] : (j.debug || null);
                         var routing = firstDbg && firstDbg.routing ? firstDbg.routing : null;
+                        // Fallback to top-level routing when no per-phase debug exists
+                        if (!routing && j && j.routing) routing = j.routing;
                         var modelName = (j.model || (firstDbg && (firstDbg.final_model || (firstDbg.model)))) || '';
                         var badgeText = '';
                         if (routing && routing.structured){ badgeText = 'Structured' + (routing.auto ? ' (auto)' : ''); }
@@ -864,37 +1105,29 @@
           function speakFa(text){
             try {
               if (!('speechSynthesis' in window)) { notify('مرورگر از خواندن متن (TTS) پشتیبانی نمی‌کند','warn'); return; }
-              var u = new (window.SpeechSynthesisUtterance||function(s){ this.text=s; })();
-              u.text = text; u.lang = 'fa-IR';
-              function pickVoice(){
-                try {
-                  var vs = window.speechSynthesis.getVoices() || [];
-                  // If user selected a specific voice, try honoring it first
-                  var savedId = '';
-                  try { savedId = localStorage.getItem('arshAnaVoice') || ''; } catch(_){ }
-                  if (savedId && savedId !== 'auto'){
-                    var chosen = vs.find(function(v){ var id=(v.voiceURI||(''+(v.name||'')+'|'+(v.lang||''))); return id===savedId; });
-                    if (chosen){ u.voice = chosen; u.lang = String(chosen.lang||u.lang||'fa-IR'); return; }
-                  }
-                  // Prefer explicit Persian Iran voice
-                  var vFaIr = vs.find(function(v){ return v && /fa-IR/i.test(String(v.lang||'')); });
-                  // Fallback to any Persian voice
-                  var vFa = vFaIr || vs.find(function(v){ return v && /^fa/i.test(String(v.lang||'')); });
-                  // As a last resort, try a neutral voice to avoid silence
-                  var vAny = vFa || vs.find(function(v){ return v && /en|ar|tr|de|fr/i.test(String(v.lang||'')); });
-                  if (vFaIr) { u.voice = vFaIr; u.lang = 'fa-IR'; }
-                  else if (vFa) { u.voice = vFa; u.lang = String(vFa.lang||'fa'); }
-                  else if (vAny) { u.voice = vAny; /* keep fa-IR for right shaping */ }
-                } catch(_){ }
-              }
-              pickVoice();
-              if (!u.voice){
-                try { window.speechSynthesis.onvoiceschanged = function(){ pickVoice(); }; } catch(_){ }
-                // Inform the user if Persian voice is not available yet
-                notify('صدای فارسی پیدا نشد؛ تلاش برای استفاده از نزدیک‌ترین صدا', 'info');
+              // Split long text to safer chunks
+              var chunks=[]; try { var t=String(text||''); if (t.length<=400) chunks=[t]; else { var parts=t.split(/([.!؟\?\n]+)/u),buf=''; for(var i=0;i<parts.length;i++){ buf+=parts[i]; if(buf.length>=300){ chunks.push(buf.trim()); buf=''; } } if(buf.trim()) chunks.push(buf.trim()); if(chunks.length===0) chunks=t.match(/.{1,350}/g)||[t]; } } catch(_){ chunks=[String(text||'')]; }
+              function pickAndAssignVoice(u){
+                function pickVoice(){
+                  try {
+                    var vs = window.speechSynthesis.getVoices() || [];
+                    var savedId = ''; try { savedId = localStorage.getItem('arshAnaVoice') || ''; } catch(_){ }
+                    if (savedId && savedId !== 'auto'){
+                      var chosen = vs.find(function(v){ var id=(v.voiceURI||(''+(v.name||'')+'|'+(v.lang||''))); return id===savedId; });
+                      if (chosen){ u.voice = chosen; u.lang = String(chosen.lang||u.lang||'fa-IR'); return; }
+                    }
+                    var vFaIr = vs.find(function(v){ return v && /fa-IR/i.test(String(v.lang||'')); });
+                    var vFa = vFaIr || vs.find(function(v){ return v && /^fa/i.test(String(v.lang||'')); });
+                    var vAny = vFa || vs.find(function(v){ return v && /en|ar|tr|de|fr/i.test(String(v.lang||'')); });
+                    if (vFaIr) { u.voice = vFaIr; u.lang = 'fa-IR'; }
+                    else if (vFa) { u.voice = vFa; u.lang = String(vFa.lang||'fa'); }
+                    else if (vAny) { u.voice = vAny; }
+                  } catch(_){ }
+                }
+                pickVoice(); if (!u.voice){ try { window.speechSynthesis.onvoiceschanged = function(){ pickVoice(); }; } catch(_){ } }
               }
               try { window.speechSynthesis.cancel(); } catch(_){ }
-              try { window.speechSynthesis.speak(u); } catch(_){ }
+              (function speakNext(i){ if(i>=chunks.length) return; try { var u = new (window.SpeechSynthesisUtterance||function(s){ this.text=s; })(); u.text = chunks[i]; u.lang='fa-IR'; u.rate=1; u.pitch=1; pickAndAssignVoice(u); u.onend=function(){ speakNext(i+1); }; u.onerror=function(){ notify('خطا در خواندن متن','error'); speakNext(i+1); }; window.speechSynthesis.speak(u); } catch(e){ notify('خواندن متن با خطا مواجه شد','error'); } })(0);
             } catch(_){ }
           }
           if (speak) speak.addEventListener('click', function(){ try { var t = ''; if (out){ var bubbles = out.querySelectorAll('.ar-chat-msg.assistant .ar-chat-bubble'); if (bubbles && bubbles.length){ t = bubbles[bubbles.length-1].textContent || ''; } else { t = out.textContent || ''; } } if(!t){ notify('متنی برای خواندن وجود ندارد','warn'); return; } speakFa(t); } catch(_){ } });
@@ -952,6 +1185,7 @@
           var all = Array.isArray(forms) ? forms : [];
           var box = document.getElementById('arFormsList'); if (!box) return;
           function badge(status){ var lab = status==='published'?'فعال':(status==='disabled'?'غیرفعال':'پیش‌نویس'); var col = status==='published'?'#06b6d4':(status==='disabled'?'#ef4444':'#a3a3a3'); return '<span class="hint" style="background:'+col+'20;color:'+col+';padding:.15rem .4rem;border-radius:999px;font-size:12px;">'+lab+'</span>'; }
+          // List rendering happens inside applyFilters()
           function applyFilters(){ var term=(formSearch&&formSearch.value.trim())||''; var df=(formDF&&formDF.value)||''; var dt=(formDT&&formDT.value)||''; var sf=(formSF&&formSF.value)||''; var list = all.filter(function(f){ var ok=true; if (term){ var t=(f.title||'')+' '+String(f.id||''); ok = t.indexOf(term)!==-1; } if (ok && df){ ok = String(f.created_at||'').slice(0,10) >= df; } if (ok && dt){ ok = String(f.created_at||'').slice(0,10) <= dt; } if (ok && sf){ ok = String(f.status||'') === sf; } return ok; }); if (list.length===0){ box.innerHTML = '<div class="hint">فرمی مطابق جستجو یافت نشد.</div>'; return; } var html = list.map(function(f){ return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border);">\
             <div>#'+f.id+' — '+(f.title||'بدون عنوان')+'<div class="hint">'+(f.created_at||'')+'</div></div>\
             <div style="display:flex;gap:.6rem;">\
@@ -961,7 +1195,7 @@
               <a href="#" class="arViewResults ar-btn ar-btn--outline" data-id="'+f.id+'">مشاهده نتایج</a>\
               '+(ARSHLINE_CAN_MANAGE ? '<a href="#" class="arDeleteForm ar-btn ar-btn--danger" data-id="'+f.id+'">حذف</a>' : '')+'\
             </div>\
-          </div>'; }).join(''); box.innerHTML = html; box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); }); box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); renderFormPreview(id); }); }); box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; renderFormResults(id); }); }); if (ARSHLINE_CAN_MANAGE) { box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); }); }
+          </div>'; }).join(''); box.innerHTML = html; box.querySelectorAll('.arEditForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!ARSHLINE_CAN_MANAGE){ if (typeof handle401 === 'function') handle401(); return; } renderFormBuilder(id); }); }); box.querySelectorAll('.arPreviewForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); try { setHash('preview/'+id); } catch(_){ renderFormPreview(id); } }); }); box.querySelectorAll('.arViewResults').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; renderFormResults(id); }); }); if (ARSHLINE_CAN_MANAGE) { box.querySelectorAll('.arDeleteForm').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var id = parseInt(a.getAttribute('data-id')); if (!id) return; if (!confirm('حذف فرم #'+id+'؟ این عمل بازگشت‌ناپذیر است.')) return; fetch(ARSHLINE_REST + 'forms/' + id, { method:'DELETE', credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('فرم حذف شد', 'success'); renderTab('forms'); }).catch(function(){ notify('حذف فرم ناموفق بود', 'error'); }); }); }); }
           }
           applyFilters();
           if (formSearch) formSearch.addEventListener('input', function(){ clearTimeout(formSearch._t); formSearch._t = setTimeout(applyFilters, 200); });
@@ -1975,7 +2209,7 @@
         </div>\
       </div>' + hiddenCanvas;
   document.getElementById('arEditorBack').onclick = function(){ dlog('arEditorBack:click'); try { window._arNavToken = undefined; } catch(_){ } renderFormBuilder(id); };
-      var prevBtnE = document.getElementById('arEditorPreview'); if (prevBtnE) prevBtnE.onclick = function(){ try { window._arBackTo = { view: 'editor', id: id, index: fieldIndex }; } catch(_){ } renderFormPreview(id); };
+  var prevBtnE = document.getElementById('arEditorPreview'); if (prevBtnE) prevBtnE.onclick = function(){ try { window._arBackTo = { view: 'editor', id: id, index: fieldIndex }; } catch(_){ } try { setHash('preview/'+id); } catch(_){ renderFormPreview(id); } };
       content.classList.remove('view'); void content.offsetWidth; content.classList.add('view');
       var defaultProps = { type:'short_text', label:'پاسخ کوتاه', format:'free_text', required:false, show_description:false, description:'', placeholder:'', question:'', numbered:true };
       var longTextDefaults = { type: 'long_text', label: 'پاسخ طولانی', format: 'free_text', required: false, show_description: false, description: '', placeholder: '', question: '', numbered: true, min_length: 0, max_length: 1000, media_upload: false };
@@ -2274,7 +2508,7 @@
             </button>\
           </div>\
         </div>';
-      try { var bPrev = document.getElementById('arBuilderPreview'); if (bPrev) bPrev.onclick = function(){ try { window._arBackTo = { view: 'builder', id: id }; } catch(_){ } renderFormPreview(id); }; var bBack = document.getElementById('arBuilderBack'); if (bBack) bBack.onclick = function(){ arRenderTab('forms'); }; } catch(_){ }
+  try { var bPrev = document.getElementById('arBuilderPreview'); if (bPrev) bPrev.onclick = function(){ try { window._arBackTo = { view: 'builder', id: id }; } catch(_){ } try { setHash('preview/'+id); } catch(_){ renderFormPreview(id); } }; var bBack = document.getElementById('arBuilderBack'); if (bBack) bBack.onclick = function(){ arRenderTab('forms'); }; } catch(_){ }
 
       // Early wiring: make tools clickable/drag-start immediately (before fetch)
       (function earlyWireToolsAndDrop(){
@@ -2296,16 +2530,22 @@
           // Early drop target: allow dropping tools to append at end until full DnD initializes
           if (list && !list._arEarlyDrop){
             list._arEarlyDrop = true;
-            list.addEventListener('dragover', function(ev){ try { ev.preventDefault(); } catch(_){ } });
-            list.addEventListener('dragenter', function(ev){ try { ev.preventDefault(); } catch(_){ } });
-            list.addEventListener('drop', function(ev){ try {
+            // Keep refs to remove later when full DnD is ready
+            var _earlyOver = function(ev){ try { if (list._arEarlyDropDisabled) return; ev.preventDefault(); } catch(_){ } };
+            var _earlyEnter = function(ev){ try { if (list._arEarlyDropDisabled) return; ev.preventDefault(); } catch(_){ } };
+            var _earlyDrop = function(ev){ try {
+              if (list._arEarlyDropDisabled) return;
               var dt = ev.dataTransfer; var hint = '';
               try { hint = (dt && dt.getData && dt.getData('text/plain')) || ''; } catch(_){ hint=''; }
               if (hint.indexOf('tool:') === 0){ ev.preventDefault(); ev.stopPropagation(); var tp = hint.slice(5);
-                // Fallback: append at end quickly; full DnD (with precise index) will replace this after data loads
+                // Fallback: append to end quickly; full DnD will provide precise index later
                 addNewField(id, tp);
               }
-            } catch(_){ } });
+            } catch(_){ } };
+            list._arEarlyHandlers = { over: _earlyOver, enter: _earlyEnter, drop: _earlyDrop };
+            list.addEventListener('dragover', _earlyOver);
+            list.addEventListener('dragenter', _earlyEnter);
+            list.addEventListener('drop', _earlyDrop);
           }
         } catch(_){ }
       })();
@@ -2472,6 +2712,15 @@
           var btnThank = document.getElementById('arAddThank'); if (btnThank) btnThank.addEventListener('click', function(){ addNewField(id, 'thank_you'); });
 
           // --- Drag & Drop for reorder and drop-to-create ---
+          // Disable early drop listeners now to prevent duplicate handlers/ghosts
+          try {
+            if (list && list._arEarlyHandlers){
+              list._arEarlyDropDisabled = true;
+              try { list.removeEventListener('dragover', list._arEarlyHandlers.over); } catch(_){ }
+              try { list.removeEventListener('dragenter', list._arEarlyHandlers.enter); } catch(_){ }
+              try { list.removeEventListener('drop', list._arEarlyHandlers.drop); } catch(_){ }
+            }
+          } catch(_){ }
           (function initDnd(){
             if (!list) return;
             // Inject minimal styles once
