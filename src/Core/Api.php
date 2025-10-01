@@ -4790,6 +4790,8 @@ class Api
                         'partial_count' => $partialCount,
                     ]
                 ];
+                // Read non-sensitive AI analysis config preview for debug/telemetry only
+                $aiCfg = self::get_ai_analysis_config();
                 $dbgBasic = [
                     'phase' => 'chunk',
                     'chunk_index' => $chunk_index,
@@ -4811,6 +4813,12 @@ class Api
                     'fallback_reason' => $fallbackReason,
                     'ambiguity_score' => $ambiguityScore,
                     'ai_decision' => $aiDecision,
+                    'ai_config' => $aiCfg,
+                    'observability' => [
+                        'route' => 'server',
+                        'duration_ms' => (int)round(($t1-$t0)*1000),
+                        'usage' => $usage,
+                    ],
                     'headers_canonical' => $headersCanonical,
                     'canonical_map' => $canonicalMap,
                     'duration_ms' => (int)round(($t1-$t0)*1000),
@@ -4832,6 +4840,10 @@ class Api
                     $dbg[] = $dbgEnriched;
                 } else {
                     $dbg[] = $dbgBasic;
+                }
+                // Emit an observation event for integrators (no-op if not hooked)
+                if (function_exists('do_action')){
+                    try { do_action('arshline_ai_observe', [ 'phase'=>'chunk', 'route'=>'server', 'ambiguity_score'=>$ambiguityScore, 'matched_count'=>$candCount, 'partial_count'=>$partialCount, 'duration_ms'=>(int)round(($t1-$t0)*1000), 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
                 }
                 // Surface fields_used to the top-level for convenience (fallback to canonical headers without id/created_at)
                 $fieldsUsedTop = [];
@@ -4881,12 +4893,14 @@ class Api
                 $msgs = [ [ 'role'=>'system','content'=>$sys ], [ 'role'=>'user','content'=> wp_json_encode($mergeIn, JSON_UNESCAPED_UNICODE) ] ];
                 $modelName = $use_model; if (preg_match('/mini/i', (string)$modelName)) $modelName = 'gpt-4o';
                 $req = [ 'model'=>$modelName, 'messages'=>$msgs, 'temperature'=>0.2, 'max_tokens'=> min(1200, max(600, $max_tokens)) ];
+                $t0f = microtime(true);
                 $r = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=> wp_json_encode($req) ]);
                 $status = is_wp_error($r) ? 0 : (int)wp_remote_retrieve_response_code($r);
                 $raw = is_wp_error($r) ? ($r->get_error_message() ?: '') : (string)wp_remote_retrieve_body($r);
                 $ok = ($status === 200);
                 $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
                 $usage = is_array($body) && isset($body['usage']) ? $body['usage'] : null;
+                $durationFinalMs = (int)round((microtime(true)-$t0f)*1000);
                 $text = '';
                 if (is_array($body)){
                     if (isset($body['choices'][0]['message']['content']) && is_string($body['choices'][0]['message']['content'])) $text = (string)$body['choices'][0]['message']['content'];
@@ -4955,6 +4969,8 @@ class Api
                         'candidate_rows' => null,
                     ]
                 ];
+                // Read non-sensitive AI analysis config for debug/telemetry
+                $aiCfgF = self::get_ai_analysis_config();
                 $dbgBasicFinal = [
                     'phase' => 'final',
                     'partials_count' => count($partials),
@@ -4965,6 +4981,12 @@ class Api
                     'matched_columns' => $matchedColumns,
                     'ambiguity_score' => $ambFinal,
                     'ai_decision' => $aiDecisionFinal,
+                    'ai_config' => $aiCfgF,
+                    'observability' => [
+                        'route' => 'server',
+                        'duration_ms' => $durationFinalMs,
+                        'usage' => $usage,
+                    ],
                     'json_repaired' => $repaired,
                     'http_status' => $status,
                     'routing' => [ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ]
@@ -5008,6 +5030,10 @@ class Api
                 $dbg[] = $dbgBasicFinal;
                 $diagnostics = null;
                 if ($candidateRows === 0){ $diagnostics = [ 'candidate_rows' => 0, 'matched_columns' => $matchedColumns ]; }
+                // Emit observation hook for integrators
+                if (function_exists('do_action')){
+                    try { do_action('arshline_ai_observe', [ 'phase'=>'final', 'route'=>'server', 'ambiguity_score'=>$ambFinal, 'partials_count'=>count($partials), 'candidate_rows'=>$candidateRows, 'duration_ms'=>$durationFinalMs, 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
+                }
                 return new WP_REST_Response([
                     'phase' => 'final',
                     'result' => $res,
