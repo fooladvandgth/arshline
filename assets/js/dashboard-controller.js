@@ -874,6 +874,8 @@
                       } catch(_){ } })();
                     } catch(_){ }
                   }
+                  // Update session_id if backend provides one for consistency across phases
+                  if (jCh.session_id){ chatSessionId = parseInt(jCh.session_id)||0; bodyBase.session_id = chatSessionId; }
                   if (jCh.partial) partials.push(jCh.partial);
                   try { var d0 = Array.isArray(jCh.debug)? jCh.debug[0] : (jCh.debug||null); if (d0 && typeof d0.rows==='number') doneRows += (d0.rows||0); else doneRows = Math.min(total, i*perChunk); } catch(_){ doneRows = Math.min(total, i*perChunk); }
                   setInfo('قطعه '+i+'/'+chunks+' · پردازش '+doneRows+' از '+total+' ردیف (٪'+pct+')');
@@ -1058,7 +1060,7 @@
                       }
                     } catch(_){ }
                   }
-                  if (j.session_id){ chatSessionId = parseInt(j.session_id)||0; try{ localStorage.setItem('arshAnaSessionId', String(chatSessionId||0)); }catch(_){ } }
+                  if (j.session_id){ chatSessionId = parseInt(j.session_id)||0; bodyBase.session_id = chatSessionId; try{ localStorage.setItem('arshAnaSessionId', String(chatSessionId||0)); }catch(_){ } }
                   if (ANA_DEBUG) { try { console.info('[ARSH][ANA] response', j); } catch(_){ } }
                   // append to history for better multi-turn chat
                   var assistantMsg = assistantText;

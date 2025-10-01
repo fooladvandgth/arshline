@@ -4175,34 +4175,371 @@ class Api
             $fid = $form_ids[0];
             // Helper: detect field roles from labels/types for better guidance (names, mood text, mood score)
             $detect_field_roles = function(array $fmeta){
-                $roles = [ 'name'=>[], 'mood_text'=>[], 'mood_score'=>[], 'phone'=>[] ];
+                $roles = [
+                    // Personal info
+                    'name'=>[], 'phone'=>[], 'email'=>[], 'age'=>[], 'address'=>[], 'city'=>[], 'national_id'=>[],
+                    // Mood & satisfaction 
+                    'mood_text'=>[], 'mood_score'=>[], 'satisfaction'=>[], 'feedback'=>[], 'comment'=>[],
+                    // Numeric & ratings
+                    'score'=>[], 'rating'=>[], 'number'=>[], 'quantity'=>[], 'amount'=>[], 'price'=>[], 'count'=>[],
+                    // Dates & time
+                    'date'=>[], 'time'=>[], 'created_date'=>[], 'birth_date'=>[], 'event_date'=>[],
+                    // Business & categories
+                    'category'=>[], 'type'=>[], 'status'=>[], 'priority'=>[], 'department'=>[], 'service'=>[], 'product'=>[],
+                    // Text fields
+                    'description'=>[], 'notes'=>[], 'message'=>[], 'title'=>[], 'subject'=>[], 'reason'=>[],
+                    // Boolean & choices
+                    'yes_no'=>[], 'choice'=>[], 'selection'=>[], 'checkbox'=>[], 'radio'=>[],
+                    // Other
+                    'url'=>[], 'file'=>[], 'image'=>[], 'location'=>[], 'other'=>[]
+                ];
+                
                 foreach (($fmeta ?: []) as $fm){
                     $lab = (string)($fm['label'] ?? '');
                     $labL = mb_strtolower($lab, 'UTF-8');
                     $type = (string)($fm['type'] ?? '');
                     if ($lab === '') continue;
-                    // name candidates
+                    
+                    // Personal information patterns
                     if (preg_match('/\bname\b|first\s*name|last\s*name|full\s*name|surname|family/i', $lab)
-                        || preg_match('/نام(?:\s*و\s*نام\s*خانوادگی)?|نام\s*خانوادگی|اسم/u', $labL)){
+                        || preg_match('/نام(?:\s*و\s*نام\s*خانوادگی)?|نام\s*خانوادگی|اسم|نام\s*کامل/u', $labL)){
                         $roles['name'][] = $lab;
                     }
-                    // phone candidates
-                    if (preg_match('/\bphone\b|mobile|cell/i', $lab) || preg_match('/شماره\s*(?:تلفن|همراه)/u', $labL)){
+                    elseif (preg_match('/\b(phone|mobile|cell|telephone)\b/i', $lab) 
+                        || preg_match('/شماره|تلفن|همراه|موبایل|تماس/u', $labL)){
                         $roles['phone'][] = $lab;
                     }
-                    // mood text candidates
-                    if (preg_match('/\b(mood|feeling|status|wellbeing)\b/i', $lab) || preg_match('/حال|حالت|اوضاع|احوال|روحیه|امروز\s*.*چطور/u', $labL)){
+                    elseif (preg_match('/\b(email|e-mail|mail)\b/i', $lab) 
+                        || preg_match('/ایمیل|پست\s*الکترونیک/u', $labL)){
+                        $roles['email'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(age|years?\s*old)\b/i', $lab) 
+                        || preg_match('/سن|سال/u', $labL)){
+                        $roles['age'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(address|street|location)\b/i', $lab) 
+                        || preg_match('/آدرس|نشانی|محل/u', $labL)){
+                        $roles['address'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(city|town|province|state)\b/i', $lab) 
+                        || preg_match('/شهر|استان|منطقه/u', $labL)){
+                        $roles['city'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(national\s*id|ssn|id\s*number)\b/i', $lab) 
+                        || preg_match('/کد\s*ملی|شناسه\s*ملی/u', $labL)){
+                        $roles['national_id'][] = $lab;
+                    }
+                    
+                    // Mood & satisfaction patterns
+                    elseif (preg_match('/\b(mood|feeling|wellbeing|how\s*are\s*you)\b/i', $lab) 
+                        || preg_match('/حال|احوال|اوضاع|روحیه|حالت|امروز.*چطور/u', $labL)){
                         $roles['mood_text'][] = $lab;
                     }
-                    // mood score candidates (rating/score 1-10)
-                    if ($type === 'rating' || preg_match('/\b(score|rating)\b/i', $lab) || preg_match('/امتیاز|نمره|رتبه|از\s*(?:۱|1)\s*تا\s*(?:۱?0|۱۰)/u', $labL)){
-                        $roles['mood_score'][] = $lab;
+                    elseif (preg_match('/\b(satisfaction|happy|pleased)\b/i', $lab) 
+                        || preg_match('/رضایت|خوشحال|راضی|خشنود/u', $labL)){
+                        $roles['satisfaction'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(feedback|comment|opinion|review)\b/i', $lab) 
+                        || preg_match('/نظر|بازخورد|پیشنهاد|نقد/u', $labL)){
+                        $roles['feedback'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(comment|note|remark)\b/i', $lab) 
+                        || preg_match('/توضیح|یادداشت|ملاحظات/u', $labL)){
+                        $roles['comment'][] = $lab;
+                    }
+                    
+                    // Numeric & rating patterns  
+                    elseif ($type === 'rating' || preg_match('/\b(rating|score|points?)\b/i', $lab) 
+                        || preg_match('/امتیاز|نمره|رتبه|از.*تا|۱.*۱۰|1.*10/u', $labL)){
+                        if (preg_match('/حال|احوال|mood/iu', $labL)){
+                            $roles['mood_score'][] = $lab;  // mood-specific rating
+                        } else {
+                            $roles['rating'][] = $lab;
+                        }
+                    }
+                    elseif ($type === 'number' || preg_match('/\b(number|count|quantity|amount)\b/i', $lab) 
+                        || preg_match('/تعداد|مقدار|عدد/u', $labL)){
+                        $roles['number'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(price|cost|fee|money)\b/i', $lab) 
+                        || preg_match('/قیمت|هزینه|پول|تومان|ریال/u', $labL)){
+                        $roles['price'][] = $lab;
+                    }
+                    
+                    // Date & time patterns
+                    elseif ($type === 'date' || preg_match('/\b(date|day|month|year)\b/i', $lab) 
+                        || preg_match('/تاریخ|روز|ماه|سال/u', $labL)){
+                        if (preg_match('/birth|born|تولد/iu', $labL)){
+                            $roles['birth_date'][] = $lab;
+                        } elseif (preg_match('/event|رویداد|برگزار/iu', $labL)){
+                            $roles['event_date'][] = $lab;
+                        } elseif (preg_match('/create|ثبت|ایجاد/iu', $labL)){
+                            $roles['created_date'][] = $lab;
+                        } else {
+                            $roles['date'][] = $lab;
+                        }
+                    }
+                    elseif ($type === 'time' || preg_match('/\b(time|hour|minute)\b/i', $lab) 
+                        || preg_match('/زمان|ساعت|دقیقه/u', $labL)){
+                        $roles['time'][] = $lab;
+                    }
+                    
+                    // Business & category patterns
+                    elseif (preg_match('/\b(category|type|kind|class)\b/i', $lab) 
+                        || preg_match('/دسته|نوع|گونه|رده/u', $labL)){
+                        $roles['category'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(status|state|condition)\b/i', $lab) 
+                        || preg_match('/وضعیت|حالت|شرایط/u', $labL)){
+                        $roles['status'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(priority|importance|urgent)\b/i', $lab) 
+                        || preg_match('/اولویت|مهم|فوری/u', $labL)){
+                        $roles['priority'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(department|unit|section)\b/i', $lab) 
+                        || preg_match('/بخش|واحد|بهش|قسمت/u', $labL)){
+                        $roles['department'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(service|support|help)\b/i', $lab) 
+                        || preg_match('/خدمت|پشتیبانی|کمک|سرویس/u', $labL)){
+                        $roles['service'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(product|item|goods)\b/i', $lab) 
+                        || preg_match('/محصول|کالا|جنس/u', $labL)){
+                        $roles['product'][] = $lab;
+                    }
+                    
+                    // Text field patterns
+                    elseif (preg_match('/\b(description|detail|explain)\b/i', $lab) 
+                        || preg_match('/توضیح|شرح|تفصیل/u', $labL)){
+                        $roles['description'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(note|remark|memo)\b/i', $lab) 
+                        || preg_match('/یادداشت|ملاحظه|نکته/u', $labL)){
+                        $roles['notes'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(message|text|content)\b/i', $lab) 
+                        || preg_match('/پیام|متن|محتوا/u', $labL)){
+                        $roles['message'][] = $lab;
+                    }
+                    elseif (preg_match('/\b(title|subject|topic)\b/i', $lab) 
+                        || preg_match('/عنوان|موضوع|موضع/u', $labL)){
+                        if (preg_match('/subject|موضوع/iu', $labL)){
+                            $roles['subject'][] = $lab;
+                        } else {
+                            $roles['title'][] = $lab;
+                        }
+                    }
+                    elseif (preg_match('/\b(reason|why|because)\b/i', $lab) 
+                        || preg_match('/دلیل|علت|چرا/u', $labL)){
+                        $roles['reason'][] = $lab;
+                    }
+                    
+                    // Boolean & choice patterns
+                    elseif ($type === 'checkbox' || preg_match('/\b(yes|no|true|false)\b/i', $lab) 
+                        || preg_match('/بله|خیر|آری|نه/u', $labL)){
+                        $roles['yes_no'][] = $lab;
+                    }
+                    elseif ($type === 'radio' || $type === 'select' || preg_match('/\b(choice|option|select)\b/i', $lab) 
+                        || preg_match('/انتخاب|گزینه|آپشن/u', $labL)){
+                        if ($type === 'radio') {
+                            $roles['radio'][] = $lab;
+                        } else {
+                            $roles['choice'][] = $lab;
+                        }
+                    }
+                    
+                    // Other patterns
+                    elseif ($type === 'url' || preg_match('/\b(url|link|website)\b/i', $lab) 
+                        || preg_match('/لینک|پیوند|آدرس\s*سایت/u', $labL)){
+                        $roles['url'][] = $lab;
+                    }
+                    elseif ($type === 'file' || preg_match('/\b(file|upload|attachment)\b/i', $lab) 
+                        || preg_match('/فایل|آپلود|ضمیمه/u', $labL)){
+                        $roles['file'][] = $lab;
+                    }
+                    elseif ($type === 'image' || preg_match('/\b(image|photo|picture)\b/i', $lab) 
+                        || preg_match('/عکس|تصویر|تصویر/u', $labL)){
+                        $roles['image'][] = $lab;
+                    }
+                    else {
+                        // Catch-all for unmatched fields
+                        $roles['other'][] = $lab;
                     }
                 }
-                // de-dup
-                foreach ($roles as $k=>$arr){ $roles[$k] = array_values(array_unique(array_filter(array_map('strval', $arr), function($s){ return $s!==''; }))); }
+                
+                // De-duplicate and clean
+                foreach ($roles as $k=>$arr){ 
+                    $roles[$k] = array_values(array_unique(array_filter(array_map('strval', $arr), function($s){ return $s!==''; }))); 
+                }
                 return $roles;
             };
+            
+            // Advanced Query Intent Classification System
+            $classify_query_intent = function(string $query, array $field_roles) {
+                $qLower = mb_strtolower($query, 'UTF-8');
+                $qNorm = preg_replace('/[؟?\s]+/', ' ', trim($qLower));
+                
+                $intent = [
+                    'primary_type' => 'unknown',
+                    'secondary_types' => [],
+                    'target_fields' => [],
+                    'suggested_columns' => [],
+                    'analysis_depth' => 'simple',
+                    'requires_aggregation' => false,
+                    'requires_person_lookup' => false,
+                    'requires_filtering' => false,
+                    'chart_type' => null,
+                    'confidence' => 0.0
+                ];
+                
+                // Person-specific queries (highest priority)
+                if (preg_match('/حال\s+([^\s؟?]{2,})|احوال\s+([^\s؟?]{2,})|«([^»]+)»|"([^"]+)"/u', $qNorm, $matches)){
+                    $intent['primary_type'] = 'person_lookup';
+                    $intent['requires_person_lookup'] = true;
+                    $intent['target_fields'] = array_merge($field_roles['name'] ?? [], $field_roles['mood_text'] ?? [], $field_roles['mood_score'] ?? []);
+                    $intent['confidence'] = 0.9;
+                }
+                
+                // Listing queries
+                elseif (preg_match('/(?:لیست|فهرست|همه|تمام|چه.*دار(?:ن|ند)|نشان.*ده|بده)/u', $qNorm)){
+                    $intent['primary_type'] = 'listing';
+                    $intent['analysis_depth'] = 'simple';
+                    $intent['confidence'] = 0.8;
+                    
+                    // Detect specific field types in listing requests
+                    if (preg_match('/شماره|تلفن|موبایل|همراه/u', $qNorm)){
+                        $intent['target_fields'] = array_merge($intent['target_fields'], $field_roles['phone'] ?? []);
+                        $intent['suggested_columns'] = array_merge($intent['suggested_columns'], $field_roles['name'] ?? [], $field_roles['phone'] ?? []);
+                    }
+                    if (preg_match('/ایمیل|پست/u', $qNorm)){
+                        $intent['target_fields'] = array_merge($intent['target_fields'], $field_roles['email'] ?? []);
+                        $intent['suggested_columns'] = array_merge($intent['suggested_columns'], $field_roles['name'] ?? [], $field_roles['email'] ?? []);
+                    }
+                    if (preg_match('/نام|اسم/u', $qNorm)){
+                        $intent['target_fields'] = array_merge($intent['target_fields'], $field_roles['name'] ?? []);
+                        $intent['suggested_columns'] = array_merge($intent['suggested_columns'], $field_roles['name'] ?? []);
+                    }
+                }
+                
+                // Aggregation queries (sum, average, count, etc.)
+                elseif (preg_match('/(?:مجموع|جمع|کل|تعداد|میانگین|متوسط|حداکثر|حداقل|بیشترین|کمترین)/u', $qNorm)){
+                    $intent['primary_type'] = 'aggregation';
+                    $intent['requires_aggregation'] = true;
+                    $intent['analysis_depth'] = 'moderate';
+                    $intent['confidence'] = 0.85;
+                    
+                    // Detect specific aggregation types
+                    if (preg_match('/تعداد|چندتا/u', $qNorm)){
+                        $intent['secondary_types'][] = 'count';
+                    }
+                    if (preg_match('/مجموع|جمع|کل/u', $qNorm)){
+                        $intent['secondary_types'][] = 'sum';
+                        $intent['target_fields'] = array_merge($intent['target_fields'], $field_roles['number'] ?? [], $field_roles['price'] ?? [], $field_roles['rating'] ?? []);
+                    }
+                    if (preg_match('/میانگین|متوسط/u', $qNorm)){
+                        $intent['secondary_types'][] = 'average';
+                        $intent['target_fields'] = array_merge($intent['target_fields'], $field_roles['rating'] ?? [], $field_roles['mood_score'] ?? [], $field_roles['number'] ?? []);
+                    }
+                }
+                
+                // Comparison queries
+                elseif (preg_match('/(?:مقایسه|بررسی|تفاوت|شباهت|بهتر|بدتر|بیشتر|کمتر)/u', $qNorm)){
+                    $intent['primary_type'] = 'comparison';
+                    $intent['analysis_depth'] = 'complex';
+                    $intent['requires_filtering'] = true;
+                    $intent['confidence'] = 0.8;
+                    $intent['suggested_columns'] = array_merge($field_roles['name'] ?? [], $field_roles['category'] ?? [], $field_roles['rating'] ?? []);
+                }
+                
+                // Chart/visualization queries
+                elseif (preg_match('/(?:چارت|نمودار|گراف|تصویر.*آمار|بکش|رسم)/u', $qNorm)){
+                    $intent['primary_type'] = 'visualization';
+                    $intent['analysis_depth'] = 'complex';
+                    $intent['confidence'] = 0.9;
+                    
+                    if (preg_match('/میله.*(?:ای|چارت|نمودار)|bar\s*chart/iu', $qNorm)){
+                        $intent['chart_type'] = 'bar';
+                    } elseif (preg_match('/دایره.*(?:ای|چارت|نمودار)|pie\s*chart/iu', $qNorm)){
+                        $intent['chart_type'] = 'pie';
+                    } elseif (preg_match('/خط.*(?:ی|چارت|نمودار)|line\s*chart/iu', $qNorm)){
+                        $intent['chart_type'] = 'line';
+                    } else {
+                        $intent['chart_type'] = 'auto';
+                    }
+                    
+                    $intent['target_fields'] = array_merge($field_roles['rating'] ?? [], $field_roles['category'] ?? [], $field_roles['mood_score'] ?? []);
+                }
+                
+                // Mood/satisfaction analysis queries  
+                elseif (preg_match('/(?:حال|احوال|روحیه|رضایت|خوشحال|ناراحت|خوب|بد)/u', $qNorm) && !$intent['requires_person_lookup']){
+                    $intent['primary_type'] = 'mood_analysis';
+                    $intent['analysis_depth'] = 'moderate';
+                    $intent['confidence'] = 0.75;
+                    $intent['target_fields'] = array_merge($field_roles['mood_text'] ?? [], $field_roles['mood_score'] ?? [], $field_roles['satisfaction'] ?? []);
+                    $intent['suggested_columns'] = array_merge($field_roles['name'] ?? [], $field_roles['mood_text'] ?? [], $field_roles['mood_score'] ?? []);
+                }
+                
+                // Filtering/search queries
+                elseif (preg_match('/(?:فیلتر|جستجو|پیدا|یافت|شرط|با.*خاص|دارای)/u', $qNorm)){
+                    $intent['primary_type'] = 'filtering';
+                    $intent['requires_filtering'] = true;
+                    $intent['analysis_depth'] = 'moderate';
+                    $intent['confidence'] = 0.7;
+                }
+                
+                // Status/tracking queries
+                elseif (preg_match('/(?:وضعیت|حالت|شرایط|آخرین|جدیدترین|قدیمی‌ترین)/u', $qNorm)){
+                    $intent['primary_type'] = 'status_tracking';
+                    $intent['analysis_depth'] = 'simple';
+                    $intent['confidence'] = 0.65;
+                    $intent['target_fields'] = array_merge($field_roles['status'] ?? [], $field_roles['date'] ?? [], $field_roles['created_date'] ?? []);
+                }
+                
+                // Fallback: general analysis
+                else {
+                    $intent['primary_type'] = 'general_analysis';
+                    $intent['analysis_depth'] = 'moderate';
+                    $intent['confidence'] = 0.3;
+                    // Include most commonly useful fields
+                    $intent['suggested_columns'] = array_merge(
+                        $field_roles['name'] ?? [], 
+                        $field_roles['rating'] ?? [], 
+                        $field_roles['category'] ?? [],
+                        array_slice($field_roles['other'] ?? [], 0, 3)  // First 3 other fields
+                    );
+                }
+                
+                // Clean and deduplicate arrays
+                $intent['target_fields'] = array_values(array_unique($intent['target_fields']));
+                $intent['suggested_columns'] = array_values(array_unique($intent['suggested_columns']));
+                $intent['secondary_types'] = array_values(array_unique($intent['secondary_types']));
+                
+                // If no specific columns suggested, intelligently select based on primary type
+                if (empty($intent['suggested_columns'])){
+                    switch($intent['primary_type']){
+                        case 'listing':
+                            $intent['suggested_columns'] = array_merge($field_roles['name'] ?? [], array_slice($field_roles['other'] ?? [], 0, 2));
+                            break;
+                        case 'aggregation':
+                            $intent['suggested_columns'] = array_merge($field_roles['rating'] ?? [], $field_roles['number'] ?? [], $field_roles['category'] ?? []);
+                            break;
+                        case 'comparison':
+                            $intent['suggested_columns'] = array_merge($field_roles['name'] ?? [], $field_roles['category'] ?? [], $field_roles['rating'] ?? []);
+                            break;
+                        case 'mood_analysis':
+                            $intent['suggested_columns'] = array_merge($field_roles['mood_text'] ?? [], $field_roles['mood_score'] ?? [], $field_roles['name'] ?? []);
+                            break;
+                        default:
+                            $intent['suggested_columns'] = array_merge($field_roles['name'] ?? [], array_slice($field_roles['other'] ?? [], 0, 3));
+                    }
+                    $intent['suggested_columns'] = array_values(array_unique($intent['suggested_columns']));
+                }
+                
+                return $intent;
+            };
+            
             // Heuristic: classify question as heavy/light for chunk/tokens
             $qLower = mb_strtolower($question, 'UTF-8');
             $isHeavy = (bool)(
@@ -4265,19 +4602,42 @@ class Api
                         }
                     }
                 } catch (\Throwable $e) { /* ignore */ }
-                // Detect intents
-                $isMoodIntent = (bool)(preg_match('/\b(mood|wellbeing)\b/i', $qLower)
-                    || preg_match('/حال|احوال|روحیه|رضایت|خوشحال|غمگین/u', $qLower));
-                $isPhoneIntent = (bool)(preg_match('/\b(phone|mobile|cell)\b/i', $qLower)
-                    || preg_match('/شماره\s*(?:تلفن|همراه|تماس)|موبایل/u', $qLower));
+                // Advanced query intent classification
+                $query_intent = $classify_query_intent($question, $field_roles);
+                
+                // Smart column selection based on intent
+                $relevant_fields = $query_intent['suggested_columns'];
+                
+                // Enhanced LLM-based field selection with intent awareness
                 try {
                     $labelsOnly = array_values(array_filter(array_map(function($fm){ $lab = (string)($fm['label'] ?? ''); return $lab!=='' ? $lab : null; }, $fmeta)));
-                    $clsSys = 'You are Hoshang. Given a user question and a list of form field headings (labels), select the most relevant headings to answer the question.'
-                        . ' Output STRICT JSON: {"relevant_fields":["<label>",...], "reason":"<fa>"}. Use label strings exactly as provided. Use Persian for reason.';
-                    $clsUser = [ 'question'=>$question, 'headings'=>$labelsOnly ];
-                    $clsMsgs = [ [ 'role'=>'system','content'=>$clsSys ], [ 'role'=>'user','content'=> wp_json_encode($clsUser, JSON_UNESCAPED_UNICODE) ] ];
-                    $clsReq = [ 'model' => (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$clsMsgs, 'temperature'=>0.0, 'max_tokens'=>300 ];
-                    $rC = wp_remote_post($endpoint, [ 'timeout'=>20, 'headers'=>$headers, 'body'=> wp_json_encode($clsReq) ]);
+                    
+                    $clsSys = 'You are Hoshang advanced field selector. Given a question, query intent analysis, and field labels, select the most relevant fields.'
+                        . ' Rules: 1) Prioritize fields from suggested_columns. 2) Add complementary fields for better context. 3) For person queries, always include name fields.'
+                        . ' 4) For aggregations, include categorical and numeric fields. 5) For charts, include grouping and value fields.'
+                        . ' Output STRICT JSON: {"relevant_fields":["<label>",...], "reasoning":"<Persian explanation>"}. Use exact label strings.';
+                    
+                    $clsUser = [
+                        'question' => $question,
+                        'intent_analysis' => [
+                            'primary_type' => $query_intent['primary_type'],
+                            'confidence' => $query_intent['confidence'],
+                            'requires_aggregation' => $query_intent['requires_aggregation'],
+                            'requires_person_lookup' => $query_intent['requires_person_lookup'],
+                            'chart_type' => $query_intent['chart_type'],
+                            'suggested_columns' => $query_intent['suggested_columns']
+                        ],
+                        'available_labels' => $labelsOnly,
+                        'field_categories' => array_filter($field_roles, function($arr) { return !empty($arr); })
+                    ];
+                    
+                    $clsMsgs = [ 
+                        [ 'role'=>'system','content'=>$clsSys ], 
+                        [ 'role'=>'user','content'=> wp_json_encode($clsUser, JSON_UNESCAPED_UNICODE) ] 
+                    ];
+                    $clsReq = [ 'model' => (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$clsMsgs, 'temperature'=>0.1, 'max_tokens'=>400 ];
+                    
+                    $rC = wp_remote_post($endpoint, [ 'timeout'=>25, 'headers'=>$headers, 'body'=> wp_json_encode($clsReq) ]);
                     $bC = is_wp_error($rC) ? null : json_decode((string)wp_remote_retrieve_body($rC), true);
                     $txtC = '';
                     if (is_array($bC)){
@@ -4287,27 +4647,59 @@ class Api
                     }
                     $cls = $txtC ? json_decode($txtC, true) : null;
                     if (is_array($cls) && is_array($cls['relevant_fields'] ?? null)){
-                        $relevant_fields = array_values(array_unique(array_filter(array_map('strval', $cls['relevant_fields']))));
+                        $llm_selected = array_values(array_unique(array_filter(array_map('strval', $cls['relevant_fields']))));
+                        // Merge with intent-based selection, prioritizing LLM selection
+                        $relevant_fields = array_values(array_unique(array_merge($llm_selected, $relevant_fields)));
                     }
-                    // Attach classifier debug (safe preview)
+                    
+                    // Enhanced debug info
                     if ($debug){
-                        $dbg[] = [ 'phase'=>'plan:classifier', 'request_preview'=>[ 'model'=> (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$clsMsgs ], 'raw'=> (strlen($txtC)>1200? (substr($txtC,0,1200).'…[truncated]') : $txtC) ];
+                        $dbg[] = [ 
+                            'phase'=>'plan:smart_selector', 
+                            'intent_classification' => $query_intent,
+                            'request_preview'=>[ 'model'=> (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'temperature'=>0.1 ], 
+                            'response_preview'=> (strlen($txtC)>1000? (substr($txtC,0,1000).'…[truncated]') : $txtC),
+                            'final_fields' => $relevant_fields
+                        ];
                     }
                 } catch (\Throwable $e) { /* ignore classifier errors */ }
-                // Force-include fields for specific intents
-                if ($isMoodIntent){
-                    foreach (['mood_text','mood_score','name'] as $rk){
+                
+                // Intelligent fallback field inclusion based on intent
+                if ($query_intent['requires_person_lookup']){
+                    foreach (['name','mood_text','mood_score'] as $rk){
                         foreach (($field_roles[$rk] ?? []) as $lab){ if (is_string($lab) && $lab!==''){ $relevant_fields[] = $lab; } }
                     }
                 }
-                if ($isPhoneIntent){
-                    foreach (['phone','name'] as $rk){
+                if ($query_intent['primary_type'] === 'listing' && in_array('phone', array_keys($field_roles))){
+                    foreach (['name','phone'] as $rk){
                         foreach (($field_roles[$rk] ?? []) as $lab){ if (is_string($lab) && $lab!==''){ $relevant_fields[] = $lab; } }
                     }
                 }
+                if ($query_intent['requires_aggregation']){
+                    foreach (['rating','number','price','mood_score','category'] as $rk){
+                        foreach (($field_roles[$rk] ?? []) as $lab){ if (is_string($lab) && $lab!==''){ $relevant_fields[] = $lab; } }
+                    }
+                }
+                if ($query_intent['primary_type'] === 'visualization'){
+                    foreach (['category','rating','mood_score','name'] as $rk){
+                        foreach (($field_roles[$rk] ?? []) as $lab){ if (is_string($lab) && $lab!==''){ $relevant_fields[] = $lab; } }
+                    }
+                }
+                
+                // Ensure we have at least some fields (fallback to top fields if empty)
+                if (empty($relevant_fields)){
+                    $fallback_priority = ['name','phone','email','rating','mood_text','category','other'];
+                    foreach ($fallback_priority as $rk){
+                        if (!empty($field_roles[$rk])){
+                            $relevant_fields = array_merge($relevant_fields, array_slice($field_roles[$rk], 0, 2));
+                            if (count($relevant_fields) >= 3) break;
+                        }
+                    }
+                }
+                
                 $relevant_fields = array_values(array_unique($relevant_fields));
                 $dbg = [];
-                if ($debug){ $dbg[] = [ 'phase'=>'plan', 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n, 'field_roles'=>$field_roles, 'relevant_fields'=>$relevant_fields, 'entities'=>$entities, 'routing'=>[ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ] ]; }
+                if ($debug){ $dbg[] = [ 'phase'=>'plan', 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n, 'field_roles'=>$field_roles, 'query_intent'=>$query_intent, 'relevant_fields'=>$relevant_fields, 'entities'=>$entities, 'routing'=>[ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ] ]; }
                 // Tracer: record planning step
                 try {
                     $trace = $read_trace();
@@ -4316,7 +4708,16 @@ class Api
                 } catch (\Throwable $e) { /* ignore */ }
                 return new WP_REST_Response([
                     'phase' => 'plan',
-                    'plan' => [ 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n, 'suggested_max_tokens'=>$suggestedMaxTokens ?? $suggestedMaxTok, 'field_roles'=>$field_roles, 'relevant_fields'=>$relevant_fields, 'entities'=>$entities ],
+                    'plan' => [ 
+                        'total_rows'=>$total, 
+                        'chunk_size'=>$useChunk, 
+                        'number_of_chunks'=>$n, 
+                        'suggested_max_tokens'=>$suggestedMaxTokens ?? $suggestedMaxTok, 
+                        'field_roles'=>$field_roles, 
+                        'query_intent'=>$query_intent,
+                        'relevant_fields'=>$relevant_fields, 
+                        'entities'=>$entities 
+                    ],
                     'fields_meta' => $fmeta,
                     'usage' => [],
                     'debug' => $dbg,
@@ -4348,6 +4749,7 @@ class Api
                 } catch (\Throwable $e) { $reqRelevant = []; }
                 $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $rows), function($v){ return $v>0; }));
                 $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                @error_log('[Arshline][Analytics] Chunk: valuesMap keys: ' . json_encode(array_keys($valuesMap)) . ' for sliceIds: ' . json_encode($sliceIds));
                 // Header labels and CSV build (apply relevant_fields if provided); always include id, created_at at the start
                 $labels = [];
                 $idToLabel = [];
@@ -4402,7 +4804,9 @@ class Api
                 try {
                     if ($nameHint === '' && preg_match('/«([^»]+)»/u', $question, $mm)) { $nameHint = trim($mm[1]); }
                     $qLowerLocal = mb_strtolower($question, 'UTF-8');
-                    if ($nameHint === '' && preg_match('/حال\s+([\p{L}‌\s]+)/u', $qLowerLocal, $mm2)) { $nameHint = trim($mm2[1]); }
+                    // Enhanced Persian name extraction patterns
+                    if ($nameHint === '' && preg_match('/حال\s+([^؟\?]+?)\s+چطور/ui', $question, $mm2)) { $nameHint = trim($mm2[1]); }
+                    elseif ($nameHint === '' && preg_match('/^حال\s+([^؟\?]+)/ui', $question, $mm2)) { $nameHint = trim($mm2[1]); }
                     // strip common trailing words and punctuation (e.g., "چطوره", "چطور", "هست", "است", question marks)
                     $nameHint = preg_replace('/\s*(چطوره|چطور|هست|است)\s*$/u', '', (string)$nameHint);
                     $nameHint = preg_replace('/[\?\؟]+$/u', '', (string)$nameHint);
@@ -4413,6 +4817,7 @@ class Api
                     }
                     $nameHint = trim(mb_substr((string)$nameHint, 0, 60, 'UTF-8'));
                 } catch (\Throwable $e) { $nameHint = ''; }
+                @error_log('[Arshline][Analytics] Chunk: extracted nameHint="' . $nameHint . '" from question="' . $question . '"');
                 // Detect roles for guidance (needed for prefilter and prompts)
                 $field_roles = $detect_field_roles($fmeta);
                 // Optional: prefilter rows by name hint using detected name fields (with Persian-aware normalization and token + Levenshtein-like similarity)
@@ -4432,6 +4837,8 @@ class Api
                         $s = preg_replace('/\s+/u',' ', $s);
                         $s = trim($s);
                         $s = mb_strtolower($s, 'UTF-8');
+                        // Enhanced Persian normalization for better matching
+                        $s = str_replace(['آ', 'أ', 'إ'], 'ا', $s); // Alef variations
                         return $s;
                     };
                     $titles = [ 'آقای', 'خانم', 'دکتر', 'مهندس', 'استاد' ];
@@ -4480,9 +4887,9 @@ class Api
                         'wLev' => 0.35,
                         'bonus_exact' => 0.20,
                         'bonus_partial' => 0.15,
-                        'thr_one' => 0.50,
-                        'thr_two' => 0.65,
-                        'thr_three' => 0.70,
+                        'thr_one' => 0.30,
+                        'thr_two' => 0.45,
+                        'thr_three' => 0.60,
                     ];
                     try { if (function_exists('apply_filters')){ $tmp = apply_filters('arshline_ai_name_match_params', $matchParams, $question); if (is_array($tmp)) $matchParams = array_merge($matchParams, $tmp); } } catch (\Throwable $e) { /* ignore */ }
                     $wTok = (float)$matchParams['wTok'];
@@ -4507,12 +4914,16 @@ class Api
                         $pct = 0.0; similar_text($aN, $bN, $pct);
                         return max(0.0, min(1.0, $pct / 100.0));
                     };
+                    @error_log('[Arshline][Prefilter] hintTokens: ' . json_encode($hintTokens) . ' nameHint: "' . $nameHint . '"');
                     if (!empty($hintTokens)){
                         $nameLabels = array_values(array_unique((array)($field_roles['name'] ?? [])));
+                        @error_log('[Arshline][Prefilter] nameLabels: ' . json_encode($nameLabels));
                         if (!empty($nameLabels)){
                             $setName = []; foreach ($nameLabels as $nl){ $setName[$nl] = true; }
+                            @error_log('[Arshline][Prefilter] Processing ' . count($sliceIds) . ' rows for matching');
                             foreach ($sliceIds as $sid){
                                 $vals = $valuesMap[$sid] ?? [];
+                                @error_log('[Arshline][Prefilter] Row ' . $sid . ' vals keys: ' . json_encode(array_keys($vals)));
                                 $nameParts = [];
                                 foreach ($vals as $v){
                                     $fidv=(int)($v['field_id'] ?? 0);
@@ -4531,6 +4942,15 @@ class Api
                                     $rowFull = $faNorm(implode(' ', $nameParts));
                                     $hintFull = $faNorm(implode(' ', $hintTokens));
                                     $scLev = $simLev($hintFull, $rowFull);
+                                    // Enhanced partial matching: check if any hint token is contained in any row token
+                                    $partialBonus = 0.0;
+                                    foreach ($hintTokens as $ht){
+                                        foreach ($rowTokens as $rt){
+                                            if (mb_strpos($rt, $ht, 0, 'UTF-8') !== false || mb_strpos($ht, $rt, 0, 'UTF-8') !== false){
+                                                $partialBonus = max($partialBonus, 0.25);
+                                            }
+                                        }
+                                    }
                                     // First-name bonus: if first hint token equals or is prefix of any row token, boost score a bit
                                     $bonus = 0.0;
                                     $firstHint = isset($hintTokens[0]) ? (string)$hintTokens[0] : '';
@@ -4541,8 +4961,10 @@ class Api
                                             if ((mb_strlen($rt,'UTF-8')>=3 || mb_strlen($firstHint,'UTF-8')>=3) && (mb_strpos($rt,$firstHint,0,'UTF-8')===0 || mb_strpos($firstHint,$rt,0,'UTF-8')===0)){ $bonus = max($bonus, $bPartial); $prefReason = $prefReason ?: 'first_name_partial'; }
                                         }
                                     }
-                                    $sc = ($wTok*$scTok) + ($wLev*$scLev) + $bonus;
+                                    $sc = ($wTok*$scTok) + ($wLev*$scLev) + $bonus + $partialBonus;
                                     if ($sc > 1.0) $sc = 1.0;
+                                    // Log detailed similarity for debugging
+                                    @error_log('[Arshline][Prefilter] Row ID=' . $sid . ' name="' . implode(' ', $nameParts) . '" vs hint="' . $nameHint . '" score=' . round($sc, 3) . ' (tok=' . round($scTok, 2) . ' lev=' . round($scLev, 2) . ' bonus=' . round($bonus + $partialBonus, 2) . ') threshold=' . $threshold);
                                     if ($sc >= $threshold){ $matchedIds[] = $sid; }
                                     if ($sc > $bestScore){ $bestScore=$sc; $bestId=$sid; }
                                     // Row-level debug (normalized without spaces for readability)
@@ -4747,6 +5169,8 @@ class Api
                 $partial['meta']['fallback_reason'] = $fallbackReason;
                 $partial['meta']['entities'] = $reqEntities;
                 // Propagate routing intent for final phase without requiring debug round-trip
+                // Initialize route variable with default
+                $route = isset($route) ? $route : 'server';
                 $partial['meta']['ai_decision_route'] = $route;
                 // Deterministic fallbacks for phone and mood intents when model returns empty
                 $qLowerLocal2 = mb_strtolower($question, 'UTF-8');
@@ -4968,6 +5392,34 @@ class Api
                 } else {
                     $dbg[] = $dbgBasic;
                 }
+                // Attach minimal debug metrics into partial itself so final phase can aggregate even without client echo
+                try {
+                    if (is_array($partial)){
+                        $attachDbg = $debugLocal ? (isset($dbgEnriched) ? $dbgEnriched : $dbgBasic) : $dbgBasic;
+                        // keep only a compact subset to avoid bloat
+                        $compactDbg = [
+                            'phase' => 'chunk',
+                            'chunk_index' => $chunk_index,
+                            'matched_row_ids' => $dbgBasic['matched_row_ids'] ?? [],
+                            'partial_match_row_ids' => $dbgBasic['partial_match_row_ids'] ?? [],
+                            'best_match_score' => $dbgBasic['best_match_score'] ?? null,
+                            'threshold_used' => $dbgBasic['name_threshold'] ?? null,
+                        ];
+                        $partial['debug'] = isset($partial['debug']) && is_array($partial['debug']) ? $partial['debug'] : [];
+                        $partial['debug'][] = $compactDbg;
+                    }
+                } catch (\Throwable $e) { /* ignore */ }
+                // Persist partials across phases using a transient keyed by session_id
+                try {
+                    $partials_key = ($session_id > 0) ? ('arsh_ana_partials_' . $session_id) : '';
+                    if ($partials_key !== ''){
+                        $existing = get_transient($partials_key);
+                        $arr = is_array($existing) ? $existing : [];
+                        $arr[] = (is_array($partial) ? $partial : []);
+                        set_transient($partials_key, $arr, 15*60);
+                        @error_log('[Arshline][Analytics] Chunk: saved partials for session ' . $session_id . ' (count=' . count($arr) . ').');
+                    }
+                } catch (\Throwable $e) { @error_log('[Arshline][Analytics] Chunk: failed to save partials: ' . $e->getMessage()); }
                 // Emit an observation event for integrators (no-op if not hooked)
                 if (function_exists('do_action')){
                     try { do_action('arshline_ai_observe', [ 'phase'=>'chunk', 'route'=>$route, 'ambiguity_score'=>$ambiguityScore, 'matched_count'=>$candCount, 'partial_count'=>$partialCount, 'duration_ms'=>(int)round(($t1-$t0)*1000), 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
@@ -5013,6 +5465,23 @@ class Api
             }
             if ($phase === 'final'){
                 $partials = is_array($p['partials'] ?? null) ? $p['partials'] : [];
+                @error_log('[Arshline][Analytics] Final: session_id=' . $session_id . ', received partials count=' . count($partials));
+                // If client didn't carry partials, load from transient by session_id
+                try {
+                    if (empty($partials)){
+                        $partials_key = ($session_id > 0) ? ('arsh_ana_partials_' . $session_id) : '';
+                        @error_log('[Arshline][Analytics] Final: attempting to load partials with key=' . $partials_key);
+                        if ($partials_key !== ''){
+                            $loaded = get_transient($partials_key);
+                            if (is_array($loaded) && !empty($loaded)){
+                                $partials = $loaded;
+                                @error_log('[Arshline][Analytics] Final: loaded ' . count($partials) . ' partial(s) from transient for session ' . $session_id . '.');
+                            } else {
+                                @error_log('[Arshline][Analytics] Final: no partials found in transient for session ' . $session_id . '.');
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) { @error_log('[Arshline][Analytics] Final: failed to load partials: ' . $e->getMessage()); }
                 // Aggregate requested_person and fallback info from partials
                 $requestedPerson = '';
                 $fallbackAppliedAny = false; $fallbackRowIds = [];
@@ -5025,6 +5494,36 @@ class Api
                         $fr = (int)($meta['fallback_row_id'] ?? 0); if ($fr > 0){ $fallbackRowIds[] = $fr; }
                     }
                     $fallbackRowIds = array_values(array_unique(array_filter($fallbackRowIds, function($v){ return (int)$v>0; })));
+                    
+                    // Enhanced fallback: if we have fallback_row_ids but empty partials, force-build answer from fallback rows
+                    if (empty($partials) && !empty($fallbackRowIds)){
+                        @error_log('[Arshline][Analytics] Final: Empty partials but fallback_row_ids exist (' . implode(',', $fallbackRowIds) . '), building answer from fallback.');
+                        foreach ($fallbackRowIds as $fbId){
+                            try {
+                                $fbRow = (new \ArshLine\Database\SubmissionRepository())->get_by_id($fbId);
+                                if ($fbRow){
+                                    $fbData = (new \ArshLine\Database\FieldRepository())->get_submission_data($fbId);
+                                    $allData = array_merge(['id' => $fbId, 'form_id' => $fbRow['form_id'], 'created_at' => $fbRow['created_at']], $fbData);
+                                    $partials[] = ['form_id' => $fbRow['form_id'], 'data' => $allData];
+                                    $fallbackAppliedAny = true;
+                                    @error_log('[Arshline][Analytics] Final: Built fallback partial from row ' . $fbId);
+                                }
+                            } catch (\Throwable $e) {
+                                @error_log('[Arshline][Analytics] Final: Failed to load fallback row ' . $fbId . ': ' . $e->getMessage());
+                            }
+                        }
+                    }
+                    
+                    // Enhanced data listing fallback: if still empty partials but query looks like data listing request (phone/field enumeration), execute structured route
+                    if (empty($partials)){
+                        $qLowerDataCheck = mb_strtolower((string)$question, 'UTF-8');
+                        $looksDataListing = preg_match('/لیست|فهرست|همه|تمام|چه.*دار(?:ن|ند)|دادن|نشان.*ده|شماره.*تلفن|تلفن.*شماره|موبایل|ایمیل/u', $qLowerDataCheck);
+                        if ($looksDataListing && !empty($form_ids)){
+                            @error_log('[Arshline][Analytics] Final: Empty partials but query looks like data listing request, forcing structured route.');
+                            // Force enable structured processing by calling the structured route logic inline
+                            $structuredNeeded = true;
+                        }
+                    }
                 } catch (\Throwable $e) { /* ignore */ }
                 // Fallback: if no partials carried the requested person, extract from final request (entities or question text)
                 if ($requestedPerson === ''){
@@ -5216,6 +5715,224 @@ class Api
                     $dbgBasicFinal['usage'] = $usage;
                     $dbgBasicFinal['request_preview'] = [ 'model'=>$modelName, 'max_tokens'=> min(1200, max(600, $max_tokens)), 'messages'=> [ ['role'=>'system','content'=>$sysPrev], ['role'=>'user','content'=>$userPrev] ] ];
                 }
+                
+                // Enhanced structured data listing: if partials still empty but query suggests data listing, execute structured route inline
+                if (empty($partials) && !empty($form_ids) && isset($structuredNeeded) && $structuredNeeded){
+                    @error_log('[Arshline][Analytics] Final: Executing inline structured route for data listing.');
+                    try {
+                        // Extract and inline the structured route logic
+                        $fid = $form_ids[0];
+                        $rowsAll = \Arshline\Modules\Forms\SubmissionRepository::listByFormAll($fid, [], $max_rows);
+                        
+                        // Re-detect field roles and classify query intent for inline processing  
+                        $fieldsForIntent = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                        $fmetaIntent = [];
+                        foreach (($fieldsForIntent ?: []) as $f){
+                            $props = is_array($f['props'] ?? null) ? $f['props'] : [];
+                            $label0 = (string)($props['question'] ?? $props['label'] ?? $props['title'] ?? $props['name'] ?? '');
+                            $type0 = (string)($props['type'] ?? '');
+                            $fmetaIntent[] = [ 'id' => (int)($f['id'] ?? 0), 'label' => $label0, 'type' => $type0 ];
+                        }
+                        $fieldRolesInline = $detect_field_roles($fmetaIntent);
+                        $queryIntentInline = $classify_query_intent($question, $fieldRolesInline);
+                        if (!empty($rowsAll)){
+                            // Build field metadata for structured analysis
+                            $fmeta = [];
+                            try {
+                                $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                                foreach (($fieldsForMeta ?: []) as $f){
+                                    $props = is_array($f['props'] ?? null) ? $f['props'] : [];
+                                    $label0 = (string)($props['question'] ?? $props['label'] ?? $props['title'] ?? $props['name'] ?? '');
+                                    $type0 = (string)($props['type'] ?? '');
+                                    $fmeta[] = [ 'id' => (int)($f['id'] ?? 0), 'label' => $label0, 'type' => $type0 ];
+                                }
+                            } catch (\Throwable $e) { /* ignore */ }
+                            
+                            // Build CSV table for structured analysis
+                            $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $rowsAll), function($v){ return $v>0; }));
+                            $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                            
+                            // Header labels
+                            $labels = [];
+                            $idToLabel = [];
+                            foreach ($fmeta as $fm){
+                                $fidm = (int)($fm['id'] ?? 0);
+                                $labm = (string)($fm['label'] ?? '');
+                                if ($labm === '') { $labm = 'فیلد #' . $fidm; }
+                                $idToLabel[$fidm] = $labm;
+                                $labels[] = $labm;
+                            }
+                            
+                            // Build CSV rows
+                            $rowsCsv = [];
+                            if (!empty($labels)){
+                                $rowsCsv[] = implode(',', array_map(function($h){ return '"'.str_replace('"','""',$h).'"'; }, $labels));
+                                foreach ($sliceIds as $sid){
+                                    $vals = $valuesMap[$sid] ?? [];
+                                    $map = [];
+                                    foreach ($vals as $v){
+                                        $fidv = (int)($v['field_id'] ?? 0);
+                                        $lab = (string)($idToLabel[$fidv] ?? ''); if ($lab==='') $lab = 'فیلد #'.$fidv;
+                                        $val = trim((string)($v['value'] ?? ''));
+                                        if (!isset($map[$lab])) $map[$lab] = [];
+                                        if ($val !== '') $map[$lab][] = $val;
+                                    }
+                                    $rowsCsv[] = implode(',', array_map(function($h) use ($map){ $v = isset($map[$h]) ? implode(' | ', $map[$h]) : ''; return '"'.str_replace('"','""',$v).'"'; }, $labels));
+                                }
+                            }
+                            $tableCsv = implode("\r\n", $rowsCsv);
+                            
+                            // Build intelligent system prompt based on query intent  
+                            $sys = 'You are Hoshang, an advanced Persian analytics assistant. Analyze data based on query intent.\n\n';
+                            
+                            // Base field mapping
+                            $sys .= 'FIELD MAPPING RULES:\n'
+                                . '- name/نام: "نام"، "اسم"، "نام کامل"، "نام و نام خانوادگی"، "first name"، "last name"\n'
+                                . '- phone/تلفن: "شماره تلفن"، "موبایل"، "همراه"، "تماس"، "phone"، "mobile"\n'
+                                . '- email: "ایمیل"، "پست الکترونیک"، "email"، "e-mail"\n'
+                                . '- rating/امتیاز: "امتیاز"، "نمره"، "رتبه"، "rating"، "score"\n'
+                                . '- mood/حال: "حال"، "احوال"، "روحیه"، "حالت"\n'
+                                . '- category/دسته: "دسته"، "نوع"، "گروه"، "category"، "type"\n\n';
+                            
+                            // Intent-specific instructions
+                            switch($queryIntentInline['primary_type']){
+                                case 'listing':
+                                    $sys .= 'LISTING MODE INSTRUCTIONS:\n'
+                                        . '1) Extract ALL relevant values from matching columns - be comprehensive\n'
+                                        . '2) Format as clear Persian lists with proper names/context\n'
+                                        . '3) Include associated information (e.g., name with phone number)\n'
+                                        . '4) Use structured formatting for readability\n';
+                                    break;
+                                case 'aggregation':
+                                    $sys .= 'AGGREGATION MODE INSTRUCTIONS:\n'
+                                        . '1) Perform requested calculations (sum, average, count, etc.)\n'
+                                        . '2) Include breakdown by categories if relevant\n'
+                                        . '3) Provide statistical summaries and insights\n'
+                                        . '4) Fill aggregations object with calculated values\n';
+                                    break;
+                                case 'mood_analysis':
+                                    $sys .= 'MOOD ANALYSIS MODE INSTRUCTIONS:\n'
+                                        . '1) Analyze sentiment and satisfaction patterns\n'
+                                        . '2) Calculate mood score statistics if available\n'
+                                        . '3) Identify trends and notable patterns\n'
+                                        . '4) Provide empathetic, human-centered insights\n';
+                                    break;
+                                case 'visualization':
+                                    $sys .= 'VISUALIZATION MODE INSTRUCTIONS:\n'
+                                        . '1) Prepare data optimally for ' . ($queryIntentInline['chart_type'] ?? 'appropriate') . ' charts\n'
+                                        . '2) Fill chart_data with properly structured objects\n'
+                                        . '3) Group and aggregate data for clear visualization\n'
+                                        . '4) Suggest appropriate chart types if needed\n';
+                                    break;
+                                case 'comparison':
+                                    $sys .= 'COMPARISON MODE INSTRUCTIONS:\n'
+                                        . '1) Identify key differences and similarities\n'
+                                        . '2) Provide side-by-side analysis\n'
+                                        . '3) Use statistical comparisons where appropriate\n'
+                                        . '4) Highlight significant findings\n';
+                                    break;
+                                case 'person_lookup':
+                                    $sys .= 'PERSON LOOKUP MODE INSTRUCTIONS:\n'
+                                        . '1) Find specific person data using fuzzy matching\n'
+                                        . '2) Extract all relevant information for that person\n'
+                                        . '3) Handle name variations and partial matches\n'
+                                        . '4) Provide comprehensive personal data summary\n';
+                                    break;
+                                default:
+                                    $sys .= 'GENERAL ANALYSIS MODE INSTRUCTIONS:\n'
+                                        . '1) Analyze data comprehensively based on query\n'
+                                        . '2) Provide relevant insights and patterns\n'
+                                        . '3) Use appropriate analytical techniques\n'
+                                        . '4) Be thorough and contextual\n';
+                            }
+                            
+                            $sys .= '\nOUTPUT REQUIREMENTS:\n'
+                                . '- Return ONLY valid JSON with keys in English\n'
+                                . '- Persian text for answer and insights\n'
+                                . '- Never hallucinate data - use only provided information\n'
+                                . '- Set confidence level based on data completeness\n'
+                                . '- Fill fields_used array with columns actually analyzed\n'
+                                . '- Query Intent: ' . $queryIntentInline['primary_type'] . ' (confidence: ' . round($queryIntentInline['confidence'], 2) . ')';
+                            
+                            $messages = [ [ 'role' => 'system', 'content' => $sys ] ];
+                            $payloadUser = [
+                                'question' => $question,
+                                'form_id' => $fid,
+                                'data_format' => 'table',
+                                'table_csv' => $tableCsv,
+                                'fields_meta' => $fmeta,
+                                'query_intent' => [
+                                    'type' => $queryIntentInline['primary_type'],
+                                    'confidence' => $queryIntentInline['confidence'],
+                                    'requires_aggregation' => $queryIntentInline['requires_aggregation'],
+                                    'chart_type' => $queryIntentInline['chart_type'],
+                                    'target_fields' => $queryIntentInline['target_fields']
+                                ],
+                                'field_roles' => array_filter($fieldRolesInline, function($arr) { return !empty($arr); }),
+                                'output_schema' => [
+                                    'answer' => 'string (Persian)',
+                                    'fields_used' => ['string'],
+                                    'aggregations' => ($queryIntentInline['requires_aggregation'] ? ['sum'=>0, 'count'=>0, 'average'=>0, 'min'=>0, 'max'=>0] : new \stdClass()),
+                                    'chart_data' => [ new \stdClass() ],
+                                    'confidence' => 'low|medium|high'
+                                ]
+                            ];
+                            $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
+                            $payload = [ 'model' => $use_model, 'messages' => $messages, 'temperature' => 0.2, 'max_tokens' => $max_tokens ];
+                            $payloadJson = wp_json_encode($payload);
+                            
+                            // Make request
+                            $t0Struct = microtime(true);
+                            $resp = wp_remote_post($endpoint, [ 'timeout' => $http_timeout, 'headers' => $headers, 'body' => $payloadJson ]);
+                            $status = is_wp_error($resp) ? 0 : (int)wp_remote_retrieve_response_code($resp);
+                            $rawBodyStruct = is_wp_error($resp) ? ($resp->get_error_message() ?: '') : (string)wp_remote_retrieve_body($resp);
+                            $ok = ($status === 200);
+                            $bodyStruct = $ok ? json_decode($rawBodyStruct, true) : (json_decode($rawBodyStruct, true) ?: null);
+                            $durationStructMs = (int)round((microtime(true)-$t0Struct)*1000);
+                            
+                            // Extract text from response
+                            $textStruct = '';
+                            if (is_array($bodyStruct)){
+                                try {
+                                    if (isset($bodyStruct['choices'][0]['message']['content']) && is_string($bodyStruct['choices'][0]['message']['content'])){
+                                        $textStruct = (string)$bodyStruct['choices'][0]['message']['content'];
+                                    } elseif (isset($bodyStruct['choices'][0]['text']) && is_string($bodyStruct['choices'][0]['text'])){
+                                        $textStruct = (string)$bodyStruct['choices'][0]['text'];
+                                    } elseif (isset($bodyStruct['output_text']) && is_string($bodyStruct['output_text'])){
+                                        $textStruct = (string)$bodyStruct['output_text'];
+                                    }
+                                } catch (\Throwable $e) { $textStruct=''; }
+                            }
+                            
+                            // Parse structured JSON result
+                            $resultStruct = null;
+                            if (is_string($textStruct) && $textStruct !== ''){
+                                $decoded = json_decode($textStruct, true);
+                                if (is_array($decoded)){
+                                    $resultStruct = $decoded;
+                                    @error_log('[Arshline][Analytics] Final: Structured data listing successful, answer length: ' . strlen($resultStruct['answer'] ?? ''));
+                                }
+                            }
+                            
+                            if (is_array($resultStruct)){
+                                $final = $resultStruct;
+                                @error_log('[Arshline][Analytics] Final: Used inline structured route - Intent: ' . $queryIntentInline['primary_type'] . ', Confidence: ' . round($queryIntentInline['confidence'], 2));
+                                $dbgBasicFinal['inline_structured'] = [
+                                    'used' => true,
+                                    'duration_ms' => $durationStructMs,
+                                    'status' => $status,
+                                    'rows_processed' => count($sliceIds),
+                                    'query_intent' => $queryIntentInline['primary_type'],
+                                    'intent_confidence' => $queryIntentInline['confidence']
+                                ];
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        @error_log('[Arshline][Analytics] Final: Inline structured route failed: ' . $e->getMessage());
+                        $dbgBasicFinal['inline_structured_error'] = $e->getMessage();
+                    }
+                }
+                
                 $res = is_array($final)? $final : [ 'answer'=>'تحلیلی یافت نشد.', 'fields_used'=>[], 'aggregations'=>new \stdClass(), 'chart_data'=>[], 'outliers'=>[], 'insights'=>[], 'confidence'=>'low' ];
 
                 // Subset-AI path (execute only if decided and config allows)
@@ -5273,9 +5990,31 @@ class Api
                             ];
                             if (count($rowsBuilt) >= $capMax) break;
                         }
+                        // If requested person provided, prioritize rows by fuzzy name match and reduce to top matches
+                        $rowsForPkg = $rowsBuilt;
+                        if ($requestedPerson !== ''){
+                            // Reuse tunable params via the same filter
+                            $matchParams = [ 'wTok'=>0.65,'wLev'=>0.35,'bonus_exact'=>0.20,'bonus_partial'=>0.15,'thr_one'=>0.50,'thr_two'=>0.65,'thr_three'=>0.70 ];
+                            try { if (function_exists('apply_filters')){ $tmp=apply_filters('arshline_ai_name_match_params', $matchParams, $question); if (is_array($tmp)) $matchParams = array_merge($matchParams, $tmp); } } catch (\Throwable $e) { }
+                            $faNorm = function($s){ $s=(string)$s; $s=str_replace(["\xE2\x80\x8C","\xC2\xA0"],['',' '],$s); $s=str_replace(["ي","ك","ة"],["ی","ک","ه"],$s); $s=preg_replace('/\p{Mn}+/u','',$s); $s=preg_replace('/[\p{P}\p{S}]+/u',' ',$s); $s=preg_replace('/\s+/u',' ',$s); return trim(mb_strtolower($s,'UTF-8')); };
+                            $tokenize = function($s) use ($faNorm){ $titles=['آقای','آقا','خانم','دکتر','مهندس','استاد']; $n=$faNorm($s); $t=preg_split('/\s+/u',$n,-1,PREG_SPLIT_NO_EMPTY); $set=[]; foreach($titles as $w){ $set[$w]=true; $set[mb_strtolower($w,'UTF-8')]=true; } $out=[]; foreach($t as $x){ if($x!=='' && !isset($set[$x])) $out[]=$x; } return $out; };
+                            $tokSim = function(array $A, array $B){ if(empty($A)||empty($B)) return 0.0; $A=array_values(array_unique($A)); $B=array_values(array_unique($B)); $Ai=[]; foreach($A as $a){$Ai[$a]=true;} $Bi=[]; foreach($B as $b){$Bi[$b]=true;} $inter=array_values(array_intersect(array_keys($Ai),array_keys($Bi))); $unionCount=count(array_unique(array_merge(array_keys($Ai),array_keys($Bi)))); $j=$unionCount>0?(count($inter)/$unionCount):0.0; $exact=count($inter); $partial=0; foreach($A as $ta){ foreach($B as $tb){ if($ta===$tb) continue; if(mb_strlen($ta,'UTF-8')>=3 && mb_strlen($tb,'UTF-8')>=3){ if(mb_strpos($ta,$tb,0,'UTF-8')!==false || mb_strpos($tb,$ta,0,'UTF-8')!==false){ $partial++; break; } } } } if($exact>=2) return 1.0; $score=0.6*$j + 0.2*($exact>0?1:0) + 0.2*($partial>0?1:0); return ($score>1.0)?1.0:$score; };
+                            $simLev = function(string $a,string $b){ $aN=$a; $bN=$b; if(function_exists('iconv')){ $aT=@iconv('UTF-8','ASCII//TRANSLIT',$aN); $bT=@iconv('UTF-8','ASCII//TRANSLIT',$bN); if(is_string($aT)&&$aT!=='') $aN=$aT; if(is_string($bT)&&$bT!=='') $bN=$bT; } $pct=0.0; similar_text($aN,$bN,$pct); return max(0.0,min(1.0,$pct/100.0)); };
+                            $wTok=(float)$matchParams['wTok']; $wLev=(float)$matchParams['wLev']; $bExact=(float)$matchParams['bonus_exact']; $bPartial=(float)$matchParams['bonus_partial'];
+                            $hintTokens = $tokenize($requestedPerson);
+                            $tokCount = count($hintTokens);
+                            $thr1=(float)$matchParams['thr_one']; $thr2=(float)$matchParams['thr_two']; $thr3=(float)$matchParams['thr_three'];
+                            $thr = ($tokCount<=1)?$thr1:(($tokCount===2)?$thr2:$thr3);
+                            $scored = [];
+                            foreach ($rowsBuilt as $rb){ $rowTokens = $tokenize((string)($rb['name']??'')); $scTok=$tokSim($hintTokens,$rowTokens); $hintFull=$faNorm(implode(' ',$hintTokens)); $rowFull=$faNorm(implode(' ',$rowTokens)); $scLev=$simLev($hintFull,$rowFull); $bonus=0.0; $first=$hintTokens[0]??''; if($first!==''){ foreach($rowTokens as $rt){ if($rt===$first){ $bonus=$bExact; break; } if((mb_strlen($rt,'UTF-8')>=3 || mb_strlen($first,'UTF-8')>=3) && (mb_strpos($rt,$first,0,'UTF-8')===0 || mb_strpos($first,$rt,0,'UTF-8')===0)){ $bonus=max($bonus,$bPartial); } } } $sc=$wTok*$scTok + $wLev*$scLev + $bonus; if($sc>1.0) $sc=1.0; $scored[] = [ 'row'=>$rb, 'score'=>$sc ]; }
+                            usort($scored, function($a,$b){ return ($b['score']<=>$a['score']); });
+                            $selected = array_values(array_filter($scored, function($x) use ($thr){ return (float)$x['score'] >= $thr; }));
+                            if (empty($selected) && !empty($scored)) $selected = array_slice($scored, 0, 3); // top-3 fallback
+                            if (!empty($selected)) $rowsForPkg = array_values(array_map(function($x){ return $x['row']; }, $selected));
+                        }
                         $columns = \Arshline\Support\AiSubsetPackager::columnWhitelist(($requestedPerson!==''?'person_mood':'generic'), !empty($aiCfgF['allow_pii']));
-                        $safeRows = \Arshline\Support\AiSubsetPackager::sanitizeRows($rowsBuilt, $columns, [ 'max_rows'=>$capMax, 'allow_pii'=>!empty($aiCfgF['allow_pii']) ]);
-                        $pkg = \Arshline\Support\AiSubsetPackager::packageForModel($question, $safeRows, $columns, [ 'intent'=> ($requestedPerson!==''?'person_mood':'generic'), 'locale'=>'fa_IR', 'token_ceiling'=> [ 'typical'=>(int)($aiCfgF['token_typical'] ?? 8000), 'max'=>(int)($aiCfgF['token_max'] ?? 32000) ] ]);
+                        $safeRows = \Arshline\Support\AiSubsetPackager::sanitizeRows($rowsForPkg, $columns, [ 'max_rows'=>$capMax, 'allow_pii'=>!empty($aiCfgF['allow_pii']) ]);
+                        $pkg = \Arshline\Support\AiSubsetPackager::packageForModel($question, $safeRows, $columns, [ 'intent'=> ($requestedPerson!==''?'person_mood':'generic'), 'target_name'=>$requestedPerson, 'locale'=>'fa_IR', 'token_ceiling'=> [ 'typical'=>(int)($aiCfgF['token_typical'] ?? 8000), 'max'=>(int)($aiCfgF['token_max'] ?? 32000) ] ]);
 
                         $subsetAns = self::ai_subset_analyze($pkg, [ 'base_url'=>$base, 'api_key'=>$api_key, 'model'=>$use_model ]);
                         if (is_array($subsetAns) && !empty($subsetAns['answer'])){
@@ -5286,7 +6025,33 @@ class Api
                             }
                             $dbgBasicFinal['routed'] = 'SubsetAI';
                         } else {
+                            // Local deterministic fallback without model: synthesize concise Persian answer from available rows
                             $dbgBasicFinal['subset_ai_error'] = 'empty_or_invalid';
+                            try {
+                                $evIds = [];
+                                $picked = !empty($rowsForPkg) ? $rowsForPkg : $rowsBuilt;
+                                if (!empty($picked)){
+                                    // Prefer first row (already sorted by best match/time), summarize mood_text and mood_score
+                                    $r0 = $picked[0];
+                                    $nm = trim((string)($r0['name'] ?? ''));
+                                    $mt = trim((string)($r0['mood_text'] ?? ''));
+                                    $ms = (string)($r0['mood_score'] ?? '');
+                                    $id0 = (int)($r0['id'] ?? 0); if ($id0>0) $evIds[] = $id0;
+                                    // Normalize score to 0-10 int
+                                    $msi = is_numeric($ms) ? (int)$ms : null; if ($msi!==null && ($msi<0 || $msi>10)) $msi=null;
+                                    $rp = ($requestedPerson !== '') ? $requestedPerson : $nm;
+                                    if ($rp !== ''){
+                                        $parts = [];
+                                        if ($msi !== null){ $parts[] = 'امتیاز: ' . $msi; }
+                                        if ($mt !== ''){ $parts[] = 'متن: ' . $mt; }
+                                        if (!empty($parts)){
+                                            $res['answer'] = '<fa>حال ' . $rp . ' بر اساس دادهٔ موجود: ' . implode('؛ ', $parts) . '.</fa>';
+                                            $res['confidence'] = 'medium';
+                                            if (!empty($evIds)) $res['insights'][] = [ 'evidence_ids' => $evIds ];
+                                        }
+                                    }
+                                }
+                            } catch (\Throwable $e) { /* ignore fallback synthesis errors */ }
                         }
                     } catch (\Throwable $e) {
                         $dbgBasicFinal['subset_ai_exception'] = $e->getMessage();
@@ -5338,6 +6103,11 @@ class Api
                         @error_log('[Arshline][AnalyticsTracer] Route mismatch: chunk->subset-ai but final->server (session_id='.$session_id.').');
                     }
                 } catch (\Throwable $e) { /* ignore */ }
+                // Cleanup transient to avoid stale accumulation
+                try {
+                    $partials_key = ($session_id > 0) ? ('arsh_ana_partials_' . $session_id) : '';
+                    if ($partials_key !== ''){ delete_transient($partials_key); @error_log('[Arshline][Analytics] Final: cleaned partials transient for session ' . $session_id . '.'); }
+                } catch (\Throwable $e) { /* ignore cleanup errors */ }
                 return new WP_REST_Response([
                     'phase' => 'final',
                     'result' => $res,
@@ -5571,6 +6341,19 @@ class Api
                 }
             }
             // Build structured system prompt
+            // Gather hint row IDs from partials (to prioritize exact rows if the model is weak/mini)
+            $hintMatchedRows = [];
+            try {
+                foreach (($partials ?: []) as $pt){
+                    $dbgl = is_array($pt['debug'] ?? null) ? $pt['debug'] : [];
+                    foreach ($dbgl as $d0){
+                        if (isset($d0['matched_row_ids']) && is_array($d0['matched_row_ids'])){
+                            foreach ($d0['matched_row_ids'] as $rid){ $rid = (int)$rid; if ($rid>0) $hintMatchedRows[$rid] = true; }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) { /* noop */ }
+            $hintMatchedRows = array_values(array_map('intval', array_keys($hintMatchedRows)));
             $sys = 'You are Hoshang, a Persian analytics assistant. Strict rules:\n'
                 . '1) Map column labels to semantic concepts when needed. Examples (not exhaustive):\n'
                 . '   - name: "نام"، "اسم"، "نام و نام خانوادگی"، "first name"، "last name"، "full name".\n'
@@ -5585,7 +6368,8 @@ class Api
                 . '5) Never hallucinate values; if insufficient data: return answer="No matching data found."\n'
                 . '6) Return JSON ONLY (no markdown/text outside JSON). Keys in English. Values/text (answer) in Persian.\n'
                 . '7) If charts are implied, include minimal chart_data array of objects (e.g., name/label and value/score).\n'
-                . '8) Keep outputs concise.';
+                . '8) Keep outputs concise.\n'
+                . '9) If user payload includes hints (requested_person or matched_row_ids), prioritize those rows/records and use requested_person verbatim in the Persian answer when applicable.';
             $messages = [ [ 'role' => 'system', 'content' => $sys ] ];
             foreach ($history as $h){ $messages[] = $h; }
             $payloadUser = [
@@ -5594,6 +6378,10 @@ class Api
                 'data_format' => 'table',
                 'table_csv' => $tableCsv,
                 'fields_meta' => $fmeta,
+                'hints' => [
+                    'requested_person' => (string)$requestedPerson,
+                    'matched_row_ids' => $hintMatchedRows,
+                ],
                 // Define desired JSON schema explicitly
                 'output_schema' => [
                     'answer' => 'string (Persian)',
@@ -5631,6 +6419,44 @@ class Api
             if (!$ok && in_array((int)$status, [400,404,422], true) && $use_model_struct !== 'gpt-4o'){
                 [ $ok2, $status2, $rawBody2, $body2, $usage2, $plJson2 ] = $makeReq('gpt-4o');
                 if ($ok2){ $ok=true; $status=$status2; $rawBody=$rawBody2; $body=$body2; $usage=$usage2; $plJson=$plJson2; $finalModel='gpt-4o'; }
+            }
+            // Friendly mapping for auth/quota errors: 401/403/429
+            if (!$ok && in_array((int)$status, [401,403,429], true)){
+                $friendly = 'امکان برقراری ارتباط با سرویس تحلیل وجود ندارد. ممکن است شارژ شما تمام شده باشد.';
+                $result = [ 'answer' => $friendly, 'fields_used' => [], 'aggregations' => new \stdClass(), 'chart_data' => [], 'confidence' => 'low' ];
+                // Attach clarify if available and not already present
+                if (is_array($clarify) && empty($result['clarify'])){ $result['clarify'] = $clarify; }
+                $summary = (string)($result['answer'] ?? '');
+                // Log usage and persist assistant turn
+                self::log_ai_usage($agentName, $finalModel, $usage, [ 'form_id'=>$fid, 'rows'=>count($rowsAll) ]);
+                if (is_array($planUsage)){ self::log_ai_usage('hoshang-plan', $planningModel ?: $use_model, $planUsage, [ 'form_id'=>$fid, 'rows'=>count($rowsAll) ]); }
+                $usages[] = [ 'form_id'=>$fid, 'usage'=>$usage ];
+                try {
+                    if ($session_id > 0){
+                        global $wpdb; $tblSess = \Arshline\Support\Helpers::tableName('ai_chat_sessions'); $tblMsg = \Arshline\Support\Helpers::tableName('ai_chat_messages');
+                        $wpdb->insert($tblMsg, [
+                            'session_id' => $session_id,
+                            'role' => 'assistant',
+                            'content' => $summary,
+                            'usage_input' => max(0, (int)$usage['input']),
+                            'usage_output' => max(0, (int)$usage['output']),
+                            'usage_total' => max(0, (int)$usage['total']),
+                            'duration_ms' => max(0, (int)$usage['duration_ms']),
+                            'meta' => wp_json_encode([ 'form_ids'=>$form_ids, 'format'=>'json', 'structured'=>true ], JSON_UNESCAPED_UNICODE),
+                        ]);
+                        $wpdb->update($tblSess, [ 'last_message_at' => current_time('mysql') ], [ 'id'=>$session_id ]);
+                    }
+                } catch (\Throwable $e) { /* ignore */ }
+                $dbgPayload = null;
+                if ($debug){
+                    $dbg = [ 'form_id'=>$fid, 'endpoint'=>$endpoint, 'request_preview'=>[ 'model'=>$finalModel, 'max_tokens'=>$max_tokens, 'temperature'=>0.2 ], 'final_model'=>$finalModel, 'routing' => [ 'hosh_mode'=>$hoshMode, 'structured'=>true, 'auto'=>$autoStructured, 'trigger'=>$structTrigger, 'auto_format'=>$autoFormat ], 'http_status'=>$status, 'error_mapped'=>true ];
+                    try { $dbg['raw'] = (strlen((string)$rawBody)>1800? substr((string)$rawBody,0,1800)."\n…[truncated]" : (string)$rawBody); } catch (\Throwable $e) { /* noop */ }
+                    if (!empty($clarify)) { $dbg['clarify'] = $clarify; }
+                    $dbgPayload = [ $dbg ];
+                }
+                $respPayload = [ 'result' => $result, 'summary' => $summary, 'usage' => $usages, 'voice' => $voice, 'session_id' => $session_id, 'model' => $finalModel ];
+                if ($dbgPayload){ $respPayload['debug'] = $dbgPayload; }
+                return new WP_REST_Response($respPayload, 200);
             }
             // Extract text and usage
             $text = '';
@@ -5728,6 +6554,50 @@ class Api
             } else {
                 $result = [ 'answer' => 'No matching data found.', 'fields_used' => [], 'aggregations' => new \stdClass(), 'chart_data' => [], 'confidence' => 'low' ];
             }
+            // Deterministic synthesis fallback: if model returned empty/"No matching data found" but we have a requested person and hint rows in this slice
+            try {
+                $ansTxt = (string)($result['answer'] ?? '');
+                $looksEmpty = ($ansTxt === '') || (stripos($ansTxt, 'No matching data found') !== false);
+                if ($looksEmpty && $requestedPerson !== '' && !empty($hintMatchedRows)){
+                    // Intersect hint rows with this slice
+                    $sliceIdSet = [];
+                    foreach (($sliceIds ?: []) as $sid){ $sliceIdSet[(int)$sid] = true; }
+                    $chosen = 0;
+                    foreach ($hintMatchedRows as $rid){ if (isset($sliceIdSet[(int)$rid])) { $chosen = (int)$rid; break; } }
+                    if ($chosen > 0 && isset($valuesMap[$chosen]) && is_array($valuesMap[$chosen])){
+                        // Build label->values map for the chosen row
+                        $map = [];
+                        foreach ($valuesMap[$chosen] as $v){
+                            $fidv = (int)($v['field_id'] ?? 0);
+                            $lab = (string)($idToLabel[$fidv] ?? ('فیلد #'.$fidv));
+                            $val = trim((string)($v['value'] ?? ''));
+                            if ($val === '') continue;
+                            if (!isset($map[$lab])) $map[$lab] = [];
+                            $map[$lab][] = $val;
+                        }
+                        // Try to extract phones first
+                        $phones = [];
+                        foreach ($map as $lab => $vals){
+                            if (preg_match('/(شماره|تلفن|موبایل|تماس|phone|mobile)/ui', (string)$lab)){
+                                foreach ($vals as $vv){
+                                    $vv2 = preg_replace('/[^0-9+]/', '', (string)$vv);
+                                    if ($vv2 !== '' && !in_array($vv2, $phones, true)) $phones[] = $vv2;
+                                }
+                            }
+                        }
+                        if (!empty($phones)){
+                            $phStr = implode('، ', $phones);
+                            $result = [
+                                'answer' => 'شماره‌های تماس ' . $requestedPerson . ': ' . $phStr,
+                                'fields_used' => ['name','phone'],
+                                'aggregations' => new \stdClass(),
+                                'chart_data' => [],
+                                'confidence' => 'medium'
+                            ];
+                        }
+                    }
+                }
+            } catch (\Throwable $e) { /* noop */ }
             // Attach clarify if available and not already present
             if (is_array($clarify) && empty($result['clarify'])){ $result['clarify'] = $clarify; }
             $summary = (string)($result['answer'] ?? '');
