@@ -4792,6 +4792,19 @@ class Api
                 ];
                 // Read non-sensitive AI analysis config preview for debug/telemetry only
                 $aiCfg = self::get_ai_analysis_config();
+                // Build a safe subset preview (no raw data) for observability only
+                $intent = 'generic';
+                try {
+                    $ql = function_exists('mb_strtolower') ? mb_strtolower((string)$question, 'UTF-8') : strtolower((string)$question);
+                    if ($nameHint !== '') { $intent = 'person_mood'; }
+                    elseif (preg_match('/(?:مقایسه|روند|compare|trend|میانگین|متوسط|گروه)/u', $ql)) { $intent = 'compare_trend'; }
+                    elseif (preg_match('/(?:شماره|تلفن|موبایل|ایمیل|contact|phone|email)/ui', $ql)) { $intent = 'contact_info'; }
+                } catch (\Throwable $e) { $intent = 'generic'; }
+                try {
+                    $colsWh = \Arshline\Support\AiSubsetPackager::columnWhitelist($intent, !empty($aiCfg['allow_pii']));
+                } catch (\Throwable $e) { $colsWh = ['name','created_at']; }
+                $rowsTotal = is_array($rows) ? count($rows) : 0;
+                $rowsCap = (int)min(max(0, $rowsTotal), (int)($aiCfg['max_rows'] ?? 400));
                 $dbgBasic = [
                     'phase' => 'chunk',
                     'chunk_index' => $chunk_index,
@@ -4814,6 +4827,12 @@ class Api
                     'ambiguity_score' => $ambiguityScore,
                     'ai_decision' => $aiDecision,
                     'ai_config' => $aiCfg,
+                    'subset_preview' => [
+                        'intent' => $intent,
+                        'columns' => array_values($colsWh),
+                        'row_count_total' => $rowsTotal,
+                        'row_count_capped' => $rowsCap,
+                    ],
                     'observability' => [
                         'route' => 'server',
                         'duration_ms' => (int)round(($t1-$t0)*1000),
