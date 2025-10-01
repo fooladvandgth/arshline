@@ -4743,6 +4743,28 @@ class Api
                     if (!isset($partial['chunk_summary']['notes'])) $partial['chunk_summary']['notes'] = [];
                     foreach ($nearIdsComputed as $nid){ $partial['chunk_summary']['notes'][] = 'partial_match_applied_id_'.(string)$nid; }
                 }
+                // Compute an ambiguity score (0..1) for telemetry only — no behavior change
+                try {
+                    $gap = isset($threshold) ? max(0.0, (float)$threshold - (float)($bestScore ?? 0.0)) : 0.0;
+                    $gapNorm = min(1.0, $gap / 0.3);
+                    $candCount = is_array($matchedIds) ? count($matchedIds) : 0;
+                    $multi = ($candCount >= 3) ? 1.0 : (($candCount === 2) ? 0.5 : (($candCount === 1) ? 0.1 : 0.8));
+                    $partialCount = is_array($nearIdsComputed) ? count($nearIdsComputed) : 0;
+                    $partialFactor = ($partialCount >= 2) ? 0.6 : (($partialCount === 1) ? 0.3 : 0.0);
+                    $ambiguityScore = max(0.0, min(1.0, 0.5*$gapNorm + 0.3*$multi + 0.2*$partialFactor));
+                    $ambiguityScore = (float)round($ambiguityScore, 2);
+                } catch (\Throwable $e) { $ambiguityScore = null; $candCount = is_array($matchedIds)?count($matchedIds):0; $partialCount = is_array($nearIdsComputed)?count($nearIdsComputed):0; }
+                $aiDecision = [
+                    'route' => 'server',
+                    'reason' => 'scaffold_only',
+                    'metrics' => [
+                        'ambiguity_score' => $ambiguityScore,
+                        'best_score' => ($bestScore ?? null),
+                        'threshold_used' => (isset($threshold)?$threshold:null),
+                        'matched_count' => $candCount,
+                        'partial_count' => $partialCount,
+                    ]
+                ];
                 $dbgBasic = [
                     'phase' => 'chunk',
                     'chunk_index' => $chunk_index,
@@ -4762,6 +4784,8 @@ class Api
                     'fallback_applied' => $fallbackApplied,
                     'fallback_row_id' => $fallbackRowId,
                     'fallback_reason' => $fallbackReason,
+                    'ambiguity_score' => $ambiguityScore,
+                    'ai_decision' => $aiDecision,
                     'headers_canonical' => $headersCanonical,
                     'canonical_map' => $canonicalMap,
                     'duration_ms' => (int)round(($t1-$t0)*1000),
@@ -4874,6 +4898,38 @@ class Api
                 } catch (\Throwable $e) { }
                 // Minimal final debug always
                 $dbg = [];
+                // Compute ambiguity score across partials for telemetry only
+                try {
+                    $bestScores = [];
+                    $thresholds = [];
+                    $matchedCounts = 0; $partialCounts = 0;
+                    foreach (($partials ?: []) as $pt){
+                        $dbgl = is_array($pt['debug'] ?? null) ? $pt['debug'] : [];
+                        foreach ($dbgl as $d0){
+                            if (isset($d0['best_match_score'])) $bestScores[] = (float)$d0['best_match_score'];
+                            if (isset($d0['threshold_used'])) $thresholds[] = (float)$d0['threshold_used'];
+                            if (isset($d0['matched_row_ids']) && is_array($d0['matched_row_ids'])) $matchedCounts += count($d0['matched_row_ids']);
+                            if (isset($d0['partial_match_row_ids']) && is_array($d0['partial_match_row_ids'])) $partialCounts += count($d0['partial_match_row_ids']);
+                        }
+                    }
+                    $bestAvg = !empty($bestScores) ? array_sum($bestScores)/count($bestScores) : 0.0;
+                    $thrAvg = !empty($thresholds) ? array_sum($thresholds)/count($thresholds) : 0.0;
+                    $gap = max(0.0, $thrAvg - $bestAvg);
+                    $gapNorm = min(1.0, $gap / 0.3);
+                    $multi = ($matchedCounts >= 6) ? 1.0 : (($matchedCounts >= 3) ? 0.6 : (($matchedCounts >= 1) ? 0.2 : 0.8));
+                    $partialFactor = ($partialCounts >= 4) ? 0.6 : (($partialCounts >= 1) ? 0.3 : 0.0);
+                    $ambFinal = max(0.0, min(1.0, 0.5*$gapNorm + 0.3*$multi + 0.2*$partialFactor));
+                    $ambFinal = (float)round($ambFinal, 2);
+                } catch (\Throwable $e) { $ambFinal = null; }
+                $aiDecisionFinal = [
+                    'route' => 'server',
+                    'reason' => 'scaffold_only',
+                    'metrics' => [
+                        'ambiguity_score' => $ambFinal,
+                        'partials_count' => count($partials),
+                        'candidate_rows' => null,
+                    ]
+                ];
                 $dbgBasicFinal = [
                     'phase' => 'final',
                     'partials_count' => count($partials),
@@ -4882,6 +4938,8 @@ class Api
                     'fallback_row_ids' => $fallbackRowIds,
                     'candidate_rows' => $candidateRows,
                     'matched_columns' => $matchedColumns,
+                    'ambiguity_score' => $ambFinal,
+                    'ai_decision' => $aiDecisionFinal,
                     'json_repaired' => $repaired,
                     'http_status' => $status,
                     'routing' => [ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ]
