@@ -26,7 +26,7 @@ class Api
      * Minimal subset analysis via OpenAI-compatible JSON response.
      * Returns [answer, confidence, evidence_ids] or a safe fallback.
      */
-    protected function ai_subset_analyze(array $pkg, array $ai_cfg): array
+    protected static function ai_subset_analyze(array $pkg, array $ai_cfg): array
     {
         $model = isset($ai_cfg['model']) && is_string($ai_cfg['model']) && $ai_cfg['model']!=='' ? (string)$ai_cfg['model'] : 'gpt-4o';
         $base_url = isset($ai_cfg['base_url']) && is_string($ai_cfg['base_url']) ? (string)$ai_cfg['base_url'] : '';
@@ -37,7 +37,7 @@ class Api
             . ' If insufficient info, answer with "<fa>اطلاعات کافی برای پاسخ وجود ندارد.</fa>" and confidence=low.';
         $user = json_encode($pkg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         try {
-            $resp = $this->openai_chat_json($base_url, $api_key, $model, $system, $user);
+            $resp = self::openai_chat_json($base_url, $api_key, $model, $system, $user);
             if (is_array($resp) && isset($resp['answer'])){
                 $ans = [
                     'answer' => (string)$resp['answer'],
@@ -53,7 +53,7 @@ class Api
     /**
      * OpenAI-compatible chat completion expecting JSON object; basic repair on code fences.
      */
-    protected function openai_chat_json(string $base_url, string $api_key, string $model, string $system, string $user)
+    protected static function openai_chat_json(string $base_url, string $api_key, string $model, string $system, string $user)
     {
         $endpoint = rtrim($base_url ?: 'https://api.openai.com', '/') . '/v1/chat/completions';
         $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
@@ -5277,7 +5277,7 @@ class Api
                         $safeRows = \Arshline\Support\AiSubsetPackager::sanitizeRows($rowsBuilt, $columns, [ 'max_rows'=>$capMax, 'allow_pii'=>!empty($aiCfgF['allow_pii']) ]);
                         $pkg = \Arshline\Support\AiSubsetPackager::packageForModel($question, $safeRows, $columns, [ 'intent'=> ($requestedPerson!==''?'person_mood':'generic'), 'locale'=>'fa_IR', 'token_ceiling'=> [ 'typical'=>(int)($aiCfgF['token_typical'] ?? 8000), 'max'=>(int)($aiCfgF['token_max'] ?? 32000) ] ]);
 
-                        $subsetAns = $this->ai_subset_analyze($pkg, [ 'base_url'=>$base, 'api_key'=>$api_key, 'model'=>$use_model ]);
+                        $subsetAns = self::ai_subset_analyze($pkg, [ 'base_url'=>$base, 'api_key'=>$api_key, 'model'=>$use_model ]);
                         if (is_array($subsetAns) && !empty($subsetAns['answer'])){
                             $res['answer'] = (string)$subsetAns['answer'];
                             $res['confidence'] = (string)($subsetAns['confidence'] ?? ($res['confidence'] ?? 'low'));
