@@ -3907,7 +3907,7 @@ class Api
             }
         }
 
-        // Load AI config
+    // Load AI config
         $cur = get_option('arshline_settings', []);
         $base = is_scalar($cur['ai_base_url'] ?? null) ? trim((string)$cur['ai_base_url']) : '';
         $api_key = is_scalar($cur['ai_api_key'] ?? null) ? (string)$cur['ai_api_key'] : '';
@@ -3919,6 +3919,17 @@ class Api
         if (!$enabled || $base === '' || $api_key === ''){
             return new WP_REST_Response([ 'error' => 'ai_disabled' ], 400);
         }
+
+        // Enhanced Analytics Tracer helpers (persist across phases by session_id)
+        $trace_key = ($session_id > 0) ? ('arsh_ana_trace_' . $session_id) : '';
+        $read_trace = function() use ($trace_key){
+            if ($trace_key === '') return [];
+            try { $t = get_transient($trace_key); return is_array($t) ? $t : []; } catch (\Throwable $e) { return []; }
+        };
+        $write_trace = function(array $trace) use ($trace_key){
+            if ($trace_key === '') return;
+            try { set_transient($trace_key, $trace, 15*60); } catch (\Throwable $e) { /* ignore */ }
+        };
         // Resolve default max_tokens from config (ai_ana_max_tokens), then honor request override
     $cfgMaxTok = isset($cur['ai_ana_max_tokens']) && is_numeric($cur['ai_ana_max_tokens']) ? max(16, min(4096, (int)$cur['ai_ana_max_tokens'])) : 1200;
     $cfgChunkSize = isset($cur['ai_ana_chunk_size']) && is_numeric($cur['ai_ana_chunk_size']) ? max(50, min(2000, (int)$cur['ai_ana_chunk_size'])) : 800;
@@ -4297,12 +4308,19 @@ class Api
                 $relevant_fields = array_values(array_unique($relevant_fields));
                 $dbg = [];
                 if ($debug){ $dbg[] = [ 'phase'=>'plan', 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n, 'field_roles'=>$field_roles, 'relevant_fields'=>$relevant_fields, 'entities'=>$entities, 'routing'=>[ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ] ]; }
+                // Tracer: record planning step
+                try {
+                    $trace = $read_trace();
+                    $trace[] = [ 'ts'=>time(), 'phase'=>'plan', 'form_id'=>$fid, 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n ];
+                    $write_trace($trace);
+                } catch (\Throwable $e) { /* ignore */ }
                 return new WP_REST_Response([
                     'phase' => 'plan',
                     'plan' => [ 'total_rows'=>$total, 'chunk_size'=>$useChunk, 'number_of_chunks'=>$n, 'suggested_max_tokens'=>$suggestedMaxTokens ?? $suggestedMaxTok, 'field_roles'=>$field_roles, 'relevant_fields'=>$relevant_fields, 'entities'=>$entities ],
                     'fields_meta' => $fmeta,
                     'usage' => [],
                     'debug' => $dbg,
+                    'trace' => (function() use ($read_trace){ try { return $read_trace(); } catch (\Throwable $e) { return []; } })(),
                     'routing' => [ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ],
                     'session_id' => $session_id,
                 ], 200);
@@ -4712,6 +4730,8 @@ class Api
                 $partial['meta']['fallback_row_id'] = $fallbackRowId;
                 $partial['meta']['fallback_reason'] = $fallbackReason;
                 $partial['meta']['entities'] = $reqEntities;
+                // Propagate routing intent for final phase without requiring debug round-trip
+                $partial['meta']['ai_decision_route'] = $route;
                 // Deterministic fallbacks for phone and mood intents when model returns empty
                 $qLowerLocal2 = mb_strtolower($question, 'UTF-8');
                 $isPhoneIntentLocal = (bool)(preg_match('/\b(phone|mobile|cell)\b/i', $qLowerLocal2) || preg_match('/شماره\s*(?:تلفن|همراه|تماس)|موبایل/u', $qLowerLocal2));
@@ -4936,6 +4956,22 @@ class Api
                 if (function_exists('do_action')){
                     try { do_action('arshline_ai_observe', [ 'phase'=>'chunk', 'route'=>$route, 'ambiguity_score'=>$ambiguityScore, 'matched_count'=>$candCount, 'partial_count'=>$partialCount, 'duration_ms'=>(int)round(($t1-$t0)*1000), 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
                 }
+                // Tracer: record chunk step
+                try {
+                    $trace = $read_trace();
+                    $trace[] = [
+                        'ts' => time(),
+                        'phase' => 'chunk',
+                        'chunk_index' => $chunk_index,
+                        'best_score' => ($bestScore ?? null),
+                        'threshold' => (isset($threshold)?$threshold:null),
+                        'matched_ids' => array_values($matchedIds),
+                        'near_ids' => $nearIdsComputed,
+                        'route' => $route,
+                        'reason' => $reason,
+                    ];
+                    $write_trace($trace);
+                } catch (\Throwable $e) { /* ignore */ }
                 // Surface fields_used to the top-level for convenience (fallback to canonical headers without id/created_at)
                 $fieldsUsedTop = [];
                 if (is_array($partial) && is_array($partial['fields_used'] ?? null)){
@@ -4954,6 +4990,7 @@ class Api
                     'chunk_rows' => $actualRowCount,
                     'usage' => [],
                     'debug' => $dbg,
+                    'trace' => (function() use ($read_trace){ try { return $read_trace(); } catch (\Throwable $e) { return []; } })(),
                     'routing' => [ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ],
                     'session_id' => $session_id,
                 ], 200);
@@ -5056,8 +5093,11 @@ class Api
                 $aiCfgF = self::get_ai_analysis_config();
                 $modePolicyF = (string)($aiCfgF['mode'] ?? 'hybrid');
                 if ($modePolicyF !== 'efficient'){
-                    $bestHit = null; $thrHit = null; $nearHit = false; $candHit = 0;
+                    $bestHit = null; $thrHit = null; $nearHit = false; $candHit = 0; $metaRoute = '';
                     foreach (($partials ?: []) as $pt){
+                        // Prefer meta-carry route if present
+                        $meta = is_array($pt['meta'] ?? null) ? $pt['meta'] : [];
+                        if ($metaRoute === '' && is_string($meta['ai_decision_route'] ?? '')){ $metaRoute = (string)$meta['ai_decision_route']; }
                         $dbgl = is_array($pt['debug'] ?? null) ? $pt['debug'] : [];
                         foreach ($dbgl as $d0){
                             if (isset($d0['best_match_score']) && $bestHit === null) $bestHit = (float)$d0['best_match_score'];
@@ -5066,10 +5106,13 @@ class Api
                             if (isset($d0['matched_row_ids']) && is_array($d0['matched_row_ids'])) $candHit = max($candHit, count($d0['matched_row_ids']));
                         }
                     }
+                    if ($metaRoute === 'subset-ai'){ $routeFinal = 'subset-ai'; $reasonFinal = 'carried_from_chunk_meta'; }
                     $b = (float)($bestHit ?? 0.0);
-                    if ($b >= 0.75){ $routeFinal = 'server'; $reasonFinal = 'high_confidence'; }
-                    elseif ($b >= 0.50 && $b < 0.75 && ($nearHit || $candHit >= 3)) { $routeFinal = 'subset-ai'; $reasonFinal = 'ambiguous_partial_or_multi'; }
-                    else { $routeFinal = 'server'; $reasonFinal = 'low_or_singleton'; }
+                    if ($routeFinal === 'server'){
+                        if ($b >= 0.75){ $routeFinal = 'server'; $reasonFinal = 'high_confidence'; }
+                        elseif ($b >= 0.50 && $b < 0.75 && ($nearHit || $candHit >= 3)) { $routeFinal = 'subset-ai'; $reasonFinal = 'ambiguous_partial_or_multi'; }
+                        else { $routeFinal = 'server'; $reasonFinal = 'low_or_singleton'; }
+                    }
                 }
                 $aiDecisionFinal = [
                     'route' => $routeFinal,
@@ -5214,18 +5257,30 @@ class Api
                 }
                 if (!empty($finalNotes)) $dbgBasicFinal['final_notes'] = $finalNotes;
                 $dbg[] = $dbgBasicFinal;
-                $diagnostics = null;
-                if ($candidateRows === 0){ $diagnostics = [ 'candidate_rows' => 0, 'matched_columns' => $matchedColumns ]; }
+                // Build diagnostics with routed path so UI can reflect subset vs structured
+                $diagnostics = [ 'routed' => ($routeFinal === 'subset-ai' ? 'SubsetAI' : 'Structured') ];
+                if ($candidateRows === 0){ $diagnostics['candidate_rows'] = 0; $diagnostics['matched_columns'] = $matchedColumns; }
                 // Emit observation hook for integrators
                 if (function_exists('do_action')){
                     try { do_action('arshline_ai_observe', [ 'phase'=>'final', 'route'=> ($routeFinal==='subset-ai'?'subset-ai':'server'), 'ambiguity_score'=>$ambFinal, 'partials_count'=>count($partials), 'candidate_rows'=>$candidateRows, 'duration_ms'=>$durationFinalMs, 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
                 }
+                // Tracer: record final step and detect route mismatch
+                try {
+                    $trace = $read_trace();
+                    $trace[] = [ 'ts'=>time(), 'phase'=>'final', 'routed'=> $diagnostics['routed'], 'reason'=>$reasonFinal, 'partials_count'=>count($partials) ];
+                    $write_trace($trace);
+                    // If chunk meta suggested subset-ai but final chose server, log a warning for diagnostics
+                    if (isset($metaRoute) && $metaRoute === 'subset-ai' && $routeFinal !== 'subset-ai'){
+                        @error_log('[Arshline][AnalyticsTracer] Route mismatch: chunk->subset-ai but final->server (session_id='.$session_id.').');
+                    }
+                } catch (\Throwable $e) { /* ignore */ }
                 return new WP_REST_Response([
                     'phase' => 'final',
                     'result' => $res,
                     'diagnostics' => $diagnostics,
                     'usage' => [],
                     'debug' => $dbg,
+                    'trace' => (function() use ($read_trace){ try { return $read_trace(); } catch (\Throwable $e) { return []; } })(),
                     'routing' => [ 'structured'=>true, 'auto'=>$autoStructured, 'mode'=>$hoshMode, 'client_requested'=>$clientWantsStructured ],
                     'session_id' => $session_id,
                 ], 200);
