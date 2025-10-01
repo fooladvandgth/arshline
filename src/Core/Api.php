@@ -23,6 +23,67 @@ use Arshline\Core\AccessControl;
 class Api
 {
     /**
+     * Minimal subset analysis via OpenAI-compatible JSON response.
+     * Returns [answer, confidence, evidence_ids] or a safe fallback.
+     */
+    protected function ai_subset_analyze(array $pkg, array $ai_cfg): array
+    {
+        $model = isset($ai_cfg['model']) && is_string($ai_cfg['model']) && $ai_cfg['model']!=='' ? (string)$ai_cfg['model'] : 'gpt-4o';
+        $base_url = isset($ai_cfg['base_url']) && is_string($ai_cfg['base_url']) ? (string)$ai_cfg['base_url'] : '';
+        $api_key = isset($ai_cfg['api_key']) && is_string($ai_cfg['api_key']) ? (string)$ai_cfg['api_key'] : '';
+
+        $system = 'You are a strict JSON generator. Read the provided subset table and answer in Persian (fa) as JSON only.'
+            . ' Keys: answer (string), confidence (low|medium|high), evidence_ids (int[]).'
+            . ' If insufficient info, answer with "<fa>اطلاعات کافی برای پاسخ وجود ندارد.</fa>" and confidence=low.';
+        $user = json_encode($pkg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        try {
+            $resp = $this->openai_chat_json($base_url, $api_key, $model, $system, $user);
+            if (is_array($resp) && isset($resp['answer'])){
+                $ans = [
+                    'answer' => (string)$resp['answer'],
+                    'confidence' => isset($resp['confidence']) ? (string)$resp['confidence'] : 'low',
+                    'evidence_ids' => isset($resp['evidence_ids']) && is_array($resp['evidence_ids']) ? array_values(array_map('intval', $resp['evidence_ids'])) : [],
+                ];
+                return $ans;
+            }
+        } catch (\Throwable $e) { /* ignore and fallback */ }
+        return [ 'answer' => '<fa>اطلاعات کافی برای پاسخ وجود ندارد.</fa>', 'confidence' => 'low', 'evidence_ids' => [] ];
+    }
+
+    /**
+     * OpenAI-compatible chat completion expecting JSON object; basic repair on code fences.
+     */
+    protected function openai_chat_json(string $base_url, string $api_key, string $model, string $system, string $user)
+    {
+        $endpoint = rtrim($base_url ?: 'https://api.openai.com', '/') . '/v1/chat/completions';
+        $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
+        $payload = [
+            'model' => $model,
+            'response_format' => [ 'type' => 'json_object' ],
+            'messages' => [ [ 'role' => 'system', 'content' => $system ], [ 'role' => 'user', 'content' => $user ] ],
+            'temperature' => 0.2,
+            'max_tokens' => 512,
+        ];
+        try {
+            $r = wp_remote_post($endpoint, [ 'timeout' => 40, 'headers' => $headers, 'body' => wp_json_encode($payload) ]);
+            if (is_wp_error($r)) return null;
+            $b = json_decode((string)wp_remote_retrieve_body($r), true);
+            $txt = '';
+            if (is_array($b)){
+                if (isset($b['choices'][0]['message']['content']) && is_string($b['choices'][0]['message']['content'])) $txt = (string)$b['choices'][0]['message']['content'];
+                elseif (isset($b['choices'][0]['text']) && is_string($b['choices'][0]['text'])) $txt = (string)$b['choices'][0]['text'];
+                elseif (isset($b['output_text']) && is_string($b['output_text'])) $txt = (string)$b['output_text'];
+            }
+            $j = $txt ? json_decode($txt, true) : null;
+            if (is_array($j)) return $j;
+            // Simple repair: strip code fences
+            $txt2 = preg_replace('/```json|```/u', '', (string)$txt);
+            $j2 = $txt2 ? json_decode(trim((string)$txt2), true) : null;
+            if (is_array($j2)) return $j2;
+        } catch (\Throwable $e) { return null; }
+        return null;
+    }
+    /**
      * Read AI analysis configuration from options with sane defaults and filters.
      * This aids Hybrid/Efficient/AI-Heavy modes and caps while UI is pending.
      */
@@ -4779,19 +4840,30 @@ class Api
                     $ambiguityScore = max(0.0, min(1.0, 0.5*$gapNorm + 0.3*$multi + 0.2*$partialFactor));
                     $ambiguityScore = (float)round($ambiguityScore, 2);
                 } catch (\Throwable $e) { $ambiguityScore = null; $candCount = is_array($matchedIds)?count($matchedIds):0; $partialCount = is_array($nearIdsComputed)?count($nearIdsComputed):0; }
+                // Decide routing (hybrid policy): server if best >=0.75; subset-ai if 0.50<=best<0.75 and (partials or >=3 candidates)
+                $aiCfg = self::get_ai_analysis_config();
+                $modePolicy = (string)($aiCfg['mode'] ?? 'hybrid');
+                $route = 'server'; $reason = 'score_or_mode';
+                $b = ($bestScore ?? 0.0); $thrUsed = (isset($threshold)?$threshold:null);
+                $multiCand = ($candCount >= 3);
+                $hasNear = ($partialCount >= 1);
+                if ($modePolicy !== 'efficient'){
+                    if ($b >= 0.75){ $route = 'server'; $reason = 'high_confidence'; }
+                    elseif ($b >= 0.50 && $b < 0.75 && ($multiCand || $hasNear)) { $route = 'subset-ai'; $reason = 'ambiguous_partial_or_multi'; }
+                    else { $route = 'server'; $reason = 'low_or_singleton'; }
+                }
                 $aiDecision = [
-                    'route' => 'server',
-                    'reason' => 'scaffold_only',
+                    'route' => $route,
+                    'reason' => $reason,
                     'metrics' => [
                         'ambiguity_score' => $ambiguityScore,
                         'best_score' => ($bestScore ?? null),
-                        'threshold_used' => (isset($threshold)?$threshold:null),
+                        'threshold_used' => $thrUsed,
                         'matched_count' => $candCount,
                         'partial_count' => $partialCount,
                     ]
                 ];
-                // Read non-sensitive AI analysis config preview for debug/telemetry only
-                $aiCfg = self::get_ai_analysis_config();
+                // Read non-sensitive AI analysis config preview for debug/telemetry only (already read above)
                 // Build a safe subset preview (no raw data) for observability only
                 $intent = 'generic';
                 try {
@@ -4834,7 +4906,7 @@ class Api
                         'row_count_capped' => $rowsCap,
                     ],
                     'observability' => [
-                        'route' => 'server',
+                        'route' => $route,
                         'duration_ms' => (int)round(($t1-$t0)*1000),
                         'usage' => $usage,
                     ],
@@ -4862,7 +4934,7 @@ class Api
                 }
                 // Emit an observation event for integrators (no-op if not hooked)
                 if (function_exists('do_action')){
-                    try { do_action('arshline_ai_observe', [ 'phase'=>'chunk', 'route'=>'server', 'ambiguity_score'=>$ambiguityScore, 'matched_count'=>$candCount, 'partial_count'=>$partialCount, 'duration_ms'=>(int)round(($t1-$t0)*1000), 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
+                    try { do_action('arshline_ai_observe', [ 'phase'=>'chunk', 'route'=>$route, 'ambiguity_score'=>$ambiguityScore, 'matched_count'=>$candCount, 'partial_count'=>$partialCount, 'duration_ms'=>(int)round(($t1-$t0)*1000), 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
                 }
                 // Surface fields_used to the top-level for convenience (fallback to canonical headers without id/created_at)
                 $fieldsUsedTop = [];
@@ -4979,9 +5051,29 @@ class Api
                     $ambFinal = max(0.0, min(1.0, 0.5*$gapNorm + 0.3*$multi + 0.2*$partialFactor));
                     $ambFinal = (float)round($ambFinal, 2);
                 } catch (\Throwable $e) { $ambFinal = null; }
+                // Decide final route based on partial debug metrics (hybrid policy)
+                $routeFinal = 'server'; $reasonFinal = 'insufficient_metrics_or_mode';
+                $aiCfgF = self::get_ai_analysis_config();
+                $modePolicyF = (string)($aiCfgF['mode'] ?? 'hybrid');
+                if ($modePolicyF !== 'efficient'){
+                    $bestHit = null; $thrHit = null; $nearHit = false; $candHit = 0;
+                    foreach (($partials ?: []) as $pt){
+                        $dbgl = is_array($pt['debug'] ?? null) ? $pt['debug'] : [];
+                        foreach ($dbgl as $d0){
+                            if (isset($d0['best_match_score']) && $bestHit === null) $bestHit = (float)$d0['best_match_score'];
+                            if (isset($d0['threshold_used']) && $thrHit === null) $thrHit = (float)$d0['threshold_used'];
+                            if (isset($d0['partial_match_row_ids']) && is_array($d0['partial_match_row_ids']) && !$nearHit) $nearHit = count($d0['partial_match_row_ids'])>0;
+                            if (isset($d0['matched_row_ids']) && is_array($d0['matched_row_ids'])) $candHit = max($candHit, count($d0['matched_row_ids']));
+                        }
+                    }
+                    $b = (float)($bestHit ?? 0.0);
+                    if ($b >= 0.75){ $routeFinal = 'server'; $reasonFinal = 'high_confidence'; }
+                    elseif ($b >= 0.50 && $b < 0.75 && ($nearHit || $candHit >= 3)) { $routeFinal = 'subset-ai'; $reasonFinal = 'ambiguous_partial_or_multi'; }
+                    else { $routeFinal = 'server'; $reasonFinal = 'low_or_singleton'; }
+                }
                 $aiDecisionFinal = [
-                    'route' => 'server',
-                    'reason' => 'scaffold_only',
+                    'route' => $routeFinal,
+                    'reason' => $reasonFinal,
                     'metrics' => [
                         'ambiguity_score' => $ambFinal,
                         'partials_count' => count($partials),
@@ -5002,7 +5094,7 @@ class Api
                     'ai_decision' => $aiDecisionFinal,
                     'ai_config' => $aiCfgF,
                     'observability' => [
-                        'route' => 'server',
+                        'route' => $routeFinal,
                         'duration_ms' => $durationFinalMs,
                         'usage' => $usage,
                     ],
@@ -5018,6 +5110,81 @@ class Api
                     $dbgBasicFinal['request_preview'] = [ 'model'=>$modelName, 'max_tokens'=> min(1200, max(600, $max_tokens)), 'messages'=> [ ['role'=>'system','content'=>$sysPrev], ['role'=>'user','content'=>$userPrev] ] ];
                 }
                 $res = is_array($final)? $final : [ 'answer'=>'تحلیلی یافت نشد.', 'fields_used'=>[], 'aggregations'=>new \stdClass(), 'chart_data'=>[], 'outliers'=>[], 'insights'=>[], 'confidence'=>'low' ];
+
+                // Subset-AI path (execute only if decided and config allows)
+                if ($routeFinal === 'subset-ai'){
+                    try {
+                        $fid = $form_ids[0];
+                        // Build rows with canonical keys for minimal intents
+                        $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                        $field_roles = $detect_field_roles(is_array($fieldsForMeta)? array_map(function($f){ $p=is_array($f['props'] ?? null)?$f['props']:[]; return [ 'id'=>(int)($f['id']??0), 'label'=>(string)($p['question'] ?? $p['label'] ?? $p['title'] ?? $p['name'] ?? ''), 'type'=>(string)($p['type'] ?? '') ]; }, $fieldsForMeta): []);
+                        // Fetch latest rows capped
+                        $capMax = (int)($aiCfgF['max_rows'] ?? 400);
+                        $all = \Arshline\Modules\Forms\SubmissionRepository::listByFormAll($fid, [], $capMax);
+                        $ids = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, ($all ?: [])), function($v){ return $v>0; }));
+                        $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($ids);
+                        $rowsBuilt = [];
+                        // Quick label lookup
+                        $idToLabel = [];
+                        try {
+                            foreach (($fieldsForMeta ?: []) as $f){ $p0=is_array($f['props'] ?? null)?$f['props']:[]; $lab0=(string)($p0['question'] ?? $p0['label'] ?? $p0['title'] ?? $p0['name'] ?? ''); $idToLabel[(int)($f['id'] ?? 0)]=$lab0; }
+                        } catch (\Throwable $e) { $idToLabel = []; }
+                        $nameLabs = array_values(array_unique((array)($field_roles['name'] ?? [])));
+                        $textLabs = array_values(array_unique((array)($field_roles['mood_text'] ?? [])));
+                        $scoreLabs = array_values(array_unique((array)($field_roles['mood_score'] ?? [])));
+                        $phoneLabs = array_values(array_unique((array)($field_roles['phone'] ?? [])));
+                        $setN=[]; foreach ($nameLabs as $x){ $setN[$x]=true; }
+                        $setT=[]; foreach ($textLabs as $x){ $setT[$x]=true; }
+                        $setS=[]; foreach ($scoreLabs as $x){ $setS[$x]=true; }
+                        $setP=[]; foreach ($phoneLabs as $x){ $setP[$x]=true; }
+                        foreach (($all ?: []) as $row){
+                            $sid = (int)($row['id'] ?? 0);
+                            if ($sid<=0) continue;
+                            $vals = $valuesMap[$sid] ?? [];
+                            $nmParts=[]; $txParts=[]; $scoreVals=[]; $phones=[];
+                            foreach ($vals as $v){
+                                $fidv=(int)($v['field_id'] ?? 0);
+                                $lab=(string)($idToLabel[$fidv] ?? '');
+                                $val=trim((string)($v['value'] ?? ''));
+                                if ($val==='') continue;
+                                if ($lab!=='' && isset($setN[$lab])) $nmParts[]=$val;
+                                if ($lab!=='' && isset($setT[$lab])) $txParts[]=$val;
+                                if ($lab!=='' && isset($setS[$lab])){
+                                    if (preg_match('/(\d{1,2})/u', strtr($val, ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']), $m)){
+                                        $n=(int)$m[1]; if ($n>=0 && $n<=10) $scoreVals[]=$n;
+                                    }
+                                }
+                                if ($lab!=='' && isset($setP[$lab])) $phones[]=$val;
+                            }
+                            $rowsBuilt[] = [
+                                'id' => (string)$sid,
+                                'created_at' => (string)($row['created_at'] ?? ''),
+                                'name' => trim(implode(' ', $nmParts)),
+                                'mood_text' => trim(implode(' | ', $txParts)),
+                                'mood_score' => (!empty($scoreVals) ? max($scoreVals) : ''),
+                                'phone' => (!empty($phones) ? (string)reset($phones) : ''),
+                            ];
+                            if (count($rowsBuilt) >= $capMax) break;
+                        }
+                        $columns = \Arshline\Support\AiSubsetPackager::columnWhitelist(($requestedPerson!==''?'person_mood':'generic'), !empty($aiCfgF['allow_pii']));
+                        $safeRows = \Arshline\Support\AiSubsetPackager::sanitizeRows($rowsBuilt, $columns, [ 'max_rows'=>$capMax, 'allow_pii'=>!empty($aiCfgF['allow_pii']) ]);
+                        $pkg = \Arshline\Support\AiSubsetPackager::packageForModel($question, $safeRows, $columns, [ 'intent'=> ($requestedPerson!==''?'person_mood':'generic'), 'locale'=>'fa_IR', 'token_ceiling'=> [ 'typical'=>(int)($aiCfgF['token_typical'] ?? 8000), 'max'=>(int)($aiCfgF['token_max'] ?? 32000) ] ]);
+
+                        $subsetAns = $this->ai_subset_analyze($pkg, [ 'base_url'=>$base, 'api_key'=>$api_key, 'model'=>$use_model ]);
+                        if (is_array($subsetAns) && !empty($subsetAns['answer'])){
+                            $res['answer'] = (string)$subsetAns['answer'];
+                            $res['confidence'] = (string)($subsetAns['confidence'] ?? ($res['confidence'] ?? 'low'));
+                            if (!empty($subsetAns['evidence_ids']) && is_array($subsetAns['evidence_ids'])){
+                                $res['insights'][] = [ 'evidence_ids' => array_values(array_map('intval', $subsetAns['evidence_ids'])) ];
+                            }
+                            $dbgBasicFinal['routed'] = 'SubsetAI';
+                        } else {
+                            $dbgBasicFinal['subset_ai_error'] = 'empty_or_invalid';
+                        }
+                    } catch (\Throwable $e) {
+                        $dbgBasicFinal['subset_ai_exception'] = $e->getMessage();
+                    }
+                }
                 // Add final notes and possible adjustments based on partial/fallback tagging
                 $hasPartial = false;
                 try {
@@ -5051,7 +5218,7 @@ class Api
                 if ($candidateRows === 0){ $diagnostics = [ 'candidate_rows' => 0, 'matched_columns' => $matchedColumns ]; }
                 // Emit observation hook for integrators
                 if (function_exists('do_action')){
-                    try { do_action('arshline_ai_observe', [ 'phase'=>'final', 'route'=>'server', 'ambiguity_score'=>$ambFinal, 'partials_count'=>count($partials), 'candidate_rows'=>$candidateRows, 'duration_ms'=>$durationFinalMs, 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
+                    try { do_action('arshline_ai_observe', [ 'phase'=>'final', 'route'=> ($routeFinal==='subset-ai'?'subset-ai':'server'), 'ambiguity_score'=>$ambFinal, 'partials_count'=>count($partials), 'candidate_rows'=>$candidateRows, 'duration_ms'=>$durationFinalMs, 'usage'=>$usage ]); } catch (\Throwable $e) { /* ignore */ }
                 }
                 return new WP_REST_Response([
                     'phase' => 'final',
