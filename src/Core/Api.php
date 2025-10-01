@@ -5010,6 +5010,46 @@ class Api
                     }
                     $fallbackRowIds = array_values(array_unique(array_filter($fallbackRowIds, function($v){ return (int)$v>0; })));
                 } catch (\Throwable $e) { /* ignore */ }
+                // Fallback: if no partials carried the requested person, extract from final request (entities or question text)
+                if ($requestedPerson === ''){
+                    try {
+                        // Prefer entities from request body
+                        $reqEntitiesF = is_array($p['entities'] ?? null) ? $p['entities'] : [];
+                        if (!empty($reqEntitiesF)){
+                            foreach ($reqEntitiesF as $en){
+                                $typ = (string)($en['type'] ?? '');
+                                $val = trim((string)($en['value'] ?? ''));
+                                if ($typ === 'person' && $val !== ''){ $requestedPerson = $val; break; }
+                            }
+                        }
+                        if ($requestedPerson === ''){
+                            // Extract person name from Persian patterns like «حال نیما چطوره؟» / quotes
+                            $cand = '';
+                            if (preg_match('/«([^»]+)»/u', (string)$question, $mm)) { $cand = trim($mm[1]); }
+                            if ($cand === '' && preg_match('/"([^"\n]{2,})"/u', (string)$question, $mm2)) { $cand = trim($mm2[1]); }
+                            $qLowerFinal = mb_strtolower((string)$question, 'UTF-8');
+                            if ($cand === '' && preg_match('/(?:حال|احوال)\s+([\p{L}‌\s]{2,})/u', $qLowerFinal, $mm3)){
+                                $cand = trim($mm3[1]);
+                                $cand = preg_replace('/\s*(چطوره|چطور|هست|است)\s*$/u', '', (string)$cand);
+                                $cand = preg_replace('/[\?\؟]+$/u', '', (string)$cand);
+                            }
+                            // Normalize and keep up to first two tokens
+                            $cand = (string)$cand;
+                            $cand = preg_replace('/\x{200C}/u', '', $cand); // ZWNJ
+                            $cand = str_replace(['ي','ك','ة'], ['ی','ک','ه'], $cand);
+                            $cand = trim($cand);
+                            if ($cand !== ''){
+                                $parts = preg_split('/\s+/u', $cand, -1, PREG_SPLIT_NO_EMPTY);
+                                $titles = ['آقای','آقا','خانم','دکتر','مهندس','استاد'];
+                                $parts = array_values(array_filter($parts, function($t) use ($titles){ return !in_array($t, $titles, true); }));
+                                if (!empty($parts)){
+                                    $cand = implode(' ', array_slice($parts, 0, 2));
+                                }
+                                $requestedPerson = trim(mb_substr($cand, 0, 60, 'UTF-8'));
+                            }
+                        }
+                    } catch (\Throwable $e) { /* ignore */ }
+                }
                 // Compose final merge request with summaries only
                 $mergeIn = [ 'question'=>$question, 'partials'=>$partials, 'requested_person'=>$requestedPerson, 'fallback_info'=>[ 'applied'=>$fallbackAppliedAny, 'row_ids'=>$fallbackRowIds ] ];
                 $sys = 'You are Hoshang. Merge the provided partial chunk analytics. If the user asked about a person\'s mood/wellbeing, synthesize an analysis by combining textual mood descriptions and numeric ratings (1–10).'
@@ -5093,6 +5133,14 @@ class Api
                 $aiCfgF = self::get_ai_analysis_config();
                 $modePolicyF = (string)($aiCfgF['mode'] ?? 'hybrid');
                 if ($modePolicyF !== 'efficient'){
+                    // If no partials came through but intent looks like person/mood, escalate to SubsetAI to avoid empty answers
+                    try {
+                        if (empty($partials)){
+                            $qlFinal = mb_strtolower((string)$question, 'UTF-8');
+                            $looksPersonMood = ($requestedPerson !== '') || preg_match('/حال|احوال|روحیه|رضایت/u', $qlFinal);
+                            if ($looksPersonMood){ $routeFinal = 'subset-ai'; $reasonFinal = 'no_partials_person_or_mood_intent'; }
+                        }
+                    } catch (\Throwable $e) { /* ignore */ }
                     $bestHit = null; $thrHit = null; $nearHit = false; $candHit = 0; $metaRoute = '';
                     foreach (($partials ?: []) as $pt){
                         // Prefer meta-carry route if present
