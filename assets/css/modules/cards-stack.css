@@ -1,0 +1,90 @@
+/* ARSHLINE Cards Stack (modular) */
+.ar-cstack-container {
+  position: relative;
+  height: 300px;
+  width: 600px;
+  margin: 60px auto 0;
+  display: flex;
+}
+
+.ar-cstack-card {
+  display: flex;
+  height: 280px;
+  width: 200px;
+  background-color: #17141d;
+  border-radius: 10px;
+  box-shadow: -1rem 0 3rem #000;
+  transition: 0.4s ease-out;
+  position: relative;
+  left: 0;
+  cursor: pointer;
+}
+.ar-cstack-card:not(:first-child) {
+  margin-left: -50px;
+}
+.ar-cstack-card:hover {
+  transform: translateY(-20px);
+  transition: 0.4s ease-out;
+}
+.ar-cstack-card:hover ~ .ar-cstack-card {
+  position: relative;
+  left: 50px;
+  transition: 0.4s ease-out;
+}
+.ar-cstack-title {
+  color: #fff;
+  font-weight: 300;
+  position: absolute;
+  left: 20px;
+  top: 15px;
+  margin: 0;
+}
+.ar-cstack-bar {
+  position: absolute;
+  top: 100px;
+  left: 20px;
+  height: 5px;
+  width: 150px;
+}
+.ar-cstack-emptybar {
+  background-color: #2e3033;
+  width: 100%;
+  height: 100%;
+}
+.ar-cstack-filledbar {
+  position: absolute;
+  top: 0;
+  z-index: 3;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(0,154,217,1) 0%, rgba(217,147,0,1) 65%, rgba(255,186,0,1) 100%);
+  transition: 0.6s ease-out;
+}
+.ar-cstack-card:hover .ar-cstack-filledbar {
+  width: 120px;
+  transition: 0.4s ease-out;
+}
+.ar-cstack-circle {
+  position: absolute;
+  top: 150px;
+  left: calc(50% - 60px);
+}
+.ar-cstack-stroke {
+  stroke: #fff;
+  stroke-dasharray: 360;
+  stroke-dashoffset: 360;
+  transition: 0.6s ease-out;
+}
+.ar-cstack-svg {
+  fill: #17141d;
+  stroke-width: 2px;
+}
+.ar-cstack-card:hover .ar-cstack-stroke {
+  stroke-dashoffset: 100;
+  transition: 0.6s ease-out;
+}
+
+/* Responsive helper: center container on small screens */
+@media (max-width: 680px) {
+  .ar-cstack-container { width: 100%; justify-content: center; }
+}

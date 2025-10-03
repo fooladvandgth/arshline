@@ -34,6 +34,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/wp-admin-compat.css?ver=' . $version); ?>" />
+    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/cards-stack.css?ver=' . $version); ?>" />
 
             <!-- Runtime config JSON (consumed by assets/js/core/runtime-config.js) -->
             <script id="arshline-config" type="application/json">
@@ -118,6 +119,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/welcome.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/thank_you.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/ui/cards-stack.js', dirname(__DIR__, 2).'/arshline.php') ); ?>?ver=<?php echo esc_attr($version); ?>"></script>
     <!-- Externalized controller (extracted from inline block) -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>?ver=<?php echo esc_attr($version . '.' . (file_exists(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/js/dashboard-controller.js') ? filemtime(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/js/dashboard-controller.js') : '0')); ?>"></script>
         <?php

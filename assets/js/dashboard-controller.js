@@ -404,24 +404,7 @@
       if (tab === 'dashboard'){
         content.innerHTML = ''+
           '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
-          '<div class="ar-modern-cards">\
-            <div class="ar-card ar-card--blue" id="arCardFormBuilder">\
-              <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
-              <div class="content"><h2>فرم‌ساز پیشرفته</h2></div>\
-            </div>\
-            <div class="ar-card ar-card--amber" id="arCardMessaging">\
-              <div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>\
-              <div class="content"><h2>پیامرسانی پیشرفته</h2></div>\
-            </div>\
-            <div class="ar-card ar-card--violet" id="arCardReports">\
-              <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
-              <div class="content"><h2>گزارشات و تحلیل</h2></div>\
-            </div>\
-            <div class="ar-card ar-card--teal" id="arCardGroups">\
-              <div class="icon"><ion-icon name="settings-outline"></ion-icon></div>\
-              <div class="content"><h2>گروه‌های کاربری</h2></div>\
-            </div>\
-          </div>'+
+          '<div id="arCardsMount" style="min-height:320px"></div>'+
           '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
             '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
               '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
@@ -460,14 +443,15 @@
           '</div>';
         (function(){
           try {
-            var cardForm = document.getElementById('arCardFormBuilder');
-            var cardMsg = document.getElementById('arCardMessaging');
-            var cardRep = document.getElementById('arCardReports');
-            var cardGrp = document.getElementById('arCardGroups');
-            if (cardForm) cardForm.addEventListener('click', function(){ try { setHash('forms'); } catch(_){ location.hash = '#forms'; } arRenderTab('forms'); });
-            if (cardMsg) cardMsg.addEventListener('click', function(){ try { setHash('messaging'); } catch(_){ location.hash = '#messaging'; } arRenderTab('messaging'); });
-            if (cardRep) cardRep.addEventListener('click', function(){ try { setHash('reports'); } catch(_){ location.hash = '#reports'; } arRenderTab('reports'); });
-            if (cardGrp) cardGrp.addEventListener('click', function(){ try { setHash('users'); } catch(_){ location.hash = '#users'; } arRenderTab('users'); });
+            var go = function(t){ try { setHash(t); } catch(_){ location.hash = '#' + t; } arRenderTab(t); };
+            if (window.ARSH_UI && typeof window.ARSH_UI.renderCardsStack === 'function'){
+              window.ARSH_UI.renderCardsStack('#arCardsMount', [
+                { title: 'فرم‌ساز پیشرفته', onClick: function(){ go('forms'); } },
+                { title: 'پیامرسانی پیشرفته', onClick: function(){ go('messaging'); } },
+                { title: 'گزارشات و تحلیل', onClick: function(){ go('reports'); } },
+                { title: 'گروه‌های کاربری', onClick: function(){ go('users'); } }
+              ]);
+            }
           } catch(_){ }
           
           var daysSel = document.getElementById('arStatsDays');
