@@ -418,9 +418,10 @@ body.dark #arFormSide {
     background: #3c2846;
     border-bottom-left-radius: 100px;
     border-bottom-right-radius: 100px;
-    /* Balanced icon shadow and inner ridge */
+    /* Balanced icon shadow and inner ridge + 1px top cover to hide seam */
     box-shadow: 0 10px 0 rgba(0, 0, 0, 0.10),
-                inset 0 -7px 0 #fff;
+                inset 0 -7px 0 #fff,
+                0 -1px 0 0 #3c2846;
     z-index: 100;
     display: flex;
     justify-content: center;
@@ -430,7 +431,7 @@ body.dark #arFormSide {
 .ar-card .icon::before {
     content: "";
     position: absolute;
-    top: 0;
+    top: -1px; /* nudge up to fully cover top edge */
     left: -50px;
     width: 50px;
     height: 50px;
@@ -443,7 +444,7 @@ body.dark #arFormSide {
 .ar-card .icon::after {
     content: "";
     position: absolute;
-    top: 0;
+    top: -1px; /* nudge up to fully cover top edge */
     right: -50px;
     width: 50px;
     height: 50px;
@@ -1551,7 +1552,9 @@ body.preview-only .arshline-main {
     box-shadow: 0 10px 0 #fff,
                 inset 0 -9px 0 rgba(255, 255, 255, 0.20),
                 0 22px 0 rgba(0, 0, 0, 0.14) !important;
-    transition: none;
+    /* Enable smooth transform/filter transitions for hover animation */
+    transition: transform .26s ease, filter .26s ease;
+    will-change: transform;
     gap: 0;
     align-items: flex-start;
     justify-content: center;
@@ -1570,9 +1573,11 @@ body.preview-only .arshline-main {
 
 .ar-modern-cards > .ar-card:hover,
 .ar-modern-cards > .ar-card:focus-within {
-    transform: none !important;
+    /* Block legacy pulse; apply a gentle lift/scale effect */
     animation: none !important; /* prevent inherited ar-pulse */
-    /* Keep hover same as base to preserve subtlety */
+    transform: translateY(-6px) scale(1.015) !important;
+    filter: saturate(1.05) brightness(1.03);
+    /* Keep shadow visually consistent */
     box-shadow: 0 10px 0 #fff,
                 inset 0 -9px 0 rgba(255, 255, 255, 0.20),
                 0 22px 0 rgba(0, 0, 0, 0.14) !important;
@@ -1586,9 +1591,17 @@ body.preview-only .arshline-main {
     width: 100%;
     height: 120%;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2));
-    transform: rotate(35deg);
+    transform: rotate(35deg) translateX(0);
     pointer-events: none;
     filter: blur(5px);
+    opacity: .14;
+    transition: transform .6s ease, opacity .6s ease;
+}
+.ar-modern-cards > .ar-card:hover::before,
+.ar-modern-cards > .ar-card:focus-within::before {
+    /* Subtle diagonal sheen sweep */
+    transform: rotate(35deg) translateX(36%);
+    opacity: .22;
 }
 
 .ar-modern-cards > .ar-card .icon {
@@ -1598,7 +1611,7 @@ body.preview-only .arshline-main {
     background: #3c2846;
     border-bottom-left-radius: 80px;
     border-bottom-right-radius: 80px;
-    box-shadow: 0 10px 0 rgba(0, 0, 0, 0.10), inset 0 -7px 0 #fff;
+    box-shadow: 0 10px 0 rgba(0, 0, 0, 0.10), inset 0 -7px 0 #fff, 0 -1px 0 0 #3c2846; /* add top cover to hide seam */
     z-index: 100;
     display: flex;
     justify-content: center;
@@ -1608,7 +1621,7 @@ body.preview-only .arshline-main {
 .ar-modern-cards > .ar-card .icon::before {
     content: "";
     position: absolute;
-    top: 0;
+    top: -1px; /* nudge up to fully cover top edge */
     left: -50px;
     width: 50px;
     height: 50px;
@@ -1620,7 +1633,7 @@ body.preview-only .arshline-main {
 .ar-modern-cards > .ar-card .icon::after {
     content: "";
     position: absolute;
-    top: 0;
+    top: -1px; /* nudge up to fully cover top edge */
     right: -50px;
     width: 50px;
     height: 50px;
