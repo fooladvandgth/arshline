@@ -123,9 +123,7 @@
     .ar-btn--outline { background:transparent; color: var(--text); border:1px solid var(--border); }
     .ar-btn--danger { background:#b91c1c; }
     .ar-btn--soft { background: rgba(30,64,175,.1); color: var(--primary); }
-    .ar-input { padding:.5rem .6rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
-    .ar-input::placeholder { color: var(--muted); opacity: .85; }
-    .ar-select { padding:.45rem .5rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-family: inherit; font-size: 1rem; }
+    /* Input and select styles moved to components.css */
     /* Ensure toolbar controls sit side-by-side (don’t stretch 100%) */
     #arFormSearch, #arFormStatusFilter { width: auto; flex: 0 0 auto; }
     .ar-dnd-handle { cursor: grab; user-select: none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; color:#fff; background: var(--primary); margin-inline-end:.5rem; }

@@ -64,8 +64,8 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
     function h(html){ var d=document.createElement('div'); d.innerHTML=html; return d.firstChild; }
     function esc(s){ s = String(s||''); return s.replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'})[c]; }); }
 
-  // normalize Persian/Arabic digits to ASCII
-  function normalizeDigits(s){
+  // استفاده از تابع مشترک normalizeDigits - اگر persian-utils.js لود نشده fallback استفاده می‌کنیم
+  var normalizeDigits = window.ARSHLINE?.Persian?.normalizeDigits || function(s){
     if (!s) return '';
     var fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
     var out = '';
@@ -75,7 +75,7 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
       out += ch;
     }
     return out;
-  }
+  };
 
   function validateValue(f, raw){
     var v = normalizeDigits(String(raw||'').trim());

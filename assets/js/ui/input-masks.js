@@ -8,7 +8,8 @@
   if (typeof window === 'undefined') return;
   if (window.ARSH_MASKS_INIT) return; window.ARSH_MASKS_INIT = true;
 
-  function normalizeDigits(str){
+  // استفاده از تابع مشترک normalizeDigits از persian-utils.js
+  var normalizeDigits = window.ARSHLINE?.Persian?.normalizeDigits || function(str){
     var fa = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
     var ar = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
     return (String(str||'')).replace(/[۰-۹٠-٩]/g, function(d){
@@ -16,7 +17,7 @@
       var j = ar.indexOf(d); if (j>-1) return String(j);
       return d;
     });
-  }
+  };
 
   function applyInputMask(inp, props){
     if (!inp) return;
