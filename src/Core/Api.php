@@ -32,7 +32,7 @@ class Api
         
         // If manual mode, use configured model
         if ($model_mode === 'manual' || $configured_model !== 'auto') {
-            return $configured_model;
+            return self::normalize_model_name($configured_model);
         }
         
         // Auto mode: smart selection based on context and complexity
@@ -70,14 +70,39 @@ class Api
         
         // Model selection logic
         if ($is_heavy || $complexity_score > 7) {
-            return 'gpt-4o'; // High-end for complex tasks
+            return self::normalize_model_name('gpt-4o'); // High-end for complex tasks
         } elseif ($request_type === 'analytics' || $complexity_score > 4) {
-            return 'gpt-4o-mini'; // Mid-range for analytics
+            return self::normalize_model_name('gpt-4o-mini'); // Mid-range for analytics
         } elseif ($is_simple || $complexity_score <= 2) {
-            return 'gpt-3.5-turbo'; // Cheap for simple tasks
+            return self::normalize_model_name('gpt-3.5-turbo'); // Cheap for simple tasks
         }
         
-        return 'gpt-4o-mini'; // Default fallback
+        return self::normalize_model_name('gpt-4o-mini'); // Default fallback
+    }
+
+    /**
+     * Normalize potentially unsupported model names into supported/nearest ones.
+     * Example: "gpt-5-mini" -> "gpt-4o-mini".
+     */
+    protected static function normalize_model_name(string $name): string
+    {
+        $n = trim($name);
+        if ($n === '' || strtolower($n) === 'auto') return 'gpt-4o-mini';
+        // Known aliases/migrations
+        $map = [
+            'gpt-5-mini' => 'gpt-4o-mini',
+            'gpt5-mini' => 'gpt-4o-mini',
+            'gpt-5' => 'gpt-4o',
+            'gpt5' => 'gpt-4o',
+        ];
+        $low = strtolower($n);
+        if (isset($map[$low])) return $map[$low];
+        // If user specifies family-like names, snap to closest supported
+        if (preg_match('/mini|small|lite/i', $n)) return 'gpt-4o-mini';
+        if (preg_match('/4o|gpt-4|advanced|pro/i', $n)) return 'gpt-4o';
+        if (preg_match('/3\.5|cheap|basic/i', $n)) return 'gpt-3.5-turbo';
+        // Default safe
+        return $n;
     }
 
     /**
@@ -116,16 +141,16 @@ class Api
         $endpoint = rtrim($base_url ?: 'https://api.openai.com', '/') . '/v1/chat/completions';
         $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
         $payload = [
-            'model' => $model,
+            'model' => self::normalize_model_name($model),
             'response_format' => [ 'type' => 'json_object' ],
             'messages' => [ [ 'role' => 'system', 'content' => $system ], [ 'role' => 'user', 'content' => $user ] ],
             'temperature' => 0.2,
             'max_tokens' => 512,
         ];
         try {
-            $r = wp_remote_post($endpoint, [ 'timeout' => 40, 'headers' => $headers, 'body' => wp_json_encode($payload) ]);
-            if (is_wp_error($r)) return null;
-            $b = json_decode((string)wp_remote_retrieve_body($r), true);
+            $res = self::wp_post_with_retries($endpoint, $headers, $payload, 40, 3, [500,1000,2000], 'gpt-4o-mini');
+            if (!is_array($res)) return null;
+            $b = $res['json'] ?? (json_decode((string)($res['body'] ?? ''), true) ?: null);
             $txt = '';
             if (is_array($b)){
                 if (isset($b['choices'][0]['message']['content']) && is_string($b['choices'][0]['message']['content'])) $txt = (string)$b['choices'][0]['message']['content'];
@@ -140,6 +165,51 @@ class Api
             if (is_array($j2)) return $j2;
         } catch (\Throwable $e) { return null; }
         return null;
+    }
+
+    /**
+     * POST with retries/backoff for 429/5xx and optional model fallback (changes req['model']).
+     * Returns ['status'=>int,'body'=>string,'json'=>mixed,'ok'=>bool]
+     */
+    protected static function wp_post_with_retries(string $endpoint, array $headers, array $req, int $timeout, int $maxRetries = 3, array $backoffMs = [500,1000,2000], ?string $fallbackModel = 'gpt-4o-mini')
+    {
+        $attempt = 0;
+        $last = null;
+        while ($attempt <= $maxRetries) {
+            $body = wp_json_encode($req);
+            $r = wp_remote_post($endpoint, [ 'timeout' => $timeout, 'headers' => $headers, 'body' => $body ]);
+            $status = is_wp_error($r) ? 0 : (int)wp_remote_retrieve_response_code($r);
+            $raw = is_wp_error($r) ? ($r->get_error_message() ?: '') : (string)wp_remote_retrieve_body($r);
+            $ok = ($status >= 200 && $status < 300);
+            $json = $raw !== '' ? (json_decode($raw, true) ?: null) : null;
+            $last = [ 'status'=>$status, 'body'=>$raw, 'json'=>$json, 'ok'=>$ok ];
+            if ($ok) return $last;
+            // Retry only on 429/5xx
+            if ($status === 429 || $status >= 500 || is_wp_error($r)){
+                if ($attempt < $maxRetries){
+                    $ms = $backoffMs[$attempt] ?? 1000;
+                    if (function_exists('usleep')) { @usleep((int)$ms * 1000); } else { @sleep(max(1, (int)round($ms/1000))); }
+                    $attempt++;
+                    continue;
+                }
+            }
+            break;
+        }
+        // Final fallback: try with fallback model once if model differs
+        if ($fallbackModel && isset($req['model']) && is_string($req['model'])){
+            $fallback = self::normalize_model_name($fallbackModel);
+            if ($fallback !== '' && $fallback !== $req['model']){
+                $req['model'] = $fallback;
+                $body = wp_json_encode($req);
+                $r = wp_remote_post($endpoint, [ 'timeout' => $timeout, 'headers' => $headers, 'body' => $body ]);
+                $status = is_wp_error($r) ? 0 : (int)wp_remote_retrieve_response_code($r);
+                $raw = is_wp_error($r) ? ($r->get_error_message() ?: '') : (string)wp_remote_retrieve_body($r);
+                $ok = ($status >= 200 && $status < 300);
+                $json = $raw !== '' ? (json_decode($raw, true) ?: null) : null;
+                return [ 'status'=>$status, 'body'=>$raw, 'json'=>$json, 'ok'=>$ok ];
+            }
+        }
+        return $last;
     }
     /**
      * Read AI analysis configuration from options with sane defaults and filters.
@@ -5199,13 +5269,12 @@ class Api
                 $user = [ 'question' => $question, 'table_csv' => $tableCsv, 'field_roles' => $field_roles, 'guidance' => [ 'avoid_verbatim' => true, 'combine_mood_text_and_score' => true, 'prefer_latest' => true, 'target_name_hint' => $nameHint ] ];
                 $msgs = [ [ 'role'=>'system','content'=>$sys ], [ 'role'=>'user','content'=> wp_json_encode($user, JSON_UNESCAPED_UNICODE) ] ];
                 $modelName = $use_model; if ($isHeavy && preg_match('/mini|3\.5|4o\-mini/i', (string)$modelName)) $modelName = 'gpt-4o';
-                $req = [ 'model'=>$modelName, 'messages'=>$msgs, 'temperature'=>0.1, 'max_tokens'=>$suggestedMaxTok ];
-                $jsonReq = wp_json_encode($req);
-                $r = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=>$jsonReq ]);
-                $status = is_wp_error($r) ? 0 : (int)wp_remote_retrieve_response_code($r);
-                $raw = is_wp_error($r) ? ($r->get_error_message() ?: '') : (string)wp_remote_retrieve_body($r);
-                $ok = ($status === 200);
-                $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                $req = [ 'model'=> self::normalize_model_name($modelName), 'messages'=>$msgs, 'temperature'=>0.1, 'max_tokens'=>$suggestedMaxTok ];
+                $res = self::wp_post_with_retries($endpoint, $headers, $req, $http_timeout, 3, [500,1000,2000], 'gpt-4o');
+                $status = (int)($res['status'] ?? 0);
+                $raw = (string)($res['body'] ?? '');
+                $ok = ($res['ok'] ?? false) === true;
+                $body = is_array($res['json'] ?? null) ? $res['json'] : (json_decode($raw, true) ?: null);
                 $usage = is_array($body) && isset($body['usage']) ? $body['usage'] : null;
                 $text = '';
                 if (is_array($body)){
@@ -5224,9 +5293,9 @@ class Api
                     $repairSys = 'Fix the following model output into VALID JSON only (no code fences, no text). Keep only keys: aggregations, partial_insights, partial_chart_data, outliers, fields_used, chunk_summary.';
                     $repairMsgs = [ [ 'role'=>'system','content'=>$repairSys ], [ 'role'=>'user','content'=>$text ] ];
                     $repairReq = [ 'model' => (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$repairMsgs, 'temperature'=>0.0, 'max_tokens'=>400 ];
-                    $r2 = wp_remote_post($endpoint, [ 'timeout'=>20, 'headers'=>$headers, 'body'=> wp_json_encode($repairReq) ]);
-                    $raw2 = is_wp_error($r2) ? '' : (string)wp_remote_retrieve_body($r2);
-                    $b2 = json_decode($raw2, true);
+                    $res2 = self::wp_post_with_retries($endpoint, $headers, $repairReq, 20, 1, [500], 'gpt-4o-mini');
+                    $raw2 = (string)($res2['body'] ?? '');
+                    $b2 = is_array($res2['json'] ?? null) ? $res2['json'] : (json_decode($raw2, true) ?: null);
                     $txt2 = '';
                     if (is_array($b2)){
                         if (isset($b2['choices'][0]['message']['content']) && is_string($b2['choices'][0]['message']['content'])) $txt2 = (string)$b2['choices'][0]['message']['content'];
@@ -5667,11 +5736,11 @@ class Api
                 $modelName = $use_model; if (preg_match('/mini/i', (string)$modelName)) $modelName = 'gpt-4o';
                 $req = [ 'model'=>$modelName, 'messages'=>$msgs, 'temperature'=>0.2, 'max_tokens'=> min(1200, max(600, $max_tokens)) ];
                 $t0f = microtime(true);
-                $r = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=> wp_json_encode($req) ]);
-                $status = is_wp_error($r) ? 0 : (int)wp_remote_retrieve_response_code($r);
-                $raw = is_wp_error($r) ? ($r->get_error_message() ?: '') : (string)wp_remote_retrieve_body($r);
-                $ok = ($status === 200);
-                $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                $res = self::wp_post_with_retries($endpoint, $headers, $req, $http_timeout, 3, [500,1000,2000], 'gpt-4o');
+                $status = (int)($res['status'] ?? 0);
+                $raw = (string)($res['body'] ?? '');
+                $ok = ($res['ok'] ?? false) === true;
+                $body = is_array($res['json'] ?? null) ? $res['json'] : (json_decode($raw, true) ?: null);
                 $usage = is_array($body) && isset($body['usage']) ? $body['usage'] : null;
                 $durationFinalMs = (int)round((microtime(true)-$t0f)*1000);
                 $text = '';
@@ -5687,9 +5756,9 @@ class Api
                     $repairSys = 'Fix to VALID JSON only with keys: answer, fields_used, aggregations, chart_data, outliers, insights, confidence.';
                     $repairMsgs = [ [ 'role'=>'system','content'=>$repairSys ], [ 'role'=>'user','content'=>$text ] ];
                     $repairReq = [ 'model' => (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$repairMsgs, 'temperature'=>0.0, 'max_tokens'=>400 ];
-                    $r2 = wp_remote_post($endpoint, [ 'timeout'=>20, 'headers'=>$headers, 'body'=> wp_json_encode($repairReq) ]);
-                    $raw2 = is_wp_error($r2) ? '' : (string)wp_remote_retrieve_body($r2);
-                    $b2 = json_decode($raw2, true);
+                    $res2 = self::wp_post_with_retries($endpoint, $headers, $repairReq, 20, 1, [500], 'gpt-4o-mini');
+                    $raw2 = (string)($res2['body'] ?? '');
+                    $b2 = is_array($res2['json'] ?? null) ? $res2['json'] : (json_decode($raw2, true) ?: null);
                     $txt2 = '';
                     if (is_array($b2)){
                         if (isset($b2['choices'][0]['message']['content']) && is_string($b2['choices'][0]['message']['content'])) $txt2 = (string)$b2['choices'][0]['message']['content'];
@@ -5968,16 +6037,16 @@ class Api
                                 ]
                             ];
                             $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
-                            $payload = [ 'model' => $use_model, 'messages' => $messages, 'temperature' => 0.2, 'max_tokens' => $max_tokens ];
+                            $payload = [ 'model' => self::normalize_model_name($use_model), 'messages' => $messages, 'temperature' => 0.2, 'max_tokens' => $max_tokens ];
                             $payloadJson = wp_json_encode($payload);
                             
                             // Make request
                             $t0Struct = microtime(true);
-                            $resp = wp_remote_post($endpoint, [ 'timeout' => $http_timeout, 'headers' => $headers, 'body' => $payloadJson ]);
-                            $status = is_wp_error($resp) ? 0 : (int)wp_remote_retrieve_response_code($resp);
-                            $rawBodyStruct = is_wp_error($resp) ? ($resp->get_error_message() ?: '') : (string)wp_remote_retrieve_body($resp);
-                            $ok = ($status === 200);
-                            $bodyStruct = $ok ? json_decode($rawBodyStruct, true) : (json_decode($rawBodyStruct, true) ?: null);
+                            $resInline = self::wp_post_with_retries($endpoint, $headers, $payload, $http_timeout, 3, [500,1000,2000], 'gpt-4o');
+                            $status = (int)($resInline['status'] ?? 0);
+                            $rawBodyStruct = (string)($resInline['body'] ?? '');
+                            $ok = ($resInline['ok'] ?? false) === true;
+                            $bodyStruct = is_array($resInline['json'] ?? null) ? $resInline['json'] : (json_decode($rawBodyStruct, true) ?: null);
                             $durationStructMs = (int)round((microtime(true)-$t0Struct)*1000);
                             
                             // Extract text from response
@@ -6808,7 +6877,7 @@ class Api
                     $messages[] = [ 'role' => 'user', 'content' => json_encode($payloadUser, JSON_UNESCAPED_UNICODE) ];
                 }
                 $payload = [
-                    'model' => $use_model,
+                    'model' => self::normalize_model_name($use_model),
                     'messages' => $messages,
                     'temperature' => 0.2,
                     'max_tokens' => $max_tokens,
@@ -6825,10 +6894,10 @@ class Api
                     }
                     $debugInfo[] = [ 'form_id'=>$fid, 'chunk_index'=>$i, 'endpoint'=>$endpoint, 'request_preview'=>[ 'model'=>$use_model, 'max_tokens'=>$max_tokens, 'temperature'=>0.2, 'messages'=>$prevMsgs ] ];
                 }
-                $resp = wp_remote_post($endpoint, [ 'timeout'=> $http_timeout, 'headers'=>$headers, 'body'=> $payloadJson ]);
-                $ok = is_array($resp) && !is_wp_error($resp) && (int)wp_remote_retrieve_response_code($resp) === 200;
-                $rawBody = is_array($resp) ? (string)wp_remote_retrieve_body($resp) : '';
-                $body = $ok ? json_decode($rawBody, true) : null;
+                $resLLM = self::wp_post_with_retries($endpoint, $headers, $payload, $http_timeout, 3, [500,1000,2000], 'gpt-4o');
+                $ok = ($resLLM['ok'] ?? false) === true;
+                $rawBody = (string)($resLLM['body'] ?? '');
+                $body = is_array($resLLM['json'] ?? null) ? $resLLM['json'] : ($ok ? json_decode($rawBody, true) : null);
                 $text = '';
                 $usage = [ 'input'=>0,'output'=>0,'total'=>0,'cost'=>null,'duration_ms'=> (int) round((microtime(true)-$t0)*1000) ];
                 if (is_array($body)){
@@ -7126,14 +7195,14 @@ class Api
             $messages[] = [ 'role' => 'user', 'content' => $message ];
 
             $makeAttempt = function(string $modelName) use ($messages, $temperature, $max_tokens, $endpoint, $headers, $http_timeout) {
-                $payload = [ 'model'=>$modelName, 'messages'=>$messages, 'temperature'=>$temperature, 'max_tokens'=>$max_tokens ];
+                $payload = [ 'model'=> Api::normalize_model_name($modelName), 'messages'=>$messages, 'temperature'=>$temperature, 'max_tokens'=>$max_tokens ];
                 $payloadJson = wp_json_encode($payload);
                 $t0 = microtime(true);
-                $resp0 = wp_remote_post($endpoint, [ 'timeout'=>$http_timeout, 'headers'=>$headers, 'body'=>$payloadJson ]);
-                $status = is_wp_error($resp0) ? 0 : (int)wp_remote_retrieve_response_code($resp0);
-                $raw = is_wp_error($resp0) ? ($resp0->get_error_message() ?: '') : (string)wp_remote_retrieve_body($resp0);
-                $ok = ($status === 200);
-                $body = $ok ? json_decode($raw, true) : (json_decode($raw, true) ?: null);
+                $res0 = Api::wp_post_with_retries($endpoint, $headers, $payload, $http_timeout, 3, [500,1000,2000], 'gpt-4o');
+                $status = (int)($res0['status'] ?? 0);
+                $raw = (string)($res0['body'] ?? '');
+                $ok = ($res0['ok'] ?? false) === true;
+                $body = is_array($res0['json'] ?? null) ? $res0['json'] : (json_decode($raw, true) ?: null);
                 $text = '';
                 $usage = [ 'input'=>0,'output'=>0,'total'=>0,'duration_ms'=> (int) round((microtime(true)-$t0)*1000) ];
                 return [ $ok, $status, $raw, $body, $text, $usage, $payloadJson ];
