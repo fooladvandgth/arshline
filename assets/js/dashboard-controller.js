@@ -15,8 +15,10 @@
     var content = document.getElementById('arshlineDashboardContent');
   var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
   var allNavLinks = document.querySelectorAll('.arshline-sidebar nav a');
-    var sidebar = document.querySelector('.arshline-sidebar');
-    var sidebarToggle = document.getElementById('arSidebarToggle');
+  var sidebar = document.querySelector('.arshline-sidebar');
+  var sidebarToggle = document.getElementById('arSidebarToggle');
+  var hamburger = document.getElementById('arHamburger');
+  var sidebarOverlay = document.getElementById('arSidebarOverlay');
 
     // Debug helpers
     try {
@@ -256,6 +258,29 @@
       sidebarToggle.addEventListener('click', tgl);
       sidebarToggle.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); tgl(); }});
     }
+
+    // Mobile drawer: hamburger opens/closes sidebar as overlay
+    function setDrawerOpen(open){
+      try {
+        if (!sidebar) return;
+        sidebar.classList.toggle('open', !!open);
+        if (hamburger) hamburger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (sidebarOverlay){
+          if (open){ sidebarOverlay.classList.add('show'); sidebarOverlay.removeAttribute('hidden'); }
+          else { sidebarOverlay.classList.remove('show'); sidebarOverlay.setAttribute('hidden',''); }
+        }
+        // When opening drawer on mobile, ensure closed state is ignored visually
+        if (open) sidebar.classList.remove('closed');
+      } catch(_){ }
+    }
+    if (hamburger && AR_FULL){
+      hamburger.addEventListener('click', function(){
+        var isOpen = sidebar && sidebar.classList.contains('open');
+        setDrawerOpen(!isOpen);
+      });
+      hamburger.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' '){ e.preventDefault(); var isOpen = sidebar && sidebar.classList.contains('open'); setDrawerOpen(!isOpen); } });
+    }
+    if (sidebarOverlay){ sidebarOverlay.addEventListener('click', function(){ setDrawerOpen(false); }); }
 
     function setActive(tab){
       var hash = (location.hash||'').replace('#','');
@@ -987,10 +1012,12 @@
                             btn.className = 'ar-btn ar-btn--soft';
                             btn.type = 'button';
                             btn.textContent = name;
-                            btn.addEventListener('click', function(){
+                            a.addEventListener('click', function(e){
                               try {
                                 // Re-run with quoted name appended if not already present
                                 var qEl = document.getElementById('arAnaQ');
+                              // Close drawer on navigation (mobile)
+                              try { setDrawerOpen(false); } catch(_){ }
                                 var original = (qEl && qEl.value) || '';
                                 var needle = String(name);
                                 var nextQ = original;

@@ -28,7 +28,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     $plugin_url = plugins_url('', dirname(__DIR__, 2) . '/arshline.php');
     $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? \Arshline\Dashboard\Dashboard::VERSION : '1.0.0';
     ?>
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/dashboard.css?ver=' . $version); ?>" />
+    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/dashboard.css?ver=' . $version . '.' . (file_exists(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/css/dashboard.css') ? filemtime(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/css/dashboard.css') : '0')); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/variables.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/layout.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
@@ -119,7 +119,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/welcome.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/thank_you.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <!-- Externalized controller (extracted from inline block) -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>?ver=<?php echo esc_attr($version . '.' . (file_exists(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/js/dashboard-controller.js') ? filemtime(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/js/dashboard-controller.js') : '0')); ?>"></script>
         <?php
     // Console-capture config and script (template bypasses wp_head, so we include manually)
     $capture_enabled_wp = (bool) get_option('arshline_capture_console_events', false);
@@ -2761,25 +2761,46 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                 });
             }
             if (tab === 'dashboard') {
+                setTimeout(function() {
+                    var cardForm = document.getElementById('arCardFormBuilder');
+                    var cardMsg = document.getElementById('arCardMessaging');
+                    var cardRep = document.getElementById('arCardReports');
+                    var cardGrp = document.getElementById('arCardGroups');
+                    if(cardForm) cardForm.onclick = function(){ renderTab('forms'); };
+                    if(cardMsg) cardMsg.onclick = function(){ renderTab('messaging'); };
+                    if(cardRep) cardRep.onclick = function(){ renderTab('reports'); };
+                    if(cardGrp) cardGrp.onclick = function(){ renderTab('users'); };
+                }, 100);
+                // اضافه کردن رفتار کلیک کارت‌ها
+                setTimeout(function() {
+                    var cardForm = document.getElementById('arCardFormBuilder');
+                    var cardMsg = document.getElementById('arCardMessaging');
+                    var cardRep = document.getElementById('arCardReports');
+                    var cardGrp = document.getElementById('arCardGroups');
+                    if(cardForm) cardForm.onclick = function(){ renderTab('forms'); };
+                    if(cardMsg) cardMsg.onclick = function(){ renderTab('messaging'); };
+                    if(cardRep) cardRep.onclick = function(){ renderTab('reports'); };
+                    if(cardGrp) cardGrp.onclick = function(){ renderTab('users'); };
+                }, 100);
                 // Dashboard: Landing modern cards + KPIs + chart (keep original cards)
                 content.innerHTML = ''+
                     '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
                     '<div class="ar-modern-cards">\
-                        <div class="ar-card ar-card--blue">\
+                        <div class="ar-card ar-card--blue" id="arCardFormBuilder">\
                             <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
-                            <div class="content"><h2>فرم‌ساز پیشرفته</h2><p>(در حال توسعه)</p></div>\
+                            <div class="content"><h2>فرم‌ساز پیشرفته</h2></div>\
                         </div>\
-                        <div class="ar-card ar-card--amber">\
+                        <div class="ar-card ar-card--amber" id="arCardMessaging">\
                             <div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>\
-                            <div class="content"><h2>مدیریت پاسخ‌ها</h2><p>(در حال توسعه)</p></div>\
+                            <div class="content"><h2>پیامرسانی پیشرفته</h2></div>\
                         </div>\
-                        <div class="ar-card ar-card--violet">\
+                        <div class="ar-card ar-card--violet" id="arCardReports">\
                             <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
-                            <div class="content"><h2>تحلیل و گزارش</h2><p>(در حال توسعه)</p></div>\
+                            <div class="content"><h2>گزارشات و تحلیل</h2></div>\
                         </div>\
-                        <div class="ar-card ar-card--teal">\
+                        <div class="ar-card ar-card--teal" id="arCardGroups">\
                             <div class="icon"><ion-icon name="settings-outline"></ion-icon></div>\
-                            <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
+                            <div class="content"><h2>گروه‌های کاربری</h2></div>\
                         </div>\
                     </div>'+
                     '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
@@ -3699,7 +3720,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     </head>
     <body>
     <div class="arshline-dashboard-root">
-        <aside class="arshline-sidebar">
+    <aside id="arSidebar" class="arshline-sidebar">
             <div class="logo"><span class="label">عرشلاین</span></div>
             <button id="arSidebarToggle" class="toggle" aria-expanded="true" title="باز/بسته کردن منو"><span class="chev">❮</span></button>
             <nav>
@@ -3715,6 +3736,11 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         </aside>
         <main class="arshline-main">
             <div class="arshline-header">
+                <button id="arHamburger" class="ar-hamburger" aria-label="باز کردن منو" aria-controls="arSidebar" aria-expanded="false">
+                    <span class="bar" aria-hidden="true"></span>
+                    <span class="bar" aria-hidden="true"></span>
+                    <span class="bar" aria-hidden="true"></span>
+                </button>
                 <div id="arHeaderActions"></div>
                 <div id="arThemeToggle" class="theme-toggle" role="switch" aria-checked="false" tabindex="0">
                     <span class="sun">☀</span>
@@ -3725,6 +3751,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <div id="arshlineDashboardContent" class="view"></div>
         </main>
     </div>
+    <div id="arSidebarOverlay" hidden></div>
     <!-- Floating AI Terminal -->
     <button id="arAiFab" class="ar-ai-fab" title="ترمینال هوشیار">هوشیار ▷</button>
     <div id="arAiPanel" class="ar-ai-panel" aria-hidden="true">

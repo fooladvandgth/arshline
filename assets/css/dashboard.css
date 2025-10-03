@@ -107,6 +107,10 @@
         .arshline-header {
             display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem;
         }
+    /* Mobile hamburger (hidden on desktop) */
+    .ar-hamburger { display:none; background:transparent; border:1px solid var(--border); border-radius:10px; padding:.4rem .55rem; cursor:pointer; color: var(--text); box-shadow: var(--shadow-card); }
+    .ar-hamburger:focus { outline: none; box-shadow: var(--glow-primary); }
+    .ar-hamburger .bar { display:block; width:20px; height:2px; background: currentColor; margin:3px 0; border-radius:2px; }
     /* Sun/Moon Toggle */
     .theme-toggle { --w: 56px; --h: 30px; position: relative; width: var(--w); height: var(--h); border-radius: 999px; background: linear-gradient(135deg, #60a5fa, #0ea5e9); display:inline-flex; align-items:center; padding: 3px; cursor: pointer; box-shadow: var(--shadow-card); border:1px solid var(--border); }
     .theme-toggle .knob { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s ease, background .25s ease; box-shadow: 0 4px 10px rgba(0,0,0,.15); left: 3px; }
@@ -173,6 +177,32 @@
     .ar-card--violet { background:#6d28d9; }
     .ar-card--teal { background:#0e7490; }
     body.dark .ar-card { box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35); }
+
+    /* Responsive: sidebar as drawer + card scaling */
+    @media (max-width: 1200px) {
+        :root { --ar-card-scale: .44; }
+    }
+    @media (max-width: 1024px) {
+        :root { --ar-card-scale: .40; }
+        .ar-hamburger { display:inline-flex; align-items:center; justify-content:center; }
+        .arshline-main { padding: 1.2rem 1rem; }
+        .arshline-sidebar { position: fixed; top: 0; bottom: 0; width: 280px; z-index: 1100; box-shadow: 0 0 0 1px var(--border), 0 18px 36px rgba(0,0,0,.25); transition: transform .28s ease; }
+        /* RTL: slide in from right */
+        [dir='rtl'] .arshline-sidebar { right: 0; left: auto; transform: translateX(100%); }
+        [dir='rtl'] .arshline-sidebar.open { transform: translateX(0); }
+        /* LTR: slide in from left */
+        [dir='ltr'] .arshline-sidebar { left: 0; right: auto; transform: translateX(-100%); }
+        [dir='ltr'] .arshline-sidebar.open { transform: translateX(0); }
+        /* When drawer is used, ignore closed width */
+        .arshline-sidebar.closed { width: 280px; }
+        /* Page overlay when sidebar is open */
+        #arSidebarOverlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); backdrop-filter: blur(1px); z-index: 1090; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+        #arSidebarOverlay.show { opacity: 1; pointer-events: auto; }
+    }
+    @media (max-width: 768px) {
+        :root { --ar-card-scale: .36; }
+        .ar-modern-cards { gap: calc(18px * var(--ar-card-scale)); }
+    }
     /* Toasts */
     .ar-toast-wrap { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .6rem; z-index: 9999; }
     .ar-toast { display:flex; align-items:center; gap:.6rem; padding:.6rem .8rem; border-radius:12px; background: var(--surface); color: var(--text); border:1px solid var(--border); border-inline-start: 4px solid var(--primary); box-shadow: var(--shadow-card); transition: opacity .25s ease, transform .25s ease; }
