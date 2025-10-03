@@ -390,9 +390,10 @@ body.dark #arFormSide {
     border-radius: 20px;
     border-bottom-left-radius: 160px;
     border-bottom-right-radius: 160px;
-    box-shadow: 0 15px 0 #fff,
-                inset 0 -15px 0 rgba(255, 255, 255, 0.24),
-                0 45px 0 rgba(0, 0, 0, 0.15);
+    /* Balanced three-layer shadow (top white, inner white, deep drop) */
+    box-shadow: 0 10px 0 #fff,
+                inset 0 -9px 0 rgba(255, 255, 255, 0.20),
+                0 22px 0 rgba(0, 0, 0, 0.14);
     overflow: hidden;
 }
 
@@ -417,8 +418,9 @@ body.dark #arFormSide {
     background: #3c2846;
     border-bottom-left-radius: 100px;
     border-bottom-right-radius: 100px;
-    box-shadow: 0 15px 0 rgba(0, 0, 0, 0.1),
-                inset 0 -8px 0 #fff;
+    /* Balanced icon shadow and inner ridge */
+    box-shadow: 0 10px 0 rgba(0, 0, 0, 0.10),
+                inset 0 -7px 0 #fff;
     z-index: 100;
     display: flex;
     justify-content: center;
@@ -434,7 +436,8 @@ body.dark #arFormSide {
     height: 50px;
     background: transparent;
     border-top-right-radius: 50px;
-    box-shadow: 15px -15px 0 15px #3c2846;
+    /* Balanced arc thickness and offset */
+    box-shadow: 10px -10px 0 10px #3c2846;
 }
 
 .ar-card .icon::after {
@@ -446,7 +449,8 @@ body.dark #arFormSide {
     height: 50px;
     background: transparent;
     border-top-left-radius: 50px;
-    box-shadow: -15px -15px 0 15px #3c2846;
+    /* Balanced arc thickness and offset */
+    box-shadow: -10px -10px 0 10px #3c2846;
 }
 
 .ar-card .icon ion-icon {
@@ -499,7 +503,10 @@ body.dark #arFormSide {
 
 /* Dark theme adjustments */
 body.dark .ar-card {
-    box-shadow: 0 12px 0 #0d1321, inset 0 -10px 0 rgba(255,255,255,.12), 0 36px 0 rgba(0,0,0,.35);
+    /* Balanced dark-mode layers */
+    box-shadow: 0 10px 0 #0d1321,
+                inset 0 -9px 0 rgba(255,255,255,.12),
+                0 28px 0 rgba(0,0,0,.35);
 }
 
 .ar-btn--danger:hover {
@@ -1540,9 +1547,10 @@ body.preview-only .arshline-main {
     padding: 0 !important;
     border: 0 !important;
     background: #287bff; /* default, will be overridden by gradient variants */
-    box-shadow: 0 15px 0 #fff,
-                inset 0 -15px 0 rgba(255, 255, 255, 0.24),
-                0 45px 0 rgba(0, 0, 0, 0.15) !important;
+    /* Balanced three-layer shadow */
+    box-shadow: 0 10px 0 #fff,
+                inset 0 -9px 0 rgba(255, 255, 255, 0.20),
+                0 22px 0 rgba(0, 0, 0, 0.14) !important;
     transition: none;
     gap: 0;
     align-items: flex-start;
@@ -1560,11 +1568,14 @@ body.preview-only .arshline-main {
     overflow: hidden;
 }
 
-.ar-modern-cards > .ar-card:hover {
+.ar-modern-cards > .ar-card:hover,
+.ar-modern-cards > .ar-card:focus-within {
     transform: none !important;
-    box-shadow: 0 15px 0 #fff,
-                inset 0 -15px 0 rgba(255, 255, 255, 0.24),
-                0 45px 0 rgba(0, 0, 0, 0.15) !important;
+    animation: none !important; /* prevent inherited ar-pulse */
+    /* Keep hover same as base to preserve subtlety */
+    box-shadow: 0 10px 0 #fff,
+                inset 0 -9px 0 rgba(255, 255, 255, 0.20),
+                0 22px 0 rgba(0, 0, 0, 0.14) !important;
 }
 
 .ar-modern-cards > .ar-card::before {
@@ -1587,7 +1598,7 @@ body.preview-only .arshline-main {
     background: #3c2846;
     border-bottom-left-radius: 80px;
     border-bottom-right-radius: 80px;
-    box-shadow: 0 15px 0 rgba(0, 0, 0, 0.1), inset 0 -8px 0 #fff;
+    box-shadow: 0 10px 0 rgba(0, 0, 0, 0.10), inset 0 -7px 0 #fff;
     z-index: 100;
     display: flex;
     justify-content: center;
@@ -1603,7 +1614,7 @@ body.preview-only .arshline-main {
     height: 50px;
     background: transparent;
     border-top-right-radius: 50px;
-    box-shadow: 15px -15px 0 15px #3c2846;
+    box-shadow: 10px -10px 0 10px #3c2846;
 }
 
 .ar-modern-cards > .ar-card .icon::after {
@@ -1615,7 +1626,7 @@ body.preview-only .arshline-main {
     height: 50px;
     background: transparent;
     border-top-left-radius: 50px;
-    box-shadow: -15px -15px 0 15px #3c2846;
+    box-shadow: -10px -10px 0 10px #3c2846;
 }
 
 .ar-modern-cards > .ar-card .icon ion-icon {
