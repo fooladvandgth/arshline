@@ -153,7 +153,7 @@
     body.dark .tagline { color: #e5e7eb; }
     :root { --ar-card-scale: .5; }
     .ar-modern-cards { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:calc(24px * var(--ar-card-scale)); padding: 10px 0 24px; }
-    .ar-card { position:relative; width:calc(224px * var(--ar-card-scale)); height:calc(315px * var(--ar-card-scale)); background:#1e40af; border-radius:calc(20px * var(--ar-card-scale)); border-bottom-left-radius:calc(112px * var(--ar-card-scale)); border-bottom-right-radius:calc(112px * var(--ar-card-scale)); display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 calc(9px * var(--ar-card-scale)) 0 #fff, inset 0 calc(-8px * var(--ar-card-scale)) 0 rgba(255,255,255,.24), 0 calc(18px * var(--ar-card-scale)) 0 rgba(0,0,0,.15) !important; cursor:pointer; transition:box-shadow .18s,transform .18s; }
+    .ar-card { position:relative; width:calc(224px * var(--ar-card-scale)); height:calc(315px * var(--ar-card-scale)); background:#1e40af; border-radius:calc(20px * var(--ar-card-scale)); border-bottom-left-radius:calc(112px * var(--ar-card-scale)); border-bottom-right-radius:calc(112px * var(--ar-card-scale)); display:flex; justify-content:center; align-items:flex-start; overflow:hidden; box-shadow: 0 9px 0 #fff, inset 0 -8px 0 rgba(255,255,255,.24), 0 18px 0 rgba(0,0,0,.15) !important; cursor:pointer; transition:box-shadow .18s,transform .18s; }
     /* Center content both axes */
     .ar-card { align-items:center; justify-content:center; }
     .ar-card::before { content:""; position:absolute; top:-140px; left:-40%; width:100%; height:120%; background: rgba(255,255,255,.06); transform: rotate(35deg); pointer-events:none; filter: blur(5px); }
@@ -176,7 +176,7 @@
     .ar-card--amber { background:#b45309; }
     .ar-card--violet { background:#6d28d9; }
     .ar-card--teal { background:#0e7490; }
-    body.dark .ar-card { box-shadow: 0 calc(9px * var(--ar-card-scale)) 0 #fff, inset 0 calc(-8px * var(--ar-card-scale)) 0 rgba(255,255,255,.24), 0 calc(18px * var(--ar-card-scale)) 0 rgba(0,0,0,.15) !important; }
+    body.dark .ar-card { box-shadow: 0 9px 0 #fff, inset 0 -8px 0 rgba(255,255,255,.24), 0 18px 0 rgba(0,0,0,.15) !important; }
 
     /* Responsive: sidebar as drawer + card scaling */
     @media (max-width: 1200px) {
