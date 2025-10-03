@@ -380,21 +380,21 @@
         content.innerHTML = ''+
           '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
           '<div class="ar-modern-cards">\
-            <div class="ar-card ar-card--blue">\
+            <div class="ar-card ar-card--blue" id="arCardFormBuilder">\
               <div class="icon"><ion-icon name="globe-outline"></ion-icon></div>\
-              <div class="content"><h2>فرم‌ساز پیشرفته</h2><p>(در حال توسعه)</p></div>\
+              <div class="content"><h2>فرم‌ساز پیشرفته</h2></div>\
             </div>\
-            <div class="ar-card ar-card--amber">\
+            <div class="ar-card ar-card--amber" id="arCardMessaging">\
               <div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>\
-              <div class="content"><h2>مدیریت پاسخ‌ها</h2><p>(در حال توسعه)</p></div>\
+              <div class="content"><h2>پیامرسانی پیشرفته</h2></div>\
             </div>\
-            <div class="ar-card ar-card--violet">\
+            <div class="ar-card ar-card--violet" id="arCardReports">\
               <div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>\
-              <div class="content"><h2>تحلیل و گزارش</h2><p>(در حال توسعه)</p></div>\
+              <div class="content"><h2>گزارشات و تحلیل</h2></div>\
             </div>\
-            <div class="ar-card ar-card--teal">\
+            <div class="ar-card ar-card--teal" id="arCardGroups">\
               <div class="icon"><ion-icon name="settings-outline"></ion-icon></div>\
-              <div class="content"><h2>اتوماسیون</h2><p>(در حال توسعه)</p></div>\
+              <div class="content"><h2>گروه‌های کاربری</h2></div>\
             </div>\
           </div>'+
           '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
@@ -434,6 +434,17 @@
             '</div>'+
           '</div>';
         (function(){
+          try {
+            var cardForm = document.getElementById('arCardFormBuilder');
+            var cardMsg = document.getElementById('arCardMessaging');
+            var cardRep = document.getElementById('arCardReports');
+            var cardGrp = document.getElementById('arCardGroups');
+            if (cardForm) cardForm.addEventListener('click', function(){ try { setHash('forms'); } catch(_){ location.hash = '#forms'; } arRenderTab('forms'); });
+            if (cardMsg) cardMsg.addEventListener('click', function(){ try { setHash('messaging'); } catch(_){ location.hash = '#messaging'; } arRenderTab('messaging'); });
+            if (cardRep) cardRep.addEventListener('click', function(){ try { setHash('reports'); } catch(_){ location.hash = '#reports'; } arRenderTab('reports'); });
+            if (cardGrp) cardGrp.addEventListener('click', function(){ try { setHash('users'); } catch(_){ location.hash = '#users'; } arRenderTab('users'); });
+          } catch(_){ }
+          
           var daysSel = document.getElementById('arStatsDays');
           var ctx = document.getElementById('arSubsChart');
           var donutCtx = document.getElementById('arFormsDonut');
