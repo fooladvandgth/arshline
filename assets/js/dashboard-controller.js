@@ -15,10 +15,8 @@
     var content = document.getElementById('arshlineDashboardContent');
   var links = document.querySelectorAll('.arshline-sidebar nav a[data-tab]');
   var allNavLinks = document.querySelectorAll('.arshline-sidebar nav a');
-  var sidebar = document.querySelector('.arshline-sidebar');
-  var sidebarToggle = document.getElementById('arSidebarToggle');
-  var hamburger = document.getElementById('arHamburger');
-  var sidebarOverlay = document.getElementById('arSidebarOverlay');
+    var sidebar = document.querySelector('.arshline-sidebar');
+    var sidebarToggle = document.getElementById('arSidebarToggle');
 
     // Debug helpers
     try {
@@ -259,29 +257,6 @@
       sidebarToggle.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); tgl(); }});
     }
 
-    // Mobile drawer: hamburger opens/closes sidebar as overlay
-    function setDrawerOpen(open){
-      try {
-        if (!sidebar) return;
-        sidebar.classList.toggle('open', !!open);
-        if (hamburger) hamburger.setAttribute('aria-expanded', open ? 'true' : 'false');
-        if (sidebarOverlay){
-          if (open){ sidebarOverlay.classList.add('show'); sidebarOverlay.removeAttribute('hidden'); }
-          else { sidebarOverlay.classList.remove('show'); sidebarOverlay.setAttribute('hidden',''); }
-        }
-        // When opening drawer on mobile, ensure closed state is ignored visually
-        if (open) sidebar.classList.remove('closed');
-      } catch(_){ }
-    }
-    if (hamburger && AR_FULL){
-      hamburger.addEventListener('click', function(){
-        var isOpen = sidebar && sidebar.classList.contains('open');
-        setDrawerOpen(!isOpen);
-      });
-      hamburger.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' '){ e.preventDefault(); var isOpen = sidebar && sidebar.classList.contains('open'); setDrawerOpen(!isOpen); } });
-    }
-    if (sidebarOverlay){ sidebarOverlay.addEventListener('click', function(){ setDrawerOpen(false); }); }
-
     function setActive(tab){
       var hash = (location.hash||'').replace('#','');
       var parts = hash.split('/');
@@ -404,7 +379,7 @@
       if (tab === 'dashboard'){
         content.innerHTML = ''+
           '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
-          '<div id="arCardsMount" style="min-height:320px"></div>'+
+          '<div id="arCardsMount"></div>'+
           '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
             '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
               '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
@@ -443,14 +418,17 @@
           '</div>';
         (function(){
           try {
-            var go = function(t){ try { setHash(t); } catch(_){ location.hash = '#' + t; } arRenderTab(t); };
-            if (window.ARSH_UI && typeof window.ARSH_UI.renderCardsStack === 'function'){
-              window.ARSH_UI.renderCardsStack('#arCardsMount', [
-                { title: 'فرم‌ساز پیشرفته', onClick: function(){ go('forms'); } },
-                { title: 'پیامرسانی پیشرفته', onClick: function(){ go('messaging'); } },
-                { title: 'گزارشات و تحلیل', onClick: function(){ go('reports'); } },
-                { title: 'گروه‌های کاربری', onClick: function(){ go('users'); } }
-              ]);
+            var mount = document.getElementById('arCardsMount');
+            if (mount && window.ARSH_UI && typeof ARSH_UI.renderModernCards === 'function'){
+              ARSH_UI.renderModernCards({
+                container: mount,
+                items: [
+                  { id:'arCardFormBuilder', color:'blue', icon:'globe-outline', title:'فرم‌ساز پیشرفته', onClick: function(){ try { setHash('forms'); } catch(_){ location.hash = '#forms'; } arRenderTab('forms'); } },
+                  { id:'arCardMessaging',  color:'amber', icon:'diamond-outline', title:'پیامرسانی پیشرفته', onClick: function(){ try { setHash('messaging'); } catch(_){ location.hash = '#messaging'; } arRenderTab('messaging'); } },
+                  { id:'arCardReports',    color:'violet', icon:'rocket-outline', title:'گزارشات و تحلیل', onClick: function(){ try { setHash('reports'); } catch(_){ location.hash = '#reports'; } arRenderTab('reports'); } },
+                  { id:'arCardGroups',     color:'teal', icon:'settings-outline', title:'گروه‌های کاربری', onClick: function(){ try { setHash('users'); } catch(_){ location.hash = '#users'; } arRenderTab('users'); } },
+                ]
+              });
             }
           } catch(_){ }
           
@@ -996,12 +974,10 @@
                             btn.className = 'ar-btn ar-btn--soft';
                             btn.type = 'button';
                             btn.textContent = name;
-                            a.addEventListener('click', function(e){
+                            btn.addEventListener('click', function(){
                               try {
                                 // Re-run with quoted name appended if not already present
                                 var qEl = document.getElementById('arAnaQ');
-                              // Close drawer on navigation (mobile)
-                              try { setDrawerOpen(false); } catch(_){ }
                                 var original = (qEl && qEl.value) || '';
                                 var needle = String(name);
                                 var nextQ = original;
@@ -1781,7 +1757,7 @@
                 <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
                   <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
                   <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
-                  <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-5">gpt-5</option><option value="gpt-5-mini">gpt-5-mini</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4o">gpt-4o</option><option value="gpt-4o-mini">gpt-4o-mini</option></select>\
+                  <span class="hint">مدل</span><select id="gsAiModel" class="ar-select"><option value="auto">🤖 انتخاب هوشمند (توصیه شده)</option><option value="gpt-4o-mini">💎 GPT-4o Mini</option><option value="gpt-3.5-turbo">⚡ GPT-3.5 Turbo</option><option value="gpt-4o">🚀 GPT-4o</option><option value="gpt-4-turbo">🔥 GPT-4 Turbo</option></select>\
                 </div>\
                 <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
                   <div class="title" style="font-size:1rem">هوشنگ (تحلیل فرم)</div>\
@@ -1812,12 +1788,12 @@
         fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
           .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try { var hp=document.getElementById('gsHoneypot'); if(hp) hp.checked=!!s.anti_spam_honeypot; var ms=document.getElementById('gsMinSec'); if(ms) ms.value=String(s.min_submit_seconds||0); var rpm=document.getElementById('gsRatePerMin'); if(rpm) rpm.value=String(s.rate_limit_per_min||0); var rwin=document.getElementById('gsRateWindow'); if(rwin) rwin.value=String(s.rate_limit_window_min||1); var ce=document.getElementById('gsCaptchaEnabled'); if(ce) ce.checked=!!s.captcha_enabled; var cs=document.getElementById('gsCaptchaSite'); if(cs) cs.value=s.captcha_site_key||''; var ck=document.getElementById('gsCaptchaSecret'); if(ck) ck.value=s.captcha_secret_key||''; var cv=document.getElementById('gsCaptchaVersion'); if(cv) cv.value=s.captcha_version||'v2'; var uk=document.getElementById('gsUploadKB'); if(uk) uk.value=String(s.upload_max_kb||300); var bsvg=document.getElementById('gsBlockSvg'); if(bsvg) bsvg.checked=(s.block_svg !== false); var aiE=document.getElementById('gsAiEnabled'); if(aiE) aiE.checked=!!s.ai_enabled; var aiT=document.getElementById('gsAiThreshold'); if(aiT) aiT.value=String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5)); var mode=document.getElementById('gsAiMode'); if(mode) mode.value = s.ai_mode || 'hybrid'; var mx=document.getElementById('gsAiMaxRows'); if(mx) mx.value = String(s.ai_max_rows || 400); var ap=document.getElementById('gsAiAllowPII'); if(ap) ap.checked = !!s.ai_allow_pii; var tt=document.getElementById('gsAiTokTypical'); if(tt) tt.value = String(s.ai_tok_typical || 8000); var tm=document.getElementById('gsAiTokMax'); if(tm) tm.value = String(s.ai_tok_max || 32000); function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; } updC(); if (ce) ce.addEventListener('change', updC); } catch(_){ } })
-          .then(function(){ return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(resp){ try { var c = resp && resp.config ? resp.config : {}; var bu=document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || ''; var mo=document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o'; var pa=document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid'; var ak=document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || ''; var hm=document.getElementById('gsHoshModel'); if (hm) hm.value = c.hosh_model || ''; var hmd=document.getElementById('gsHoshMode'); if (hmd) hmd.value = c.hosh_mode || 'hybrid'; } catch(_){ } }); })
+          .then(function(){ return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(resp){ try { var c = resp && resp.config ? resp.config : {}; var bu=document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || ''; var mo=document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'auto'; var pa=document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid'; var ak=document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || ''; var hm=document.getElementById('gsHoshModel'); if (hm) hm.value = c.hosh_model || ''; var hmd=document.getElementById('gsHoshMode'); if (hmd) hmd.value = c.hosh_mode || 'hybrid'; } catch(_){ } }); })
           .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
         function putSettings(part){ return fetch(ARSHLINE_REST + 'settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ settings: part }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
         function putAiConfig(cfg){ return fetch(ARSHLINE_REST + 'ai/config', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ config: cfg }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
     var saveSec=document.getElementById('gsSaveSecurity'); if (saveSec){ saveSec.addEventListener('click', function(){ var payload = { anti_spam_honeypot: !!(document.getElementById('gsHoneypot')?.checked), min_submit_seconds: Math.max(0, parseInt(document.getElementById('gsMinSec')?.value||'0')||0), rate_limit_per_min: Math.max(0, parseInt(document.getElementById('gsRatePerMin')?.value||'0')||0), rate_limit_window_min: Math.max(1, parseInt(document.getElementById('gsRateWindow')?.value||'1')||1), captcha_enabled: !!(document.getElementById('gsCaptchaEnabled')?.checked), captcha_site_key: String(document.getElementById('gsCaptchaSite')?.value||''), captcha_secret_key: String(document.getElementById('gsCaptchaSecret')?.value||''), captcha_version: String(document.getElementById('gsCaptchaVersion')?.value||'v2'), upload_max_kb: Math.max(50, Math.min(4096, parseInt(document.getElementById('gsUploadKB')?.value||'300')||300)), block_svg: !!(document.getElementById('gsBlockSvg')?.checked) }; putSettings(payload).then(function(){ notify('تنظیمات امنیت ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات امنیت ناموفق بود', 'error'); }); }); }
-  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)), ai_mode: String(document.getElementById('gsAiMode')?.value||'hybrid'), ai_max_rows: Math.max(50, Math.min(1000, parseInt(document.getElementById('gsAiMaxRows')?.value||'400')||400)), ai_allow_pii: !!(document.getElementById('gsAiAllowPII')?.checked), ai_tok_typical: Math.max(1000, Math.min(16000, parseInt(document.getElementById('gsAiTokTypical')?.value||'8000')||8000)), ai_tok_max: Math.max(4000, Math.min(32000, parseInt(document.getElementById('gsAiTokMax')?.value||'32000')||32000)) }; var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: String(document.getElementById('gsAiModel')?.value||''), parser: String(document.getElementById('gsAiParser')?.value||'hybrid'), hosh_model: String(document.getElementById('gsHoshModel')?.value||''), hosh_mode: String(document.getElementById('gsHoshMode')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
+  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)), ai_mode: String(document.getElementById('gsAiMode')?.value||'hybrid'), ai_max_rows: Math.max(50, Math.min(1000, parseInt(document.getElementById('gsAiMaxRows')?.value||'400')||400)), ai_allow_pii: !!(document.getElementById('gsAiAllowPII')?.checked), ai_tok_typical: Math.max(1000, Math.min(16000, parseInt(document.getElementById('gsAiTokTypical')?.value||'8000')||8000)), ai_tok_max: Math.max(4000, Math.min(32000, parseInt(document.getElementById('gsAiTokMax')?.value||'32000')||32000)) }; var selectedModel = String(document.getElementById('gsAiModel')?.value||'auto'); var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: selectedModel, model_mode: (selectedModel==='auto'?'auto':'manual'), parser: String(document.getElementById('gsAiParser')?.value||'hybrid'), hosh_model: String(document.getElementById('gsHoshModel')?.value||''), hosh_mode: String(document.getElementById('gsHoshMode')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
         var exportBtn=document.getElementById('gsExportAI'); if (exportBtn){ exportBtn.addEventListener('click', function(){ Promise.all([
           fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){return {};}); }),
           fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){return {};}); })
