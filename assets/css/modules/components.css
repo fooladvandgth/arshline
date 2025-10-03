@@ -1552,9 +1552,13 @@ body.preview-only .arshline-main {
     box-shadow: 0 10px 0 #fff,
                 inset 0 -9px 0 rgba(255, 255, 255, 0.20),
                 0 22px 0 rgba(0, 0, 0, 0.14) !important;
-    /* Enable smooth transform/filter transitions for hover animation */
-    transition: transform .26s ease, filter .26s ease;
+    /* Enable smooth transform transitions for hover animation (avoid filter to prevent flicker) */
+    transition: transform .26s ease;
     will-change: transform;
+    /* Promote to a composite layer to reduce subpixel seams on hover */
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    contain: paint;
     gap: 0;
     align-items: flex-start;
     justify-content: center;
@@ -1575,12 +1579,17 @@ body.preview-only .arshline-main {
 .ar-modern-cards > .ar-card:focus-within {
     /* Block legacy pulse; apply a gentle lift/scale effect */
     animation: none !important; /* prevent inherited ar-pulse */
-    transform: translateY(-6px) scale(1.015) !important;
-    filter: saturate(1.05) brightness(1.03);
+    transform: translate3d(0, -6px, 0) scale(1.012) !important;
+    /* Avoid filter here to prevent banding/jitter on some GPUs */
     /* Keep shadow visually consistent */
     box-shadow: 0 10px 0 #fff,
                 inset 0 -9px 0 rgba(255, 255, 255, 0.20),
                 0 22px 0 rgba(0, 0, 0, 0.14) !important;
+}
+
+/* Keep click (active) state visually stable to avoid sudden snap */
+.ar-modern-cards > .ar-card:active {
+    transform: translate3d(0, -5px, 0) scale(1.01) !important;
 }
 
 .ar-modern-cards > .ar-card::before {
@@ -1611,35 +1620,43 @@ body.preview-only .arshline-main {
     background: #3c2846;
     border-bottom-left-radius: 80px;
     border-bottom-right-radius: 80px;
-    box-shadow: 0 10px 0 rgba(0, 0, 0, 0.10), inset 0 -7px 0 #fff, 0 -1px 0 0 #3c2846; /* add top cover to hide seam */
+    /* Slightly larger top-cover to fully hide seam under scaling */
+    box-shadow: 0 10px 0 rgba(0, 0, 0, 0.10), inset 0 -7px 0 #fff, 0 -2px 0 0 #3c2846; /* add top cover to hide seam */
     z-index: 100;
     display: flex;
     justify-content: center;
     align-items: flex-start;
+    /* Layer promotion to avoid subpixel jitter */
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    will-change: transform;
+    contain: paint;
 }
 
 .ar-modern-cards > .ar-card .icon::before {
     content: "";
     position: absolute;
-    top: -1px; /* nudge up to fully cover top edge */
+    top: -2px; /* increase overlap to fully cover top edge */
     left: -50px;
     width: 50px;
     height: 50px;
     background: transparent;
     border-top-right-radius: 50px;
-    box-shadow: 10px -10px 0 10px #3c2846;
+    /* Slightly thicker arc to avoid hairline at certain scales */
+    box-shadow: 10px -11px 0 11px #3c2846;
 }
 
 .ar-modern-cards > .ar-card .icon::after {
     content: "";
     position: absolute;
-    top: -1px; /* nudge up to fully cover top edge */
+    top: -2px; /* increase overlap to fully cover top edge */
     right: -50px;
     width: 50px;
     height: 50px;
     background: transparent;
     border-top-left-radius: 50px;
-    box-shadow: -10px -10px 0 10px #3c2846;
+    /* Slightly thicker arc to avoid hairline at certain scales */
+    box-shadow: -10px -11px 0 11px #3c2846;
 }
 
 .ar-modern-cards > .ar-card .icon ion-icon {
