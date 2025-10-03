@@ -23,12 +23,70 @@ use Arshline\Core\AccessControl;
 class Api
 {
     /**
+     * Smart model selection based on request type and complexity
+     */
+    protected static function select_optimal_model(array $ai_cfg, string $context = '', string $request_type = 'general', int $complexity_score = 0): string
+    {
+        $configured_model = isset($ai_cfg['model']) && is_string($ai_cfg['model']) ? (string)$ai_cfg['model'] : 'gpt-4o-mini';
+        $model_mode = isset($ai_cfg['model_mode']) && is_string($ai_cfg['model_mode']) ? (string)$ai_cfg['model_mode'] : 'auto';
+        
+        // If manual mode, use configured model
+        if ($model_mode === 'manual' || $configured_model !== 'auto') {
+            return $configured_model;
+        }
+        
+        // Auto mode: smart selection based on context and complexity
+        $context_lower = mb_strtolower($context, 'UTF-8');
+        
+        // Heavy analysis patterns (require powerful models)
+        $heavy_patterns = [
+            // English patterns
+            '/\b(compare|correlat|trend|distribution|variance|std|median|quartile|regression|cluster|segment|chart|bar|pie|line|analysis|statistical|complex)\b/i',
+            // Persian patterns  
+            '/(?:مقایسه|همبستگی|روند|میانگین|میانه|نمودار|نمودار(?:\s*میله|\s*دایره|\s*خط)|واریانس|انحراف\s*معیار|تحلیل|آمار|پیچیده)/u'
+        ];
+        
+        $is_heavy = false;
+        foreach ($heavy_patterns as $pattern) {
+            if (preg_match($pattern, $context_lower)) {
+                $is_heavy = true;
+                break;
+            }
+        }
+        
+        // Simple patterns (can use cheap models)
+        $simple_patterns = [
+            '/\b(count|how many|list|show|display|simple)\b/i',
+            '/(?:چند|تعداد|لیست|نمایش|ساده)/u'
+        ];
+        
+        $is_simple = false;
+        foreach ($simple_patterns as $pattern) {
+            if (preg_match($pattern, $context_lower)) {
+                $is_simple = true;
+                break;
+            }
+        }
+        
+        // Model selection logic
+        if ($is_heavy || $complexity_score > 7) {
+            return 'gpt-4o'; // High-end for complex tasks
+        } elseif ($request_type === 'analytics' || $complexity_score > 4) {
+            return 'gpt-4o-mini'; // Mid-range for analytics
+        } elseif ($is_simple || $complexity_score <= 2) {
+            return 'gpt-3.5-turbo'; // Cheap for simple tasks
+        }
+        
+        return 'gpt-4o-mini'; // Default fallback
+    }
+
+    /**
      * Minimal subset analysis via OpenAI-compatible JSON response.
      * Returns [answer, confidence, evidence_ids] or a safe fallback.
      */
     protected static function ai_subset_analyze(array $pkg, array $ai_cfg): array
     {
-        $model = isset($ai_cfg['model']) && is_string($ai_cfg['model']) && $ai_cfg['model']!=='' ? (string)$ai_cfg['model'] : 'gpt-4o';
+        $model = self::select_optimal_model($ai_cfg, json_encode($pkg), 'analysis', 5);
         $base_url = isset($ai_cfg['base_url']) && is_string($ai_cfg['base_url']) ? (string)$ai_cfg['base_url'] : '';
         $api_key = isset($ai_cfg['api_key']) && is_string($ai_cfg['api_key']) ? (string)$ai_cfg['api_key'] : '';
 
@@ -200,6 +258,10 @@ class Api
             $m = preg_replace('/[^A-Za-z0-9_\-\.:\/]/', '', $m);
             $out['ai_model'] = substr($m, 0, 100);
         }
+        if (array_key_exists('ai_model_mode', $in)) {
+            $mode = is_scalar($in['ai_model_mode']) ? trim((string)$in['ai_model_mode']) : 'auto';
+            $out['ai_model_mode'] = in_array($mode, ['auto', 'manual']) ? $mode : 'auto';
+        }
         return $out;
     }
 
@@ -221,7 +283,8 @@ class Api
             'block_svg' => true,
             'ai_enabled' => false,
             'ai_spam_threshold' => 0.5,
-            'ai_model' => 'gpt-4o',
+            'ai_model' => 'auto',
+            'ai_model_mode' => 'auto',
         ];
         $raw = get_option('arshline_settings', []);
     $arr = is_array($raw) ? $raw : [];
@@ -1509,7 +1572,9 @@ class Api
         $key = isset($arr['ai_api_key']) && is_scalar($arr['ai_api_key']) ? trim((string)$arr['ai_api_key']) : '';
         $key = substr($key, 0, 2000);
         $enabled = isset($arr['ai_enabled']) ? (bool)$arr['ai_enabled'] : false;
-        $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'gpt-4o';
+        $model = isset($arr['ai_model']) && is_scalar($arr['ai_model']) ? (string)$arr['ai_model'] : 'auto';
+        $model_mode = isset($arr['ai_model_mode']) && is_scalar($arr['ai_model_mode']) ? (string)$arr['ai_model_mode'] : 'auto';
+        $model_mode = in_array($model_mode, ['auto', 'manual'], true) ? $model_mode : 'auto';
     $parser = isset($arr['ai_parser']) && is_scalar($arr['ai_parser']) ? (string)$arr['ai_parser'] : 'hybrid'; // 'internal' | 'hybrid' | 'llm'
         $parser = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid';
     // Analytics defaults
@@ -1524,7 +1589,7 @@ class Api
         // New: allowlist for AI-accessible menus/actions
         $allowedMenus = isset($arr['ai_allowed_menus']) && is_array($arr['ai_allowed_menus']) ? array_values(array_unique(array_filter(array_map('strval', $arr['ai_allowed_menus'])))) : ['dashboard','forms'];
         $allowedActions = isset($arr['ai_allowed_actions']) && is_array($arr['ai_allowed_actions']) ? array_values(array_unique(array_filter(array_map('strval', $arr['ai_allowed_actions'])))) : [];
-    return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'parser' => $parser, 'hosh_model' => $hoshModel, 'hosh_mode' => $hoshMode, 'ana_max_tokens' => $anaMaxTok, 'ana_chunk_size' => $anaChunkSize, 'ana_auto_format' => $anaAutoFmt, 'ana_show_advanced' => $anaShowAdv, 'allowed_menus' => $allowedMenus, 'allowed_actions' => $allowedActions ];
+    return [ 'base_url' => $base, 'api_key' => $key, 'enabled' => $enabled, 'model' => $model, 'model_mode' => $model_mode, 'parser' => $parser, 'hosh_model' => $hoshModel, 'hosh_mode' => $hoshMode, 'ana_max_tokens' => $anaMaxTok, 'ana_chunk_size' => $anaChunkSize, 'ana_auto_format' => $anaAutoFmt, 'ana_show_advanced' => $anaShowAdv, 'allowed_menus' => $allowedMenus, 'allowed_actions' => $allowedActions ];
     }
     public static function get_ai_config(WP_REST_Request $request)
     {
@@ -1538,6 +1603,7 @@ class Api
         $key  = is_scalar($cfg['api_key'] ?? '') ? trim((string)$cfg['api_key']) : '';
         $enabled = (bool)($cfg['enabled'] ?? false);
         $model = is_scalar($cfg['model'] ?? '') ? trim((string)$cfg['model']) : '';
+        $model_mode = is_scalar($cfg['model_mode'] ?? '') ? trim((string)$cfg['model_mode']) : '';
     $parser = is_scalar($cfg['parser'] ?? '') ? trim((string)$cfg['parser']) : '';
     $anaMaxTok = isset($cfg['ana_max_tokens']) && is_numeric($cfg['ana_max_tokens']) ? max(16, min(4096, (int)$cfg['ana_max_tokens'])) : null;
     $anaChunkSize = isset($cfg['ana_chunk_size']) && is_numeric($cfg['ana_chunk_size']) ? max(50, min(2000, (int)$cfg['ana_chunk_size'])) : null;
@@ -1553,6 +1619,7 @@ class Api
         $arr['ai_api_key']  = substr($key, 0, 2000);
         $arr['ai_enabled']  = $enabled;
         if ($model !== ''){ $arr['ai_model'] = substr(preg_replace('/[^A-Za-z0-9_\-:\.\/]/', '', $model), 0, 100); }
+        if ($model_mode !== ''){ $arr['ai_model_mode'] = in_array($model_mode, ['auto', 'manual'], true) ? $model_mode : 'auto'; }
     if ($parser !== ''){ $arr['ai_parser'] = in_array($parser, ['internal','hybrid','llm'], true) ? $parser : 'hybrid'; }
     if ($anaMaxTok !== null){ $arr['ai_ana_max_tokens'] = $anaMaxTok; }
     if ($anaChunkSize !== null){ $arr['ai_ana_chunk_size'] = $anaChunkSize; }
@@ -4114,14 +4181,36 @@ class Api
                     $label = mb_strtolower((string)($fm['label'] ?? ''), 'UTF-8');
                     $type  = (string)($fm['type'] ?? '');
                     if ($label === '') continue;
-                    if (preg_match('/\bname\b|first\s*name|last\s*name|full\s*name|surname|family/i', $label)
-                        || preg_match('/نام(?:\s*خانوادگی)?|اسم/u', $label)){
+                    // Enhanced name field detection - English patterns
+                    $englishNamePatterns = '/\b(name|first\s*name|last\s*name|full\s*name|surname|family|firstname|lastname|fullname|given\s*name|contact\s*name|your\s*name|applicant|participant|person|individual|client|customer|user|member|student|employee|staff|sender|submitter)\b/i';
+                    
+                    // Enhanced Persian name patterns
+                    $persianNamePatterns = '/(?:نام|اسم|نام\s*و\s*نام\s*خانوادگی|نام\s*کامل|نام\s*خانوادگی|نام\s*کوچک|نام\s*و\s*فامیل|فامیل|فامیلی|شناسه|هویت|متقاضی|شرکت‌کننده|فرد|مشتری|کاربر|عضو|دانشجو|کارمند|پرسنل|فرستنده|ارسال‌کننده|تماس‌گیرنده)/u';
+                    
+                    // Check for generic field patterns that might indicate names
+                    $genericPatterns = '/^(.*(?:شما|خود|کس|کسی|فرد|نفر).*)$/u';
+                    
+                    if (preg_match($englishNamePatterns, $label) 
+                        || preg_match($persianNamePatterns, $label)
+                        || (strlen($label) <= 15 && preg_match($genericPatterns, $label))) {
                         $nameFieldIds[] = (int)($fm['id'] ?? 0);
                     }
                 }
                 $nameFieldIds = array_values(array_unique(array_filter($nameFieldIds, function($v){ return $v>0; })));
+                
+                // Fallback: if no specific name fields found, use first short_text field
                 if (empty($nameFieldIds)){
-                    $lines[] = "فرم " . $fid . ": نامشخص (فیلد نام یافت نشد)";
+                    foreach ($fmeta as $fm){
+                        $type = (string)($fm['type'] ?? '');
+                        if ($type === 'short_text'){
+                            $nameFieldIds[] = (int)($fm['id'] ?? 0);
+                            break; // Only take the first one
+                        }
+                    }
+                }
+                
+                if (empty($nameFieldIds)){
+                    $lines[] = "فرم " . $fid . ": نامشخص (هیچ فیلد متنی مناسب یافت نشد)";
                     continue;
                 }
                 // fetch values for current table rows in batch
@@ -4200,9 +4289,10 @@ class Api
                     $type = (string)($fm['type'] ?? '');
                     if ($lab === '') continue;
                     
-                    // Personal information patterns
-                    if (preg_match('/\bname\b|first\s*name|last\s*name|full\s*name|surname|family/i', $lab)
-                        || preg_match('/نام(?:\s*و\s*نام\s*خانوادگی)?|نام\s*خانوادگی|اسم|نام\s*کامل/u', $labL)){
+                    // Enhanced Personal information patterns
+                    if (preg_match('/\b(name|first\s*name|last\s*name|full\s*name|surname|family|firstname|lastname|fullname|given\s*name|contact\s*name|your\s*name|applicant|participant|person|individual|client|customer|user|member|student|employee|staff|sender|submitter)\b/i', $lab)
+                        || preg_match('/(?:نام|اسم|نام\s*و\s*نام\s*خانوادگی|نام\s*کامل|نام\s*خانوادگی|نام\s*کوچک|نام\s*و\s*فامیل|فامیل|فامیلی|شناسه|هویت|متقاضی|شرکت‌کننده|فرد|مشتری|کاربر|عضو|دانشجو|کارمند|پرسنل|فرستنده|ارسال‌کننده|تماس‌گیرنده)/u', $labL)
+                        || (strlen($lab) <= 15 && ($type === 'short_text' || $type === '') && preg_match('/^(.*(?:شما|خود|کس|کسی|فرد|نفر).*)$/u', $labL))){
                         $roles['name'][] = $lab;
                     }
                     elseif (preg_match('/\b(phone|mobile|cell|telephone)\b/i', $lab) 
@@ -6327,19 +6417,9 @@ class Api
                 }
             }
             $tableCsv = implode("\r\n", $rowsCsv);
-            // Heuristic model selection for cost vs depth
-            $qLower = mb_strtolower($question, 'UTF-8');
-            $isHeavy = (bool)(
-                preg_match('/\b(compare|correlat|trend|distribution|variance|std|median|quartile|regression|cluster|segment|chart|bar|pie|line)\b/i', $qLower)
-                || preg_match('/(?:مقایسه|همبستگی|روند|میانگین|میانه|نمودار|نمودار(?:\s*میله|\s*دایره|\s*خط)|واریانس|انحراف\s*معیار)/u', $qLower)
-            );
-            $use_model_struct = $use_model;
-            if ($isHeavy) {
-                // If configured model looks like a mini/cheap variant, upgrade to gpt-4o for this call
-                if (preg_match('/mini|3\.5|4o\-mini/i', (string)$use_model_struct)){
-                    $use_model_struct = 'gpt-4o';
-                }
-            }
+            // Smart model selection for analytics
+            $complexity_score = strlen($question) > 200 ? 8 : (count($sliceIds) > 100 ? 6 : 4);
+            $use_model_struct = self::select_optimal_model($ai_cfg, $question, 'analytics', $complexity_score);
             // Build structured system prompt
             // Gather hint row IDs from partials (to prioritize exact rows if the model is weak/mini)
             $hintMatchedRows = [];

@@ -3,7 +3,7 @@
  * Plugin Name: فرم‌ساز و داشبورد عرشلاین (Arshline Starter)
  * Plugin URI: https://arshline.ir/
  * Description: افزونه فرم‌ساز، داشبورد و گزارشات فارسی عرشلاین برای وردپرس با پشتیبانی هوش مصنوعی و امنیت پیشرفته.
- * Version: 6.4.1
+ * Version: 7.0.0
  * Author: گروه توسعه عرشلاین
  * Author URI: https://arshline.ir/
  * License: GPL2
@@ -21,7 +21,7 @@ use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\FormsModule;
 use Arshline\Core\Api;
 use Arshline\Core\AccessControl;
-use Arshline\Dashboard\SettingsPage;
+// use Arshline\Dashboard\SettingsPage; // Removed - settings moved to custom dashboard
 use Arshline\Dashboard\UserGroupsPage;
 
 if (!defined('ABSPATH')) {
@@ -117,7 +117,7 @@ add_action('plugins_loaded', static function () {
     Dashboard::boot();
     FormsModule::boot();
     Api::boot();
-    SettingsPage::boot();
+    // SettingsPage::boot(); // Removed - settings moved to custom dashboard
     UserGroupsPage::boot();
 });
 add_action('wp_enqueue_scripts', static function () {

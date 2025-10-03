@@ -147,7 +147,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
 <?php if ( current_user_can('manage_options') && ! get_option('arshline_capture_console_events', false) ) : ?>
     <div style="direction:rtl;background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:10px 12px;margin:12px;border-radius:8px;font-size:13px">
         <strong>راهنما:</strong> برای دیباگ رویدادهای سمت کلاینت،
-        <a href="<?php echo esc_url( admin_url('options-general.php?page=arshline-settings') ); ?>">به تنظیمات عرشلاین</a>
+        <!-- تنظیمات در داشبورد اختصاصی منتقل شده -->
         بروید و گزینه «فعال‌سازی ثبت رویدادهای کنسول» را روشن کنید.
     </div>
 <?php endif; ?>
@@ -3266,25 +3266,115 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                             <div><button id="gsSaveSecurity" class="ar-btn">ذخیره امنیت</button></div>\
                                         </div>\
                                         <div id="arS_AI" class="s-panel" style="display:none;">\
-                                            <div class="title">تنظیمات هوش مصنوعی (سراسری)</div>\
-                                            <label><input type="checkbox" id="gsAiEnabled"/> فعال‌سازی هوش مصنوعی ضداسپم</label>\
-                                            <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
-                                                <span class="hint">آستانه امتیاز (0 تا 1)</span><input id="gsAiThreshold" type="number" min="0" max="1" step="0.05" class="ar-input" style="width:120px"/>\
+                                            <div class="title" style="margin-bottom:1rem;">🤖 هوش مصنوعی (تنظیمات سراسری)</div>\
+                                            \
+                                            <!-- بخش اتصال و احراز هویت -->\
+                                            <div style="border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem;background:#f9f9f9;">\
+                                                <h3 style="margin:0 0 .5rem 0;color:#2271b1;font-size:1.1em;display:flex;align-items:center;gap:.5rem;"><span>🔗</span> اتصال به سرویس</h3>\
+                                                <p style="margin:0 0 1rem 0;font-size:.9em;color:#666;">تنظیمات اتصال به OpenAI یا سرویس سازگار</p>\
+                                                <div class="field" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">\
+                                                    <div style="display:flex;flex-direction:column;gap:.3rem;">\
+                                                        <span class="hint">Base URL</span>\
+                                                        <input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.openai.com" style="width:220px"/>\
+                                                    </div>\
+                                                    <div style="display:flex;flex-direction:column;gap:.3rem;">\
+                                                        <span class="hint">API Key</span>\
+                                                        <input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید API محرمانه" style="width:220px"/>\
+                                                    </div>\
+                                                    <div style="display:flex;flex-direction:column;gap:.3rem;">\
+                                                        <span class="hint">&nbsp;</span>\
+                                                        <button id="gsAiTest" class="ar-btn ar-btn--soft">🧪 تست اتصال</button>\
+                                                    </div>\
+                                                </div>\
                                             </div>\
-                                            <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
-                                                <span class="hint">Base URL</span><input id="gsAiBaseUrl" class="ar-input" placeholder="https://api.example.com" style="min-width:260px"/>\
-                                                <span class="hint">API Key</span><input id="gsAiApiKey" type="password" class="ar-input" placeholder="کلید محرمانه" style="min-width:260px"/>\
-                                                <span class="hint">Model</span><select id="gsAiModel" class="ar-select"><option value="gpt-5">gpt-5</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4o">gpt-4o</option></select>\
-                                                <span class="hint">تحلیلگر</span><select id="gsAiParser" class="ar-select"><option value="internal">هوشیار داخلی</option><option value="hybrid">هیبرید (پیش‌فرض)</option><option value="llm">OpenAI LLM</option></select>\
-                                                <button id="gsAiTest" class="ar-btn ar-btn--soft">تست اتصال</button>\
+                                            \
+                                            <!-- بخش انتخاب مدل هوشمند -->\
+                                            <div style="border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem;background:#f0f8ff;">\
+                                                <h3 style="margin:0 0 .5rem 0;color:#2271b1;font-size:1.1em;display:flex;align-items:center;gap:.5rem;"><span>🎯</span> انتخاب مدل</h3>\
+                                                <p style="margin:0 0 1rem 0;font-size:.9em;color:#666;">افزونه به‌طور هوشمند بهترین مدل را برای هر کار انتخاب می‌کند (توصیه می‌شود)</p>\
+                                                <div class="field" style="margin-bottom:.8rem;">\
+                                                    <label style="display:flex;align-items:center;gap:.5rem;font-weight:500;padding:.5rem;background:rgba(0,163,42,0.1);border-radius:6px;">\
+                                                        <input type="radio" name="aiModelMode" id="gsAiModeAuto" value="auto" checked/>\
+                                                        <span style="font-size:1.2em;">🤖</span> انتخاب هوشمند (پیش‌فرض)\
+                                                    </label>\
+                                                    <div style="margin:.3rem 0 0 2.5rem;font-size:.85em;color:#666;">سیستم خودکار بر اساس نوع کار، بهترین مدل را انتخاب می‌کند (صرفه‌جویی تا 90%)</div>\
+                                                </div>\
+                                                <div class="field" style="margin-bottom:1rem;">\
+                                                    <label style="display:flex;align-items:center;gap:.5rem;font-weight:500;padding:.5rem;border-radius:6px;">\
+                                                        <input type="radio" name="aiModelMode" id="gsAiModeManual" value="manual"/>\
+                                                        <span style="font-size:1.2em;">⚙️</span> انتخاب دستی\
+                                                    </label>\
+                                                    <div style="margin:.3rem 0 0 2.5rem;font-size:.85em;color:#666;">شما یک مدل ثابت انتخاب می‌کنید (هزینه بیشتر)</div>\
+                                                </div>\
+                                                <div class="field" id="gsAiModelDiv" style="background:rgba(0,0,0,0.05);padding:.8rem;border-radius:6px;">\
+                                                    <span class="hint" style="font-weight:500;">مدل فعال:</span>\
+                                                    <select id="gsAiModel" class="ar-select" style="width:350px;margin-right:.5rem;">\
+                                                        <option value="auto">🤖 انتخاب هوشمند (توصیه شده)</option>\
+                                                        <option value="gpt-4o-mini">💎 GPT-4o Mini (ارزان - $0.15/1M توکن)</option>\
+                                                        <option value="gpt-3.5-turbo">⚡ GPT-3.5 Turbo (متوسط - $0.50/1M توکن)</option>\
+                                                        <option value="gpt-4o">🚀 GPT-4o (قدرتمند - $2.50/1M توکن)</option>\
+                                                        <option value="gpt-4-turbo">🔥 GPT-4 Turbo (پیشرفته - $10/1M توکن)</option>\
+                                                        <option value="o1-mini">🧠 O1-mini (استدلالی - $3.00/1M توکن)</option>\
+                                                    </select>\
+                                                </div>\
                                             </div>\
-                                            <div class="field" style="display:flex;flex-direction:column;gap:.4rem;">\
-                                                <div class="hint">دستور عامل (Agent): مثلا «ایجاد فرم با عنوان فرم تست» یا «حذف فرم 12»</div>\
-                                                <textarea id="aiAgentCmd" class="ar-input" style="min-height:72px"></textarea>\
-                                                <div><button id="aiAgentRun" class="ar-btn">اجرای دستور</button></div>\
-                                                <pre id="aiAgentOut" style="background:rgba(2,6,23,.06); padding:.6rem;border-radius:8px;max-height:180px;overflow:auto;"></pre>\
+                                            \
+                                            <!-- بخش ماژول‌های هوش مصنوعی -->\
+                                            <div style="border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem;">\
+                                                <h3 style="margin:0 0 .5rem 0;color:#2271b1;font-size:1.1em;display:flex;align-items:center;gap:.5rem;"><span>🛡️</span> ماژول‌های فعال</h3>\
+                                                <p style="margin:0 0 1rem 0;font-size:.9em;color:#666;">فعال‌سازی و تنظیم ماژول‌های مختلف هوش مصنوعی</p>\
+                                                \
+                                                <!-- ضداسپم -->\
+                                                <div style="border-right:4px solid #00a32a;padding:.8rem;margin-bottom:1rem;background:#f0fff0;">\
+                                                    <label style="display:flex;align-items:center;gap:.5rem;font-weight:500;margin-bottom:.5rem;">\
+                                                        <input type="checkbox" id="gsAiEnabled"/>\
+                                                        <span style="font-size:1.2em;">🛡️</span> ضداسپم هوشمند\
+                                                    </label>\
+                                                    <div style="margin:0 0 .8rem 2rem;font-size:.85em;color:#666;">تشخیص و جلوگیری از ارسال‌های اسپم با هوش مصنوعی</div>\
+                                                    <div class="field" style="margin-right:2rem;">\
+                                                        <span class="hint">آستانه تشخیص:</span>\
+                                                        <input id="gsAiThreshold" type="number" min="0" max="1" step="0.05" value="0.7" class="ar-input" style="width:80px;margin:0 .5rem;"/>\
+                                                        <span style="font-size:.8em;color:#666;">(0.5=حساس، 0.7=متعادل، 0.9=سخت‌گیر)</span>\
+                                                    </div>\
+                                                </div>\
+                                                \
+                                                <!-- هوشیار -->\
+                                                <div style="border-right:4px solid #2271b1;padding:.8rem;margin-bottom:1rem;background:#f0f4ff;">\
+                                                    <div style="font-weight:500;margin-bottom:.3rem;display:flex;align-items:center;gap:.5rem;"><span style="font-size:1.2em;">🧠</span> هوشیار (عامل مدیریت)</div>\
+                                                    <div style="font-size:.85em;color:#666;margin:0 0 .8rem 2rem;">پردازش دستورات فارسی برای مدیریت فرم‌ها و داشبورد</div>\
+                                                    <div class="field" style="margin-right:2rem;">\
+                                                        <span class="hint">نحوه پردازش:</span>\
+                                                        <select id="gsAiParser" class="ar-select" style="width:200px;margin-right:.5rem;">\
+                                                            <option value="hybrid">🤖 هوشمند (داخلی + مدل)</option>\
+                                                            <option value="llm">🧠 فقط مدل زبانی</option>\
+                                                            <option value="internal">⚡ فقط پردازش داخلی</option>\
+                                                        </select>\
+                                                    </div>\
+                                                </div>\
+                                                \
+                                                <!-- هوشنگ -->\
+                                                <div style="border-right:4px solid #d63638;padding:.8rem;background:#fff8f8;">\
+                                                    <div style="font-weight:500;margin-bottom:.3rem;display:flex;align-items:center;gap:.5rem;"><span style="font-size:1.2em;">📊</span> هوشنگ (تحلیلگر داده)</div>\
+                                                    <div style="font-size:.85em;color:#666;margin-right:2rem;">پاسخ به سوالات تحلیلی درباره داده‌های فرم‌ها (همیشه فعال)</div>\
+                                                </div>\
                                             </div>\
-                                            <div><button id="gsSaveAI" class="ar-btn">ذخیره هوش مصنوعی</button></div>\
+                                            \
+                                            <!-- بخش آزمایش -->\
+                                            <div style="border:1px solid #ddd;border-radius:8px;padding:1rem;margin-bottom:1rem;background:#fffef7;">\
+                                                <h3 style="margin:0 0 .5rem 0;color:#2271b1;font-size:1.1em;display:flex;align-items:center;gap:.5rem;"><span>🧪</span> آزمایش عملکرد</h3>\
+                                                <div class="field" style="margin-bottom:.5rem;">\
+                                                    <label style="display:block;font-weight:500;margin-bottom:.5rem;">دستور آزمایشی برای هوشیار:</label>\
+                                                    <textarea id="aiAgentCmd" class="ar-input" placeholder="مثال: «یک فرم جدید با عنوان 'نظرسنجی' بساز» یا «لیست فرم‌ها را نمایش بده»" style="min-height:60px;width:100%;resize:vertical;"></textarea>\
+                                                </div>\
+                                                <div style="margin-bottom:.5rem;">\
+                                                    <button id="aiAgentRun" class="ar-btn" style="background:#2271b1;color:white;">🚀 اجرای دستور</button>\
+                                                </div>\
+                                                <pre id="aiAgentOut" style="background:rgba(2,6,23,.06);padding:.6rem;border-radius:6px;max-height:200px;overflow:auto;font-size:.85em;border:1px solid #ddd;"></pre>\
+                                            </div>\
+                                            \
+                                            <div style="margin-top:1.5rem;padding-top:1rem;border-top:2px solid #ddd;text-align:center;">\
+                                                <button id="gsSaveAI" class="ar-btn" style="background:#00a32a;color:white;padding:1rem 2rem;font-size:1.1em;border-radius:8px;">💾 ذخیره تنظیمات</button>\
+                                            </div>\
                                         </div>\
                                         <div id="arS_Users" class="s-panel" style="display:none;">\
                                             <div class="title">کاربران و دسترسی‌ها (Placeholder)</div>\
@@ -3329,7 +3419,41 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         .then(function(resp){ try {
                             var c = resp && resp.config ? resp.config : {};
                             var bu = document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || '';
-                            var mo = document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'gpt-4o';
+                            // Set model mode and model
+                            var modelMode = c.model_mode || 'auto';
+                            var autoRadio = document.getElementById('gsAiModeAuto');
+                            var manualRadio = document.getElementById('gsAiModeManual');
+                            var mo = document.getElementById('gsAiModel');
+                            
+                            function updateModelSelection() {
+                                console.log('updateModelSelection called', { modelMode: c.model_mode, autoChecked: autoRadio?.checked });
+                                console.log('NEW AI SETTINGS UI LOADED - Version 6.4.5 - با آیکون‌های بهبودیافته');
+                                if (mo) {
+                                    if (autoRadio && autoRadio.checked) {
+                                        // در حالت هوشمند، اولین گزینه "انتخاب هوشمند" باشد
+                                        mo.value = 'auto';
+                                        console.log('Set model to auto (smart selection)');
+                                    } else {
+                                        // در حالت دستی، گزینه ذخیره شده یا پیش‌فرض
+                                        mo.value = c.model || 'gpt-4o-mini';
+                                        console.log('Set model to manual:', c.model || 'gpt-4o-mini');
+                                    }
+                                }
+                            }
+                            
+                            if (autoRadio && manualRadio) {
+                                if (modelMode === 'manual') {
+                                    manualRadio.checked = true;
+                                } else {
+                                    autoRadio.checked = true;
+                                }
+                                
+                                // Add event listeners for radio buttons
+                                autoRadio.addEventListener('change', updateModelSelection);
+                                manualRadio.addEventListener('change', updateModelSelection);
+                            }
+                            
+                            updateModelSelection();
                             var pa = document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid';
                             var ak = document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || '';
                         } catch(_){ } });
@@ -3364,11 +3488,15 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         ai_enabled: ai_enabled,
                         ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5))
                     };
+                    var modelMode = document.getElementById('gsAiModeManual')?.checked ? 'manual' : 'auto';
+                    var selectedModel = String(document.getElementById('gsAiModel')?.value||'auto');
+                    
                     var cfg = {
                         enabled: ai_enabled,
                         base_url: String(document.getElementById('gsAiBaseUrl')?.value||''),
                         api_key: String(document.getElementById('gsAiApiKey')?.value||''),
-                        model: String(document.getElementById('gsAiModel')?.value||''),
+                        model: selectedModel,
+                        model_mode: modelMode,
                         parser: String(document.getElementById('gsAiParser')?.value||'hybrid')
                     };
                     putSettings(payload)
