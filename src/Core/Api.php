@@ -3,6 +3,8 @@ namespace Arshline\Core;
 
 use WP_REST_Request;
 use WP_REST_Response;
+use WP_REST_Server;
+use WP_Error;
 use Arshline\Support\Helpers;
 use Arshline\Modules\Forms\Form;
 use Arshline\Modules\Forms\FormRepository;
@@ -22,6 +24,10 @@ use Arshline\Core\AccessControl;
 
 class Api
 {
+    /**
+     * Last AI call debug snapshot for inspection in responses (admin only)
+     */
+    protected static $last_ai_debug = null;
     /**
      * Smart model selection based on request type and complexity
      */
@@ -138,14 +144,20 @@ class Api
      */
     protected static function openai_chat_json(string $base_url, string $api_key, string $model, string $system, string $user)
     {
-        $endpoint = rtrim($base_url ?: 'https://api.openai.com', '/') . '/v1/chat/completions';
+        $base = rtrim($base_url ?: 'https://api.openai.com', '/');
+        // Avoid double /v1 if user already provided it in base URL
+        if (preg_match('~/(v1)(/)?$~i', $base)) {
+            $endpoint = $base . '/chat/completions';
+        } else {
+            $endpoint = $base . '/v1/chat/completions';
+        }
         $headers = [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ];
         $payload = [
             'model' => self::normalize_model_name($model),
             'response_format' => [ 'type' => 'json_object' ],
             'messages' => [ [ 'role' => 'system', 'content' => $system ], [ 'role' => 'user', 'content' => $user ] ],
             'temperature' => 0.2,
-            'max_tokens' => 512,
+            'max_tokens' => 1200,
         ];
         try {
             $res = self::wp_post_with_retries($endpoint, $headers, $payload, 40, 3, [500,1000,2000], 'gpt-4o-mini');
@@ -157,6 +169,23 @@ class Api
                 elseif (isset($b['choices'][0]['text']) && is_string($b['choices'][0]['text'])) $txt = (string)$b['choices'][0]['text'];
                 elseif (isset($b['output_text']) && is_string($b['output_text'])) $txt = (string)$b['output_text'];
             }
+            // Debug snapshot of upstream response (admin only exposure; sanitized)
+            self::$last_ai_debug = [
+                'endpoint' => $endpoint,
+                'status' => (int)($res['status'] ?? 0),
+                'ok' => (bool)($res['ok'] ?? false),
+                'model' => $payload['model'] ?? '',
+                'response_preview' => is_string($res['body'] ?? null) ? mb_substr((string)$res['body'], 0, 2000, 'UTF-8') : '',
+                'message_content_preview' => $txt ? mb_substr($txt, 0, 1200, 'UTF-8') : '',
+            ];
+            if (!($res['ok'] ?? false)){
+                $status = (int)($res['status'] ?? 0);
+                $bodyPreview = '';
+                if (is_string($res['body'] ?? null)){
+                    $bodyPreview = substr((string)$res['body'], 0, 240);
+                }
+                @error_log('Arshline openai_chat_json upstream error status=' . $status . ' bodyPreview=' . $bodyPreview);
+            }
             $j = $txt ? json_decode($txt, true) : null;
             if (is_array($j)) return $j;
             // Simple repair: strip code fences
@@ -165,6 +194,69 @@ class Api
             if (is_array($j2)) return $j2;
         } catch (\Throwable $e) { return null; }
         return null;
+    }
+
+    /**
+     * Phase-1: Column Mapper — given header (labels/types) and a query, return relevant columns with probabilities,
+     * intents, entities, and overall confidence. Uses a tiny model and strict JSON.
+     */
+    protected static function ai_mapper_map_columns(array $ai_cfg, array $header, string $query, ?string $language_hint = null): array
+    {
+        $base_url = isset($ai_cfg['base_url']) && is_string($ai_cfg['base_url']) ? (string)$ai_cfg['base_url'] : '';
+        $api_key = isset($ai_cfg['api_key']) && is_string($ai_cfg['api_key']) ? (string)$ai_cfg['api_key'] : '';
+        $model = self::normalize_model_name('gpt-4o-mini');
+        // Build minimal header projection
+        $hdr = [];
+        foreach ($header as $h){
+            if (!is_array($h)) continue;
+            $hdr[] = [
+                'id' => $h['id'] ?? ($h['key'] ?? null),
+                'key' => $h['key'] ?? null,
+                'title' => $h['title'] ?? ($h['label'] ?? ''),
+                'type' => $h['type'] ?? null,
+                'semantic_tags' => $h['semantic_tags'] ?? null,
+            ];
+        }
+        $sys = 'You are a fast column-mapper and intent/entity classifier. Language can be Persian. '
+            . 'Respond ONLY in strict JSON with keys: language, columns[{column_id,probability,reason_code?}], intents[{name,probability}], '
+            . 'entities[{text,normalized?,type,subtype?,probability}], confidence.';
+        $user = [ 'query'=>$query, 'language_hint'=>$language_hint, 'header'=>$hdr ];
+        $resp = self::openai_chat_json($base_url, $api_key, $model, $sys, wp_json_encode($user, JSON_UNESCAPED_UNICODE));
+        // Validate shape and coerce minimal defaults
+        $out = [ 'language'=>'fa', 'columns'=>[], 'intents'=>[], 'entities'=>[], 'confidence'=>0.0 ];
+        if (is_array($resp)){
+            $out['language'] = is_string($resp['language'] ?? null) ? (string)$resp['language'] : ($language_hint ?: 'fa');
+            $cols = is_array($resp['columns'] ?? null) ? $resp['columns'] : [];
+            $normCols = [];
+            foreach ($cols as $c){
+                $cid = is_scalar($c['column_id'] ?? null) ? (string)$c['column_id'] : null;
+                $p = is_numeric($c['probability'] ?? null) ? (float)$c['probability'] : null;
+                if ($cid !== null && $p !== null){ $normCols[] = [ 'column_id'=>$cid, 'probability'=> max(0.0, min(1.0, $p)), 'reason_code'=> (string)($c['reason_code'] ?? '') ]; }
+            }
+            $out['columns'] = $normCols;
+            $ints = is_array($resp['intents'] ?? null) ? $resp['intents'] : [];
+            $normInt = [];
+            foreach ($ints as $it){
+                $nm = is_string($it['name'] ?? null) ? (string)$it['name'] : null;
+                $p = is_numeric($it['probability'] ?? null) ? (float)$it['probability'] : null;
+                if ($nm && $p !== null){ $normInt[] = [ 'name'=>$nm, 'probability'=> max(0.0, min(1.0, $p)) ]; }
+            }
+            $out['intents'] = $normInt;
+            $ents = is_array($resp['entities'] ?? null) ? $resp['entities'] : [];
+            $normEnt = [];
+            foreach ($ents as $en){
+                $txt = is_string($en['text'] ?? null) ? (string)$en['text'] : null;
+                $tp = is_string($en['type'] ?? null) ? (string)$en['type'] : null;
+                $p = is_numeric($en['probability'] ?? null) ? (float)$en['probability'] : null;
+                if ($txt && $tp && $p !== null){
+                    $normEnt[] = [ 'text'=>$txt, 'normalized'=> (string)($en['normalized'] ?? ''), 'type'=>$tp, 'subtype'=> (string)($en['subtype'] ?? ''), 'probability'=> max(0.0, min(1.0, $p)) ];
+                }
+            }
+            $out['entities'] = $normEnt;
+            $conf = is_numeric($resp['confidence'] ?? null) ? (float)$resp['confidence'] : 0.0;
+            $out['confidence'] = max(0.0, min(1.0, $conf));
+        }
+        return $out;
     }
 
     /**
@@ -780,6 +872,18 @@ class Api
                 'callback' => [self::class, 'create_submission'],
                 'permission_callback' => '__return_true',
             ]
+        ]);
+
+        // Hoosha (Smart Form Builder) endpoints
+        register_rest_route('arshline/v1', '/hoosha/prepare', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'hoosha_prepare'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        register_rest_route('arshline/v1', '/hoosha/apply', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'hoosha_apply'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
         // AI configuration and agent endpoints (admin-only)
         register_rest_route('arshline/v1', '/ai/config', [
@@ -1469,7 +1573,26 @@ class Api
         if ($days <= 0) $days = 30;
         $days = min(max($days, 7), 180); // clamp 7..180
         // Build date buckets in PHP to include days with zero
-        $tz = wp_timezone();
+        // Timezone handling with backwards-compatible fallback
+        if (function_exists('wp_timezone')) {
+            $tz = wp_timezone();
+        } else {
+            $tzString = '';
+            if (function_exists('wp_timezone_string')) {
+                $tzString = (string)wp_timezone_string();
+            }
+            if ($tzString === '') {
+                $tzString = (string)get_option('timezone_string');
+            }
+            if ($tzString === '') {
+                $offset = (float)get_option('gmt_offset');
+                $sign = $offset < 0 ? '-' : '+';
+                $hours = (int)floor(abs($offset));
+                $mins = (int)round((abs($offset) - $hours) * 60);
+                $tzString = sprintf('%s%02d:%02d', $sign, $hours, $mins);
+            }
+            try { $tz = new \DateTimeZone($tzString ?: 'UTC'); } catch (\Throwable $e) { $tz = new \DateTimeZone('UTC'); }
+        }
         $now = new \DateTimeImmutable('now', $tz);
         $start = $now->sub(new \DateInterval('P'.($days-1).'D'));
         $labels = [];
@@ -3805,6 +3928,1149 @@ class Api
     }
 
     /**
+     * POST /hoosha/prepare
+     * Body: { user_text: string, settings?: object }
+     * Returns: { ok: true, edited_text: string, schema: object, notes?: array, confidence?: float }
+     */
+    public static function hoosha_prepare(WP_REST_Request $request)
+    {
+        if (!self::user_can_manage_forms()) return new WP_Error('forbidden', 'forbidden', ['status' => 403]);
+        $body = json_decode($request->get_body() ?: '{}', true);
+        $user_text = isset($body['user_text']) ? (string)$body['user_text'] : '';
+        if ($user_text === '') return new WP_Error('bad_request', 'user_text required', ['status' => 400]);
+
+        // 1) Baseline heuristic extraction (for diff & fallback)
+        $baseline = self::hoosha_local_infer_from_text_v2($user_text);
+        if (empty($baseline['fields'])) { $baseline = self::hoosha_local_infer_from_text($user_text); }
+        $baseline_formal = self::hoosha_formalize_labels($baseline);
+        // Build quick lookup of original (formalized) labels to detect unchanged edits
+        $baseline_labels = [];
+        if (!empty($baseline_formal['fields'])){
+            foreach ($baseline_formal['fields'] as $bf){ if (is_array($bf) && isset($bf['label'])){ $baseline_labels[] = (string)$bf['label']; } }
+        }
+
+        // Build standards and capabilities to pass to model
+        $standards = [
+            'required_policy' => 'explicit_only',
+            'binary_to' => 'multiple_choice_single',
+            'dropdown_threshold' => 6,
+            'rating_default' => ['min'=>1,'max'=>10,'icon'=>'like'],
+            'long_text_defaults' => ['rows'=>4,'maxLength'=>5000],
+            'formats' => ['free_text','email','numeric','mobile_ir','mobile_intl','tel','national_id_ir','postal_code_ir','fa_letters','en_letters','ip','date_jalali','date_greg','time']
+        ];
+        $capabilities = [ 'types' => ['short_text','long_text','multiple_choice','dropdown','rating'] ];
+
+        // 2) Stronger system prompt: enforce mandatory transformations
+        $system = 'You are Hoosha, a precise Persian smart form editor. ALWAYS perform:
+RULES:
+1) Normalize spelling, punctuation, and formal tone for EVERY question.
+2) Convert binary / small option sets (detected with "X یا Y" (or more) patterns) to multiple_choice single-select (options array) unless >= dropdown_threshold -> dropdown.
+3) Rating only when explicit (contains امتیاز or pattern 1..10). Provide rating.min=1, rating.max=10, rating.icon="like".
+4) Long descriptive / explanation requests (contains توضیح, مفصل, شرح) -> long_text with defaults.
+5) Required only if explicitly requested in user_text or inferred command (contains الزامی or اجباری tied to that field).
+6) Output JSON ONLY with keys: edited_text (string), schema{fields:[{type,label,required,props{format?,options?,multiple?,rating?}}]}, notes[list], confidence[0..1].
+7) For every field ensure the label is formally edited. NEVER leave it unchanged when a more formal phrasing is obvious.
+8) Do NOT hallucinate extra fields.
+9) Preserve semantic meaning but elevate tone.
+10) If you cannot process, still return baseline schema with a note reason=pass_through.
+Return strict JSON. No markdown.';
+        $user = json_encode([
+            'phase' => 'prepare',
+            'user_text' => $user_text,
+            'standards' => $standards,
+            'capability_matrix' => $capabilities,
+            'ui_prefs' => [ 'display_numbering' => true, 'two_rows' => true ],
+            'baseline_labels' => $baseline_labels,
+        ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+
+        try {
+            $ai = self::get_ai_settings();
+            if (empty($ai['enabled']) || empty($ai['base_url']) || empty($ai['api_key'])){
+                return new WP_Error('ai_not_configured', 'ai_not_configured', ['status'=>400]);
+            }
+            $model = self::select_optimal_model($ai, $user_text, 'hoosha_prepare', 4);
+            $resp = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $system, (string)$user);
+            if (!is_array($resp)){
+                // Graceful fallback on model failure (no hard 502) – use baseline formal schema
+                $edited = self::hoosha_local_edit_text($user_text, $baseline_formal);
+                $schema = $baseline_formal;
+                $notes = ['model_call_failed','fallback_from_model_failure'];
+                $conf = 0.25;
+                self::hoosha_post_finalize_adjust($schema, $user_text, $notes);
+                return new WP_REST_Response([
+                    'ok'=>true,
+                    'edited_text'=>$edited,
+                    'schema'=>$schema,
+                    'notes'=>array_values(array_unique($notes)),
+                    'confidence'=>$conf
+                ], 200);
+            }
+            // If model wrapped payload under a 'result' or 'data' key, flatten it
+            if (isset($resp['result']) && is_array($resp['result'])) { $resp = $resp['result']; }
+            elseif (isset($resp['data']) && is_array($resp['data'])) { $resp = $resp['data']; }
+            // Normalize common alternative keys from LLMs
+            $edited = '';
+            if (isset($resp['edited_text'])) { $edited = (string)$resp['edited_text']; }
+            elseif (isset($resp['editedText'])) { $edited = (string)$resp['editedText']; }
+            elseif (isset($resp['text'])) { $edited = (string)$resp['text']; }
+            elseif (isset($resp['output'])) { $edited = is_string($resp['output']) ? (string)$resp['output'] : ''; }
+            elseif (isset($resp['answer'])) { $edited = is_string($resp['answer']) ? (string)$resp['answer'] : ''; }
+            elseif (isset($resp['message'])) { $edited = is_string($resp['message']) ? (string)$resp['message'] : ''; }
+            // Schema may be nested or provided as fields/form
+            $schema = [];
+            if (isset($resp['schema']) && is_array($resp['schema'])) { $schema = $resp['schema']; }
+            elseif (isset($resp['form']) && is_array($resp['form'])) { $schema = $resp['form']; }
+            elseif (isset($resp['fields']) && is_array($resp['fields'])) { $schema = [ 'fields' => $resp['fields'] ]; }
+            elseif (isset($resp['form_schema']) && is_array($resp['form_schema'])) { $schema = $resp['form_schema']; }
+            $notes = isset($resp['notes']) && is_array($resp['notes']) ? $resp['notes'] : (isset($resp['messages']) && is_array($resp['messages']) ? $resp['messages'] : []);
+            $conf = null;
+            if (isset($resp['confidence'])) { $conf = floatval($resp['confidence']); }
+            elseif (isset($resp['confidence_score'])) { $conf = floatval($resp['confidence_score']); }
+            elseif (isset($resp['score'])) { $conf = floatval($resp['score']); }
+            $reasons = [];
+            $refineAttempted = false;
+            $unchangedCount = 0;
+            // 3) Detect unchanged labels vs baseline (formal)
+            if (!empty($schema['fields']) && !empty($baseline_labels)){
+                foreach ($schema['fields'] as $f){
+                    if (!is_array($f) || !isset($f['label'])) continue;
+                    $lbl = (string)$f['label'];
+                    if (in_array($lbl, $baseline_labels, true)){ $unchangedCount++; }
+                }
+            }
+            if ($unchangedCount > 0){ $reasons[] = 'model_labels_partially_unchanged('.$unchangedCount.')'; }
+
+            // 4) If model failed to produce edited_text or schema, or labels unchanged => refine loop
+            if (($edited === '' || empty($schema['fields']) || $unchangedCount === count($schema['fields'] ?? []))){
+                $refineAttempted = true; $reasons[] = 'refine_pass_triggered';
+                $refineSys = $system . "\nREFINE: Ensure every label differs in tone from baseline and is formally edited.";
+                $refineUser = json_encode([
+                    'phase' => 'refine',
+                    'user_text' => $user_text,
+                    'baseline_schema' => $baseline_formal,
+                    'initial_model_schema' => $schema,
+                    'initial_model_edited_text' => $edited,
+                ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                $resp2 = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $refineSys, (string)$refineUser);
+                if (is_array($resp2)){
+                    if (isset($resp2['edited_text'])) $edited = (string)$resp2['edited_text'];
+                    if (isset($resp2['schema']) && is_array($resp2['schema'])) $schema = $resp2['schema'];
+                } else {
+                    $reasons[] = 'refine_no_response';
+                }
+            }
+
+            if ($edited === '' && (empty($schema) || empty($schema['fields'] ?? []))){
+                $keys = implode(',', array_keys($resp));
+                @error_log('Arshline hoosha_prepare empty_output keys=' . $keys);
+                // Local fallback: infer a minimal schema from user_text to avoid empty UI
+                $fallback = self::hoosha_local_infer_from_text_v2($user_text);
+                if (empty($fallback['fields'])) { $fallback = self::hoosha_local_infer_from_text($user_text); }
+                if (isset($fallback['fields']) && is_array($fallback['fields']) && count($fallback['fields']) > 0){
+                    // Formalize labels so preview uses edited tone
+                    $schema = self::hoosha_formalize_labels($fallback);
+                    if ($edited === ''){ $edited = self::hoosha_local_edit_text($user_text, $schema); }
+                    $notes[] = 'fallback_local_inference_applied';
+                    $notes[] = 'labels_formalized';
+                    $reasons[] = 'fallback_triggered';
+                    if ($conf === null){ $conf = 0.2; }
+                }
+            }
+            // 5) Tag field sources (model vs heuristic)
+            if (!empty($schema['fields']) && is_array($schema['fields'])){
+                foreach ($schema['fields'] as &$sf){
+                    if (!is_array($sf)) continue;
+                    $lbl = isset($sf['label']) ? (string)$sf['label'] : '';
+                    $sf['props'] = isset($sf['props']) && is_array($sf['props']) ? $sf['props'] : [];
+                    if (in_array($lbl, $baseline_labels, true)){
+                        $sf['props']['source'] = 'heuristic_or_unchanged';
+                    } else {
+                        if (!isset($sf['props']['source'])) $sf['props']['source'] = 'model';
+                    }
+                }
+                unset($sf);
+            }
+            if ($refineAttempted) $notes[] = 'refine_attempted';
+            // 4.5) Reconcile missing fields against baseline (ensure model did not drop items)
+            if (!empty($baseline_formal['fields']) && !empty($schema['fields'])){
+                $reconcileResult = self::hoosha_reconcile_schema($baseline_formal, $schema);
+                if (!empty($reconcileResult['added_count'])){
+                    $schema = $reconcileResult['schema'];
+                    $notes[] = 'reconciled_missing_fields('.intval($reconcileResult['added_count']).')';
+                    // Confidence penalty if we had to add fields the model omitted
+                    if ($conf !== null){ $conf = max(0.1, $conf - 0.15); } else { $conf = 0.55; }
+                }
+            }
+            // 4.6) Enrich formats (national id, date, mobile) if model omitted
+            if (!empty($schema['fields'])){
+                $enriched = self::hoosha_enrich_field_formats($schema);
+                if (!empty($enriched['count'])){ $notes[] = 'format_enriched('.intval($enriched['count']).')'; }
+            }
+            // 4.7) If edited_text lacks metadata lines, build annotated version while preserving raw
+            if (!empty($schema['fields'])){
+                $hasMeta = false;
+                if (is_string($edited) && $edited !== ''){
+                    // Heuristic: presence of '[' and '|' tokens suggests annotated form
+                    if (preg_match('/\[[^\]]+\|[^\]]+\]/u', $edited)) { $hasMeta = true; }
+                }
+                if (!$hasMeta){
+                    $rawEdited = $edited;
+                    $annotated = self::hoosha_local_edit_text($user_text, $schema);
+                    if ($annotated !== ''){
+                        $edited = $annotated;
+                        if ($rawEdited !== '' && $rawEdited !== $annotated){
+                            // expose raw for potential diff UI
+                            // will be attached below in $out if needed
+                            $notes[] = 'edited_text_annotated';
+                        }
+                    }
+                }
+            }
+            // 4.8) Post-finalize adjustments: required enforcement, de-dup, option normalization
+            self::hoosha_post_finalize_adjust($schema, $user_text, $notes);
+            if (!empty($reasons)) $notes = array_values(array_unique(array_merge($notes, $reasons)));
+            // 4.9) Sanitize & rebuild edited_text to remove contamination / duplicated enumerations
+            if (!empty($schema['fields']) && is_array($schema['fields'])){
+                $cleanFields = [];
+                $seenCanon = [];
+                $removed = 0; $keptConfirmNat=false;
+                foreach ($schema['fields'] as $f){
+                    if (!is_array($f)) continue;
+                    $lbl = isset($f['label'])? trim((string)$f['label']):''; if ($lbl==='') continue;
+                    $canon = mb_strtolower(preg_replace('/[\s\d[:punct:]]+/u','', $lbl),'UTF-8');
+                    $isNat = (mb_strpos(mb_strtolower($lbl,'UTF-8'),'کد ملی')!==false);
+                    $isConfirm = $isNat && (preg_match('/دوباره|مجدد/u', mb_strtolower($lbl,'UTF-8')));
+                    if (isset($seenCanon[$canon])){
+                        // Allow one confirm national id separate
+                        if ($isConfirm && !$keptConfirmNat){ $cleanFields[]=$f; $keptConfirmNat=true; continue; }
+                        $removed++; continue;
+                    }
+                    $seenCanon[$canon]=true; $cleanFields[]=$f;
+                }
+                if ($removed>0){ $notes[]='edited_text_rebuild_removed('.$removed.')'; }
+                // Repair any question labels that collapsed to a lone '?' and have options
+                foreach ($cleanFields as &$cf){
+                    if (!is_array($cf)) continue;
+                    $lbl = isset($cf['label'])?(string)$cf['label']:'';
+                    if (preg_match('/^\s*[\?؟]\s*$/u',$lbl)){
+                        if (isset($cf['props']['options']) && is_array($cf['props']['options'])){
+                            $opts = $cf['props']['options'];
+                            // Guess a generic label based on certain option sets
+                            $lowerJoin = mb_strtolower(implode(' ', $opts),'UTF-8');
+                            if (preg_match('/چای|قهوه|موکا/u',$lowerJoin)) $cf['label']='نوشیدنی ترجیحی شما؟';
+                            elseif (preg_match('/ایمیل|تلفن|موبایل/u',$lowerJoin)) $cf['label']='ترجیح شما برای شیوه تماس؟';
+                            else $cf['label']='گزینه مناسب را انتخاب کنید؟';
+                        } else {
+                            $cf['label']='سؤال را تکمیل کنید؟';
+                        }
+                    }
+                }
+                unset($cf);
+                // Additional refinement: remove or split residual mixed option sets (drinks/contact etc.)
+                self::hoosha_refine_option_contamination($schema, $notes);
+                $schema['fields'] = $cleanFields;
+                // Rebuild edited_text from sanitized schema (formal labels will be applied inside builder)
+                $edited = self::hoosha_local_edit_text($user_text, $schema);
+            }
+            $out = ['ok'=>true,'edited_text'=>$edited,'schema'=>$schema,'notes'=>$notes,'confidence'=>$conf];
+            // Attach model debug for admins only
+            if (current_user_can('manage_options') && is_array(self::$last_ai_debug)){
+                $out['debug'] = [ 'model' => self::$last_ai_debug ];
+            }
+            return new WP_REST_Response($out, 200);
+        } catch (\Throwable $e){
+            $code = ($e->getMessage() === 'invalid_model_response') ? 502 : 500;
+            return new WP_Error('hoosha_prepare_failed', $e->getMessage(), ['status'=>$code]);
+        }
+    }
+
+    /**
+     * Reconcile: ensure no baseline field is lost. Adds missing ones to end with source=reconciled.
+     * Returns [ schema: array, added_count: int ]
+     */
+    protected static function hoosha_reconcile_schema(array $baseline_formal, array $model_schema): array
+    {
+        if (empty($baseline_formal['fields']) || empty($model_schema['fields'])) return ['schema'=>$model_schema, 'added_count'=>0];
+        $existing = [];
+        foreach ($model_schema['fields'] as $f){
+            if (!is_array($f)) continue; $lbl = isset($f['label'])? trim((string)$f['label']):''; if ($lbl==='') continue;
+            $existing[ mb_strtolower(preg_replace('/\s+/u',' ', $lbl), 'UTF-8') ] = true;
+        }
+        $added = 0; $append = [];
+        foreach ($baseline_formal['fields'] as $bf){
+            if (!is_array($bf)) continue; $bl = isset($bf['label'])? trim((string)$bf['label']):''; if ($bl==='') continue;
+            $sig = mb_strtolower(preg_replace('/\s+/u',' ', $bl), 'UTF-8');
+            if (!isset($existing[$sig])){
+                // crude similarity guard: avoid adding if another label shares 85% of characters
+                $skip = false; $blNoSpace = preg_replace('/\s+/u','',$sig);
+                foreach (array_keys($existing) as $ek){
+                    $ekNo = preg_replace('/\s+/u','',$ek);
+                    if ($ekNo === '' || $blNoSpace === '') continue;
+                    $len = min(mb_strlen($ekNo,'UTF-8'), mb_strlen($blNoSpace,'UTF-8'));
+                    $common = 0;
+                    for ($i=0;$i<$len;$i++){ if (mb_substr($ekNo,$i,1,'UTF-8') === mb_substr($blNoSpace,$i,1,'UTF-8')) $common++; }
+                    if ($len>0 && ($common/$len) >= 0.85){ $skip = true; break; }
+                }
+                if ($skip) continue;
+                $clone = $bf; // baseline already formalized
+                if (!isset($clone['props']) || !is_array($clone['props'])) $clone['props'] = [];
+                $clone['props']['source'] = 'reconciled_from_baseline';
+                $append[] = $clone; $added++;
+            }
+        }
+        if ($added>0){
+            $model_schema['fields'] = array_merge($model_schema['fields'], $append);
+        }
+        return ['schema'=>$model_schema, 'added_count'=>$added];
+    }
+
+    /**
+     * Enrich formats for common patterns if model omitted them. Returns ['count'=>int].
+     */
+    protected static function hoosha_enrich_field_formats(array &$schema): array
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return ['count'=>0];
+        $count = 0;
+        foreach ($schema['fields'] as &$f){
+            if (!is_array($f)) continue; $lbl = isset($f['label'])? (string)$f['label']:''; if ($lbl==='') continue;
+            if (!isset($f['props']) || !is_array($f['props'])) $f['props'] = [];
+            $pl = mb_strtolower($lbl, 'UTF-8');
+            $hasFormat = isset($f['props']['format']) && $f['props']['format'] !== '';
+            if (!$hasFormat){
+                if (mb_strpos($pl,'کد ملی') !== false || preg_match('/\bملی\b/u',$pl)) { $f['props']['format'] = 'national_id_ir'; $count++; continue; }
+                if (mb_strpos($pl,'تاریخ') !== false) { $f['props']['format'] = 'date_greg'; $count++; continue; }
+                if (mb_strpos($pl,'شماره') !== false && (mb_strpos($pl,'موبایل') !== false || mb_strpos($pl,'تلفن') !== false)) { $f['props']['format'] = 'mobile_ir'; $count++; continue; }
+            }
+            // Enforce required if original instruction implied mandatory (post-hoc pass will set required flags globally)
+        }
+        unset($f);
+        return ['count'=>$count];
+    }
+
+    /** After schema finalized: de-duplicate semantically similar labels and enforce required from user_text */
+    protected static function hoosha_post_finalize_adjust(array &$schema, string $user_text, array &$notes): void
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return;
+        // 1) Enforce required for national id & phone if global instruction contains both keywords with الزامی/اجباری
+        $lt = mb_strtolower($user_text,'UTF-8');
+        $requireNat = (mb_strpos($lt,'کد ملی') !== false && (mb_strpos($lt,'الزامی') !== false || mb_strpos($lt,'اجباری') !== false));
+        $requirePhone = ((mb_strpos($lt,'شماره') !== false) && (mb_strpos($lt,'تلفن') !== false || mb_strpos($lt,'موبایل') !== false) && (mb_strpos($lt,'الزامی') !== false || mb_strpos($lt,'اجباری') !== false));
+        $enforced = [];
+        foreach ($schema['fields'] as &$f){
+            if (!is_array($f)) continue;
+            $lbl = isset($f['label'])? (string)$f['label']:''; $pl = mb_strtolower($lbl,'UTF-8');
+            if ($requireNat && (mb_strpos($pl,'کد ملی') !== false)) { if (empty($f['required'])){ $f['required']=true; $enforced['national_id_ir']=true; } }
+            if ($requirePhone && (mb_strpos($pl,'شماره') !== false) && (mb_strpos($pl,'تلفن') !== false || mb_strpos($pl,'موبایل') !== false)) { if (empty($f['required'])){ $f['required']=true; $enforced['mobile_ir']=true; } }
+        }
+        unset($f);
+        foreach (array_keys($enforced) as $k){ $notes[] = 'required_enforced('.$k.')'; }
+        // 2) De-duplicate similar labels (keep first occurrence, drop later ones)
+        $seen = []; $out = []; $removed = 0;
+        foreach ($schema['fields'] as $f){
+            if (!is_array($f)){ $out[] = $f; continue; }
+            $lbl = isset($f['label'])? trim((string)$f['label']):''; if ($lbl===''){ $out[]=$f; continue; }
+            $sig = mb_strtolower(preg_replace('/\s+/u',' ', $lbl),'UTF-8');
+            // fuzzy collapse: remove punctuation, digits
+            $canon = preg_replace('/[\d[:punct:]]+/u','', $sig);
+            if (isset($seen[$canon])){ $removed++; continue; }
+            $seen[$canon] = true; $out[] = $f;
+        }
+        if ($removed>0){ $schema['fields'] = $out; $notes[] = 'deduplicated_fields('.$removed.')'; }
+        // 3) Option normalization (آلبالو) if still corrupted (e.g., بالا & گیلاس)
+        foreach ($schema['fields'] as &$f2){
+            if (!is_array($f2)) continue; if (!isset($f2['props']) || !is_array($f2['props'])) continue;
+            if (isset($f2['props']['options']) && is_array($f2['props']['options'])){
+                $changed = false;
+                foreach ($f2['props']['options'] as &$op){
+                    $lop = mb_strtolower($op,'UTF-8');
+                    if ($lop === 'بالا' && (mb_strpos($lt,'آلبالو')!==false || mb_strpos($lt,'البالو')!==false)) { $op = 'آلبالو'; $changed = true; }
+                }
+                unset($op);
+                if ($changed){ $notes[] = 'options_normalized(albaloo)'; }
+            }
+        }
+        unset($f2);
+    }
+
+    /**
+     * POST /hoosha/apply
+     * Body: { schema: object, commands: array }
+     * Returns: { ok: true, schema: object, deltas?: array }
+     */
+    public static function hoosha_apply(WP_REST_Request $request)
+    {
+        if (!self::user_can_manage_forms()) return new WP_Error('forbidden', 'forbidden', ['status' => 403]);
+        $body = json_decode($request->get_body() ?: '{}', true);
+        $schema = isset($body['schema']) && is_array($body['schema']) ? $body['schema'] : [];
+        $commands = isset($body['commands']) && is_array($body['commands']) ? $body['commands'] : [];
+        if (empty($schema)) return new WP_Error('bad_request', 'schema required', ['status' => 400]);
+
+        $system = 'You are Hoosha, a precise Persian form command applier. Output MUST be valid JSON. Apply colloquial commands to the given schema within plugin limits.';
+        $user = json_encode([
+            'phase' => 'apply_commands',
+            'schema' => $schema,
+            'commands' => $commands
+        ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+
+        try {
+            $ai = self::get_ai_settings();
+            if (empty($ai['enabled']) || empty($ai['base_url']) || empty($ai['api_key'])){
+                return new WP_Error('ai_not_configured', 'ai_not_configured', ['status'=>400]);
+            }
+            $model = self::select_optimal_model($ai, json_encode($schema, JSON_UNESCAPED_UNICODE), 'hoosha_apply', 4);
+            $resp = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $system, (string)$user);
+            if (!is_array($resp)) throw new \Exception('invalid_model_response');
+            $newSchema = isset($resp['schema']) && is_array($resp['schema']) ? $resp['schema'] : $schema;
+            $deltas = isset($resp['deltas']) && is_array($resp['deltas']) ? $resp['deltas'] : [];
+            // If commands include a formalization hint and schema unchanged, apply local formalization as a safety net
+            $cmdText = mb_strtolower(implode('؛', array_map('strval', $commands)), 'UTF-8');
+            if ($newSchema === $schema && (mb_strpos($cmdText, 'رسمی') !== false || mb_strpos($cmdText, 'ویرایش لحن') !== false || mb_strpos($cmdText, 'ادبی') !== false)){
+                $newSchema = self::hoosha_formalize_labels($schema);
+                $deltas[] = [ 'op'=>'formalize', 'note'=>'applied local formalization fallback' ];
+            }
+            return new WP_REST_Response(['ok'=>true,'schema'=>$newSchema,'deltas'=>$deltas], 200);
+        } catch (\Throwable $e){
+            $code = ($e->getMessage() === 'invalid_model_response') ? 502 : 500;
+            return new WP_Error('hoosha_apply_failed', $e->getMessage(), ['status'=>$code]);
+        }
+    }
+
+    /**
+     * Convert Hoosha schema to fields array compatible with Form builder.
+     */
+    protected static function hoosha_schema_to_fields(array $schema): array
+    {
+        $fields = [];
+        $list = isset($schema['fields']) && is_array($schema['fields']) ? $schema['fields'] : [];
+        foreach ($list as $f){
+            $type = $f['type'] ?? 'short_text';
+            $label = $f['label'] ?? '';
+            $required = !empty($f['required']);
+            $props = isset($f['props']) && is_array($f['props']) ? $f['props'] : [];
+            // Map Hoosha types to existing builder types
+            if ($type === 'short_text'){
+                $fields[] = [ 'type'=>'short_text', 'question'=>$label, 'required'=>$required, 'format'=>($props['format'] ?? 'free_text'), 'minLength'=>($props['minLength'] ?? 0), 'maxLength'=>($props['maxLength'] ?? 0), 'placeholder'=>($f['placeholder'] ?? '') ];
+            } elseif ($type === 'long_text'){
+                $fields[] = [ 'type'=>'long_text', 'question'=>$label, 'required'=>$required, 'rows'=>4, 'maxLength'=>($props['maxLength'] ?? 5000), 'placeholder'=>($f['placeholder'] ?? '') ];
+            } elseif ($type === 'multiple_choice'){
+                $fields[] = [ 'type'=>'multiple_choice', 'question'=>$label, 'required'=>$required, 'multiple'=>!empty($props['multiple']), 'options'=>($props['options'] ?? []) ];
+            } elseif ($type === 'dropdown'){
+                $fields[] = [ 'type'=>'dropdown', 'question'=>$label, 'required'=>$required, 'options'=>($props['options'] ?? []) ];
+            } elseif ($type === 'rating'){
+                $r = isset($props['rating']) && is_array($props['rating']) ? $props['rating'] : ['min'=>1,'max'=>10,'icon'=>'like'];
+                $fields[] = [ 'type'=>'rating', 'question'=>$label, 'required'=>$required, 'min'=>intval($r['min']??1), 'max'=>intval($r['max']??10), 'icon'=>strval($r['icon']??'like') ];
+            }
+        }
+        return $fields;
+    }
+
+    /**
+     * Minimal heuristic fallback to infer Hoosha schema from free-form Persian text when LLM returns empty.
+     * Extract questions (lines ending with ? or ؟), guesses type/required, and collects bullet/numbered options.
+     */
+    protected static function hoosha_local_infer_from_text(string $txt): array
+    {
+        $lines = preg_split('/\r?\n/u', (string)$txt) ?: [];
+        $fields = [];
+        $seen = [];
+        $fullLower = mb_strtolower($txt, 'UTF-8');
+        $forceRequiredNationalId = (mb_strpos($fullLower, 'کد ملی') !== false && mb_strpos($fullLower, 'الزامی') !== false) || (mb_strpos($fullLower, 'کد ملی') !== false && mb_strpos($fullLower, 'اجباری') !== false);
+        $i = 0; $n = count($lines);
+        while ($i < $n){
+            $line = trim((string)$lines[$i]);
+            $i++;
+            if ($line === '') continue;
+            // Detect question (ends with ? or contains ؟)
+            $end = mb_substr($line, -1, 1, 'UTF-8');
+            $isQ = ($end === '?' || $end === '؟' || preg_match('/\?$/u', $line));
+            // Persian interrogatives without punctuation
+            $qHints = [ 'چند', 'چقدر', 'کجا', 'کی', 'چه', 'چی', 'چطور', 'چطوره', 'آیا', 'نیست', 'میشه', 'باشد؟' ];
+            foreach ($qHints as $h){ if (!$isQ && mb_strpos($line, $h, 0, 'UTF-8') !== false) { $isQ = true; break; } }
+            // Imperative / descriptive request lines (treat as questions for form fields)
+            if (!$isQ){
+                $impHints = ['توضیح','شرح','بنویس','بنویسید','ارائه','بیان کن','وارد کن','ثبت کن','مفصل','بده'];
+                foreach ($impHints as $h){ if (mb_strpos($line, $h, 0, 'UTF-8') !== false){ $isQ = true; break; } }
+            }
+            // Strong phone/mobile imperative detection: lines with شماره + (موبایل|تلفن|تماس) always considered question
+            if (!$isQ){
+                $lnLow = mb_strtolower($line,'UTF-8');
+                if (mb_strpos($lnLow,'شماره') !== false && (mb_strpos($lnLow,'موبایل')!==false || mb_strpos($lnLow,'تلفن')!==false || mb_strpos($lnLow,'تماس')!==false)){
+                    $isQ = true;
+                }
+            }
+            // Do not promote arbitrary short lines (e.g., standalone options like "چای قهوه") to questions
+            if (!$isQ) continue;
+            // Allow inline tail after ? that may contain options (e.g., "...؟ آلبالو یا گیلاس")
+            $inlineOptionsTail = '';
+            if (preg_match('/(.+?[\?؟])(.*)$/u', $line, $m)){
+                $questionBase = $m[1];
+                $tail = trim($m[2]);
+                if ($tail && mb_strpos($tail, ' یا ', 0, 'UTF-8') !== false) { $inlineOptionsTail = $tail; }
+            }
+            $question = preg_replace('/[\s\?؟]+$/u', '', $line);
+            // Skip duplicates by normalized label
+            $norm = mb_strtolower(preg_replace('/\s+/u',' ', $question), 'UTF-8');
+            if (isset($seen[$norm])) { continue; }
+            // Collect immediate bullet/numbered options
+            $opts = [];
+            $j = $i;
+            while ($j < $n){
+                $ln = trim((string)$lines[$j]);
+                if ($ln === '') break;
+                if (preg_match('/^(?:[-•\x{2022}]|\d+[\.)]|[A-Za-z]\))/u', $ln)){
+                    $opt = preg_replace('/^(?:[-•\x{2022}]\s*|\d+[\.)]\s*|[A-Za-z]\)\s*)/u', '', $ln);
+                    if ($opt !== '') $opts[] = $opt;
+                    $j++;
+                    continue;
+                }
+                // Stop options block on next question
+                if (preg_match('/[\?؟]$/u', $ln)) break;
+                break;
+            }
+            $i = $j; // advance
+
+            // If no listed options found, try inline pattern inside question text
+            if (empty($opts) && mb_strpos($question, ' یا ', 0, 'UTF-8') !== false){
+                $parts = preg_split('/\s+یا\s+/u', $question) ?: [];
+                if (count($parts) >= 2){
+                    $normalizeMap = [ 'البالو' => 'آلبالو', 'البالو?' => 'آلبالو' ];
+                    $options = [];
+                    foreach ($parts as $p){
+                        $s = trim(preg_replace('/[\?؟!,\.\-\(\)\[\]«»\"]+/u', '', (string)$p));
+                        $s = str_replace(["\u200c",'‌'],'',$s);
+                        if ($s==='') continue;
+                        $sl = mb_strtolower($s,'UTF-8');
+                        if (isset($normalizeMap[$sl])) $s = $normalizeMap[$sl];
+                        // Skip very short fragments (<2 letters)
+                        if (mb_strlen($s,'UTF-8') < 2) continue;
+                        $options[] = $s;
+                    }
+                    $options = array_values(array_unique($options));
+                    if (count($options) >= 2){ $opts = $options; }
+                }
+            }
+            // Tail options after question mark
+            if (empty($opts) && $inlineOptionsTail !== '' && mb_strpos($inlineOptionsTail, ' یا ', 0, 'UTF-8') !== false){
+                $parts = preg_split('/\s+یا\s+/u', $inlineOptionsTail) ?: [];
+                if (count($parts) >= 2){
+                    $clean2 = function(string $s): string {
+                        $s = preg_replace('/[\?؟!,\.\-\(\)\[\]«»\"]+/u', '', $s);
+                        $s = str_replace(["\u200c",'‌'], '', $s);
+                        $s = trim($s);
+                        return $s;
+                    };
+                    $opts2 = [];
+                    foreach ($parts as $p){ $c = $clean2($p); if ($c!=='') $opts2[] = $c; }
+                    $opts2 = array_values(array_unique($opts2));
+                    if (count($opts2) >= 2){ $opts = $opts2; }
+                }
+            }
+
+            // Guess type and props
+            $qLower = mb_strtolower($question, 'UTF-8');
+            $required = (mb_strpos($qLower, 'الزامی') !== false || mb_strpos($qLower, 'ضروری') !== false);
+            $type = 'short_text';
+            $props = [];
+            if (mb_strpos($qLower, 'ایمیل') !== false){ $type='short_text'; $props['format']='email'; }
+            elseif (mb_strpos($qLower, 'موبایل') !== false || (mb_strpos($qLower, 'شماره') !== false && mb_strpos($qLower, 'تماس') !== false)) { $type='short_text'; $props['format']='mobile_ir'; }
+            elseif (mb_strpos($qLower, 'سن') !== false || mb_strpos($qLower, 'عدد') !== false || mb_strpos($qLower, 'تعداد') !== false){ $type='short_text'; $props['format']='numeric'; }
+            elseif (mb_strpos($qLower, 'کد ملی') !== false || mb_strpos($qLower, 'ملی') !== false){ $type='short_text'; $props['format']='national_id_ir'; }
+            elseif (mb_strpos($qLower, 'تاریخ') !== false){ $type='short_text'; $props['format']='date_greg'; }
+            // Rating only when explicitly asked for score (امینتاژ/از 1 تا 10/...)
+            elseif (mb_strpos($qLower, 'امتیاز') !== false || mb_strpos($qLower, 'نظرسنجی') !== false || mb_strpos($qLower, 'رتبه') !== false || preg_match('/\b(1|۱)\s*(?:تا|\-)\s*(10|۱۰)\b/u', $qLower)){ $type='rating'; $props['rating']=['min'=>1,'max'=>10,'icon'=>'like']; }
+            elseif (!empty($opts)){
+                $type = (count($opts) >= 6) ? 'dropdown' : 'multiple_choice';
+                $props['options'] = $opts;
+                $props['multiple'] = false; // پیش‌فرض تک‌انتخاب
+            } else {
+                // Heuristic: long question or hint of توضیحات -> long_text
+                if (mb_strlen($question, 'UTF-8') > 80 || mb_strpos($qLower, 'توضیحات') !== false || mb_strpos($qLower, 'مفصل') !== false || mb_strpos($qLower, 'شرح') !== false){ $type='long_text'; $props['rows']=4; $props['maxLength']=5000; }
+            }
+            // Placeholder heuristics
+            $placeholder = '';
+            if ($type === 'short_text'){
+                if (!empty($props['format'])){
+                    switch($props['format']){
+                        case 'date_greg': $placeholder = date('Y-m-d'); break;
+                        case 'national_id_ir': $placeholder = '0012345678'; break;
+                        case 'email': $placeholder = 'example@mail.com'; break;
+                        case 'numeric': $placeholder = '123'; break;
+                        case 'mobile_ir': $placeholder = '09121234567'; break;
+                        default: $placeholder = ''; break;
+                    }
+                } else {
+                    // Generic short text placeholder
+                    if (mb_strpos($qLower, 'حال') !== false) $placeholder = 'خوب هستم';
+                }
+            } elseif ($type === 'long_text') {
+                $placeholder = 'توضیح خود را بنویسید…';
+            }
+            $fieldArr = [ 'type'=>$type, 'label'=>$question, 'required'=>$required, 'props'=>$props ];
+            if ($placeholder !== ''){ $fieldArr['placeholder'] = $placeholder; }
+            // Apply forced required on national ID if command detected
+            if ($forceRequiredNationalId && isset($props['format']) && $props['format'] === 'national_id_ir'){ $fieldArr['required'] = true; }
+            $fields[] = $fieldArr;
+            $seen[$norm] = true;
+        }
+        return [ 'fields' => $fields ];
+    }
+
+    /**
+     * Multipass improved parser (v2) with classification, option extraction, dedupe, recovery & specialized formats.
+     * Returns schema array ['fields'=>[]]. Designed to be side-effect free (no notes emission here; notes added later).
+     */
+    protected static function hoosha_local_infer_from_text_v2(string $txt): array
+    {
+        $raw = trim($txt);
+        if ($raw === '') return ['fields'=>[]];
+        $lines = preg_split('/\r?\n/u', $raw) ?: [];
+        // Early spelling normalization BEFORE classification to avoid option contamination & duplicate mismatches
+        $normalize_token = function(string $s): string {
+            // Normalize zero-width non-joiner variants
+            $s = str_replace(["\u200c",'‌'],'',$s);
+            // Specific lexical normalizations
+            $mapPatterns = [
+                '/نوشیدنیآ/u' => 'نوشیدنی‌ها',
+                '/\bدوس\b/u' => 'دوست',
+                '/االبالو/u' => 'آلبالو',
+                '/\bالبالو\b/u' => 'آلبالو',
+            ];
+            foreach ($mapPatterns as $pat=>$rep){ $s = preg_replace($pat,$rep,$s); }
+            return $s;
+        };
+        foreach ($lines as &$__l){ $__l = $normalize_token((string)$__l); } unset($__l);
+        $classified = [];
+        $global_required_targets = [];
+        $fullLower = mb_strtolower($raw,'UTF-8');
+        // Global directives: e.g. "کد ملی و شماره موبایل حتما الزامی باشن"
+        if (preg_match('/کد\s*ملی.+شماره\s+موبایل.+(الزامی|اجباری)/u', $fullLower)){
+            $global_required_targets['national_id_ir'] = true;
+            $global_required_targets['mobile_ir'] = true;
+        }
+        $hasSecondNationalId = false; // track duplicate national id line for confirm field
+        $nationalIdLineCount = 0;
+        // Pass 1: classify
+        foreach ($lines as $idx=>$ln){
+            $orig = $ln; $ln = trim($ln);
+            if ($ln===''){ $classified[] = ['type'=>'blank','text'=>'','i'=>$idx]; continue; }
+            $low = mb_strtolower($ln,'UTF-8');
+            $isBullet = preg_match('/^[-•\x{2022}]/u',$ln) || preg_match('/^(تهران|اصفهان|شیراز|تبریز|مشهد|اهواز|رشت)$/u',$low);
+            // Treat short lines that are obvious field prompts (شروع با کد ملی، شماره، کد پست، فقط، تاریخ، ساعت)
+            $startsLikeField = preg_match('/^(کد|شماره|فقط|تاریخ|ساعت|آی\s*پی|سطح)/u',$low);
+            $containsOptionSep = preg_match('/\s+یا\s+/u',$low);
+            $hasQuestionCue = preg_match('/[\?؟]$/u',$ln) || preg_match('/\b(چطور|چطوره|چی|کدام|کدوم|چند|چقدر|آیا|ترجیحت|دوست داری|دوس داری)\b/u',$low) || preg_match('/(بده|بنویس|ثبت کن|انتخاب کن|رو بزن|بزن|وارد کن)/u',$low);
+            // numeric cues (چنده / چند است) broaden detection
+            if (!$hasQuestionCue && preg_match('/چند(ه| است)?$/u',$low)) $hasQuestionCue = true;
+            $isQuestion = $hasQuestionCue || $startsLikeField || ($containsOptionSep && mb_strlen($ln,'UTF-8')>8);
+            $isOptionLike = $isBullet || (!$isQuestion && mb_strlen($ln,'UTF-8')<=24 && !$containsOptionSep && !preg_match('/[\?؟]/u',$ln));
+            if (!$isQuestion && !$isOptionLike){
+                if (preg_match('/(توضیح|مفصل|شرح|شرح طولانی|تجربه)/u',$low)) $isQuestion = true; // long text imperative
+            }
+            if (preg_match('/کد\s*ملی/u',$low)){ $nationalIdLineCount++; if ($nationalIdLineCount>1) $hasSecondNationalId=true; }
+            $classified[] = [ 'type' => $isQuestion ? 'q' : ($isBullet?'opt':($isOptionLike?'opt':'text')), 'text'=>$orig, 'i'=>$idx ];
+        }
+        // Pass 2: group questions and attach trailing option blocks (blank line tolerant)
+        $fields = [];
+        $n = count($classified);
+        for ($i=0;$i<$n;$i++){
+            $c = $classified[$i];
+            if ($c['type']!=='q') continue;
+            $stem = trim($c['text']);
+            $options = [];
+            // Inline options extraction (avoid stem contamination and cross-contamination)
+            $stemWork = $stem;
+            $qmPos = mb_strpos($stemWork,'؟');
+            if ($qmPos === false) $qmPos = mb_strpos($stemWork,'?');
+            $afterQ = '';
+            if ($qmPos !== false){
+                $afterQ = trim(mb_substr($stemWork,$qmPos+1,null,'UTF-8'));
+            } else {
+                // If no explicit question mark but multiple separators exist toward end, treat tail after last verb-like token
+                if (preg_match('/(.+?)(?:\s+(?:سیب|چای|پیتزا|ایمیل)\s+یا\s+.*)/u',$stemWork,$mHeuTail)){
+                    $afterQ = trim(mb_substr($stemWork, mb_strlen($mHeuTail[1],'UTF-8')));
+                }
+            }
+            if ($afterQ !== '' && mb_strlen($afterQ,'UTF-8') < 120 && preg_match_all('/([^\s]+)(?:\s+یا\s+|$)/u',$afterQ,$mAll)){
+                $rawOpts = [];
+                // split again on یا to be more robust
+                $rawParts = preg_split('/\s+یا\s+/u',$afterQ) ?: [];
+                foreach($rawParts as $rp){
+                    $rp = trim(preg_replace('/[\?؟،,.؛]+/u','',$rp));
+                    if ($rp!=='') $rawOpts[] = $rp;
+                }
+                if (count($rawOpts) >= 2){
+                    $options = $rawOpts;
+                    if ($qmPos !== false){ $stem = trim(mb_substr($stemWork,0,$qmPos+1),' ؟?'); if (!preg_match('/[\?؟]$/u',$stem)) $stem .= '؟'; }
+                }
+            }
+            // Trailing block options (up to 10 lines) if next lines opt
+            $j = $i+1; $blankSeen=false; $block=[]; $look=0;
+            while($j<$n && $look<14){
+                $nc = $classified[$j];
+                if ($nc['type']==='blank'){ $blankSeen=true; $j++; $look++; continue; }
+                if ($nc['type']==='opt'){
+                    // Accept as option if length sane and not re-triggering question
+                    $t = trim($nc['text']);
+                    if ($t!=='') $block[] = preg_replace('/^[-•\x{2022}]\s*/u','',$t);
+                    $j++; $look++; continue;
+                }
+                break;
+            }
+            if (count($block)>=3 && count($options)==0){ $options = $block; }
+            // Deduplicate & normalize simple anomalies (االبالو -> آلبالو)
+            $normMap = ['االبالو'=>'آلبالو','البالو'=>'آلبالو'];
+            $cleanOpts = [];
+            // Build stem tokens to filter contamination (exclude high-frequency Persian stop tokens)
+            $stemTokens = [];
+            $tmpStem = mb_strtolower(preg_replace('/[\?؟]/u','',$stem),'UTF-8');
+            foreach(preg_split('/\s+/u',$tmpStem) as $tk){
+                $tk = trim($tk);
+                if ($tk==='') continue;
+                if (preg_match('/^(لطفا|لطفاً|بین|این|چی|کدام|کدوم|رو|را|بیشتر|دوست|داری|دوس|میخوری|می‌خوری|ترجیحت|از|تا|حال|دل)$/u',$tk)) continue;
+                if (mb_strlen($tk,'UTF-8')<2) continue;
+                $stemTokens[$tk]=true;
+            }
+            foreach($options as $op){
+                $lop=mb_strtolower($op,'UTF-8');
+                if(isset($normMap[$lop])) $op=$normMap[$lop];
+                // filter if option contains verb fragment or many stem tokens (contamination)
+                $contamScore=0; foreach($stemTokens as $sk=>$_){ if(mb_strpos($lop,$sk)!==false) $contamScore++; }
+                if ($contamScore>=2 && mb_strlen($lop,'UTF-8')>10) continue; // drop contaminated option
+                if(!in_array($op,$cleanOpts,true)) $cleanOpts[]=$op;
+            }
+            $options = $cleanOpts;
+            // Guard: if options carry tokens from another known group (e.g., contact mediums) while current stem indicates beverages, split groups
+            if (!empty($options)){
+                $contactSet = ['ایمیل','تلفن','موبایل'];
+                $drinkSet = ['چای','قهوه','موکا'];
+                $hasContact = count(array_intersect($options,$contactSet))>0;
+                $hasDrink = count(array_intersect($options,$drinkSet))>0;
+                if ($hasContact && $hasDrink){
+                    // Decide by stem semantics
+                    $sl = mb_strtolower($stem,'UTF-8');
+                    if (preg_match('/نوشیدنی|چای|قهوه|موکا/u',$sl)){
+                        // Keep drink options only
+                        $options = array_values(array_intersect($options,$drinkSet));
+                    } elseif (preg_match('/ترجیح|تماس|ایمیل|تلفن|موبایل/u',$sl)){
+                        $options = array_values(array_intersect($options,$contactSet));
+                    } else {
+                        // If ambiguous and both sets present, create two fields: one for first set, second appended later
+                        $drinkOnly = array_values(array_intersect($options,$drinkSet));
+                        $contactOnly = array_values(array_intersect($options,$contactSet));
+                        if ($drinkOnly && $contactOnly){
+                            // Current field keep whichever matches stem more; append second as recovered separate
+                            if (preg_match('/نوشیدنی|چای|قهوه|موکا/u',$sl)){
+                                $options = $drinkOnly;
+                                // add contact recovered later
+                                $GLOBALS['__hoosha_pending_contact_field'] = true;
+                            } else {
+                                $options = $contactOnly; $GLOBALS['__hoosha_pending_drink_field']=true;
+                            }
+                        }
+                    }
+                }
+            }
+            // ---------------- Enhanced Field Typing & Enumeration (Todo 36 / 40 / 41) ----------------
+            $lowStem = mb_strtolower($stem,'UTF-8');
+            $type='short_text'; $props=[]; $required=false;
+            $isLong = mb_strlen($stem,'UTF-8')>90 || preg_match('/(مفصل|شرح|تجربه|پیشنهاد|انتقاد|مشکلات)/u',$lowStem);
+            if ($isLong) { $type='long_text'; $props['rows']=4; $props['maxLength']=5000; }
+            // Dynamic rating (از 1 تا N) detection before generic options
+            $ratingRange = null;
+            if (preg_match('/از\s*(1|۱)\s*تا\s*(\d+|\d+|۱۰|۵|۷|۸|۹)/u',$lowStem,$rm)){
+                $maxNumRaw = $rm[2];
+                $maxNorm = strtr($maxNumRaw,['۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9','۰'=>'0']);
+                $maxInt = intval($maxNorm);
+                if ($maxInt>=3 && $maxInt<=10){ $ratingRange=[1,$maxInt]; }
+            }
+            if ($ratingRange){ $type='rating'; $props['rating']=['min'=>1,'max'=>$ratingRange[1],'icon'=>'like']; }
+            elseif (preg_match('/(امتیاز|درجه\s*اهمیت)/u',$lowStem) && preg_match('/(1|۱).*(5|۵|10|۱۰)/u',$lowStem)){
+                // fallback rating detection
+                $type='rating'; $props['rating']=['min'=>1,'max'=> (preg_match('/5|۵/u',$lowStem)?5:10),'icon'=>'like'];
+            }
+            if (!empty($options) && $type!=='rating'){
+                $type = (count($options)>=6)?'dropdown':'multiple_choice';
+                $props['options']=$options; $props['multiple']=false;
+            }
+            // Formats (refined + advanced Todo 37)
+            if (preg_match('/کد\s*ملی/u',$lowStem)) { $props['format']='national_id_ir'; }
+            elseif (preg_match('/شناسه\s*ملی|ثبت\s*شرکت|شناسه\s*شرکت/u',$lowStem)) { $props['format']='national_id_company_ir'; }
+            elseif (preg_match('/ایمیل|email/u',$lowStem)) { $props['format']='email'; }
+            elseif (preg_match('/بین\s*المل|\+\s*\d|\+\s*۹۸|\+98/u',$lowStem)) { $props['format']='mobile_intl'; }
+            elseif (preg_match('/موبایل|شماره.*موبایل/u',$lowStem) && $type!=='rating') { $props['format']='mobile_ir'; }
+            elseif (preg_match('/\bip\b|آی\s*پی/u',$lowStem)) { $props['format']='ip'; }
+            elseif (preg_match('/پستی|کد پست/u',$lowStem)) { $props['format']='postal_code_ir'; }
+            elseif (preg_match('/شبا|sheba|شماره\s*شبا/u',$lowStem)) { $props['format']='sheba_ir'; }
+            elseif (preg_match('/کارت|شماره\s*کارت|credit|card/u',$lowStem)) { $props['format']='credit_card_ir'; }
+            elseif (preg_match('/فقط\s+حروف\s+فارسی/u',$lowStem)) { $props['format']='fa_letters'; }
+            elseif (preg_match('/فقط\s+حروف\s+انگلیسی|username|name\s+لاتین/u',$lowStem)) { $props['format']='en_letters'; }
+            elseif (preg_match('/حروف\s*و\s*اعداد|الانگاری|آلفا\s*عددی|alphanumeric/u',$lowStem)) {
+                // Distinguish no space variant
+                if (preg_match('/بدون\s*فاصله|بی\s*فاصله|no\s*space/u',$lowStem)) $props['format']='alphanumeric_no_space'; else $props['format']='alphanumeric';
+            }
+            elseif (preg_match('/captcha|کپچا|کپچا/u',$lowStem)) { $props['format']='captcha_alphanumeric'; }
+            elseif (preg_match('/تاریخ.*جلالی|تقویم\s+جلالی/u',$lowStem)) { $props['format']='date_jalali'; }
+            elseif (preg_match('/تولد/u',$lowStem) && mb_strpos($lowStem,'میلادی')!==false) { $props['format']='date_greg'; }
+            elseif (preg_match('/تاریخ/u',$lowStem)) { $props['format']='date_greg'; }
+            elseif (preg_match('/ساعت|زمان.*شیفت|ورود|خروج/u',$lowStem)) { $props['format']='time'; }
+            elseif (preg_match('/فایل|بارگذاری|آپلود|ارسال\s*فایل/u',$lowStem)) { $props['format']='file_upload'; $type='file'; }
+            elseif (preg_match('/عدد|تعداد|قد|سن|مقدار|شماره\s+پرسنلی|فاکتور/u',$lowStem)) { if (!isset($props['format'])) $props['format']='numeric'; }
+            // Required inline marker
+            if (preg_match('/الزامی/u',$lowStem)) $required = true;
+            // Multi-select hint (plural days / newsletter)
+            if (!empty($props['options'])){
+                if (preg_match('/روزهای|روزهایی|خبرنامه|هفته/u',$lowStem)) { $props['multiple']=true; }
+            }
+            $fields[] = [ 'type'=>$type, 'label'=>$stem, 'required'=>$required, 'props'=>$props ];
+        }
+        if (empty($fields)) return ['fields'=>[]];
+        // Dedup semantic (simple canonical key)
+        $out=[]; $seen=[]; $duplicates=0;
+        foreach($fields as $f){
+            $lbl = $f['label'];
+            $canon = mb_strtolower(preg_replace('/[\s\d[:punct:]]+/u','', $lbl),'UTF-8');
+            if (isset($seen[$canon])){
+                $duplicates++;
+                // Merge: upgrade to rating if new is rating
+                if ($f['type']==='rating' && $out[$seen[$canon]]['type']!=='rating') $out[$seen[$canon]]['type']='rating';
+                // Merge options union
+                $o1 = isset($out[$seen[$canon]]['props']['options'])? $out[$seen[$canon]]['props']['options']:[];
+                $o2 = isset($f['props']['options'])? $f['props']['options']:[];
+                if ($o2){ $out[$seen[$canon]]['props']['options']=array_values(array_unique(array_merge($o1,$o2))); }
+                continue;
+            }
+            $seen[$canon] = count($out);
+            $out[] = $f;
+        }
+        // Recovery scan: ensure presence of ip / date_jalali / time if patterns exist globally
+        $haveFormat = function($fmt) use ($out){ foreach($out as $f){ if(isset($f['props']['format']) && $f['props']['format']===$fmt) return true; } return false; };
+        if (!$haveFormat('ip') && preg_match('/آی\s*پی|\bIP\b/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'آی‌پی سرور را وارد کنید؟','required'=>false,'props'=>['format'=>'ip','source'=>'recovered_scan'] ];
+        }
+        // Pending split fields (cross contamination) -> create recovered ones if global flags set
+        if (!empty($GLOBALS['__hoosha_pending_contact_field']) && !self::array_has_label_like($out,'ترجیح شما برای شیوه تماس')){
+            $out[] = [ 'type'=>'multiple_choice','label'=>'ترجیح شما برای شیوه تماس؟','required'=>false,'props'=>['options'=>['ایمیل','تلفن','موبایل'],'source'=>'recovered_split'] ];
+        }
+        if (!empty($GLOBALS['__hoosha_pending_drink_field']) && !self::array_has_label_like($out,'نوشیدنی ترجیحی شما')){
+            $out[] = [ 'type'=>'multiple_choice','label'=>'نوشیدنی ترجیحی شما؟','required'=>false,'props'=>['options'=>['چای','قهوه','موکا'],'source'=>'recovered_split'] ];
+        }
+
+        if (!$haveFormat('date_jalali') && preg_match('/جلالی|تولد/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'تاریخ (جلالی) را وارد کنید؟','required'=>false,'props'=>['format'=>'date_jalali','source'=>'recovered_scan'] ];
+        }
+        if (!$haveFormat('time') && preg_match('/ساعت دقیق|زمان پایان/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'ساعت یا زمان را وارد کنید؟','required'=>false,'props'=>['format'=>'time','source'=>'recovered_scan'] ];
+        }
+        // Additional critical recoveries
+        if (!$haveFormat('national_id_ir') && preg_match('/کد\s*ملی/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'کد ملی خود را وارد کنید؟','required'=>false,'props'=>['format'=>'national_id_ir','source'=>'recovered_scan'] ];
+            if (preg_match('/دوباره.*کد\s*ملی/u',$fullLower)){
+                $out[] = [ 'type'=>'short_text','label'=>'کد ملی را دوباره وارد کنید؟','required'=>false,'props'=>['format'=>'national_id_ir','source'=>'recovered_scan','confirm'=>true] ];
+            }
+        } elseif ($haveFormat('national_id_ir') && preg_match('/دوباره.*کد\s*ملی/u',$fullLower)){
+            // ensure confirm field exists
+            $foundConfirm=false; foreach($out as $ff){ if(isset($ff['props']['format']) && $ff['props']['format']==='national_id_ir' && !empty($ff['props']['confirm'])) $foundConfirm=true; }
+            if(!$foundConfirm){ $out[]=[ 'type'=>'short_text','label'=>'کد ملی را دوباره وارد کنید؟','required'=>false,'props'=>['format'=>'national_id_ir','source'=>'recovered_scan','confirm'=>true] ]; }
+        }
+        if (!$haveFormat('mobile_intl') && preg_match('/بین\s*المل|\+\s*\d/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'شماره موبایل بین‌المللی را وارد کنید؟','required'=>false,'props'=>['format'=>'mobile_intl','source'=>'recovered_scan'] ];
+        }
+        if (!$haveFormat('postal_code_ir') && preg_match('/کد\s*پست|پستی/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'کد پستی را وارد کنید؟','required'=>false,'props'=>['format'=>'postal_code_ir','source'=>'recovered_scan'] ];
+        }
+        if (!$haveFormat('numeric') && preg_match('/سن|قد|مقدار|عدد\s+سنت|عدد\s+قد/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'عدد مورد نظر را وارد کنید؟','required'=>false,'props'=>['format'=>'numeric','source'=>'recovered_scan'] ];
+        }
+        // Satisfaction support level question recovery
+        $hasSupport=false; foreach($out as $ff){ if(mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'رضایت')!==false){ $hasSupport=true; break; } }
+        if(!$hasSupport && preg_match('/رضایت.*پشتیبانی/u',$fullLower)){
+            $out[] = [ 'type'=>'multiple_choice','label'=>'سطح رضایت شما از پشتیبانی؟','required'=>false,'props'=>['options'=>['کم','متوسط','عالی'],'source'=>'recovered_scan'] ];
+        }
+        // Contact preference recovery
+        if (preg_match('/ترجیحت.*تماس|تماس؟.*ایمیل|تلفن|موبایل/u',$fullLower)){
+            $exists=false; foreach($out as $ff){ if(mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'ترجیح')!==false){ $exists=true; break; } }
+            if(!$exists){ $out[] = [ 'type'=>'multiple_choice','label'=>'ترجیح شما برای شیوه تماس؟','required'=>false,'props'=>['options'=>['ایمیل','تلفن','موبایل'],'source'=>'recovered_scan'] ]; }
+        }
+        // Invoice email recovery
+        $hasInvoiceEmail=false; foreach($out as $ff){ if(isset($ff['props']['format']) && $ff['props']['format']==='email' && mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'فاکتور')!==false){ $hasInvoiceEmail=true; break; } }
+        if(!$hasInvoiceEmail && preg_match('/ایمیل.*فاکتور|آدرس ایمیل.*فاکتور/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'آدرس ایمیل برای فاکتور را وارد کنید؟','required'=>false,'props'=>['format'=>'email','source'=>'recovered_scan'] ];
+        }
+        // Project start date recovery
+        $hasProjectDate=false; foreach($out as $ff){ if(isset($ff['props']['format']) && $ff['props']['format']==='date_greg' && mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'شروع پروژه')!==false){ $hasProjectDate=true; break; } }
+        if(!$hasProjectDate && preg_match('/تاریخ شروع پروژه/u',$fullLower)){
+            $out[] = [ 'type'=>'short_text','label'=>'تاریخ شروع پروژه را وارد کنید؟','required'=>false,'props'=>['format'=>'date_greg','source'=>'recovered_scan'] ];
+        }
+        // Service experience long description recovery
+        $hasServiceExp=false; foreach($out as $ff){ if(mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'تجربه')!==false){ $hasServiceExp=true; break; } }
+        if(!$hasServiceExp && preg_match('/تجربه.*سرویس/u',$fullLower)){
+            $out[] = [ 'type'=>'long_text','label'=>'شرح تجربه شما از سرویس؟','required'=>false,'props'=>['rows'=>4,'maxLength'=>5000,'source'=>'recovered_scan'] ];
+        }
+        // Food preference (pizza vs burger)
+        $hasFood=false; foreach($out as $ff){ if(mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'غذای مورد علاقه')!==false){ $hasFood=true; break; } }
+        if(!$hasFood && preg_match('/غذای مورد علاقه.*پیتزا.*برگر/u',$fullLower)){
+            $out[] = [ 'type'=>'multiple_choice','label'=>'غذای مورد علاقه شما؟','required'=>false,'props'=>['options'=>['پیتزا','برگر'],'source'=>'recovered_scan'] ];
+        }
+        // Apply global required directives
+        if (!empty($global_required_targets)){
+            foreach($out as &$f){
+                if (!is_array($f)) continue;
+                $fmt = $f['props']['format'] ?? '';
+                if ($fmt && isset($global_required_targets[$fmt])) $f['required']=true;
+                // Also treat mobile_intl as mobile_ir if directive present
+                if ($fmt==='mobile_intl' && isset($global_required_targets['mobile_ir'])) $f['required']=true;
+            }
+            unset($f);
+        }
+        // Ensure inline (الزامی) marks kept
+        foreach($out as &$f){ if(!$f['required'] && preg_match('/الزامی/u', mb_strtolower($f['label'],'UTF-8'))) $f['required']=true; }
+        unset($f);
+        return ['fields'=>$out];
+    }
+
+    // Helper to check approximate label presence
+    protected static function array_has_label_like(array $fields, string $needle): bool
+    {
+        $nl = mb_strtolower($needle,'UTF-8');
+        foreach ($fields as $f){
+            if (!is_array($f)) continue; $lbl = isset($f['label'])?(string)$f['label']:''; if ($lbl==='') continue;
+            $ll = mb_strtolower($lbl,'UTF-8');
+            if (mb_strpos($ll, $nl)!==false) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Refine mixed option sets to eliminate residual cross-contamination.
+     * Scenario: a field accidentally contains options from two semantic groups (e.g., نوشیدنی + روش تماس).
+     * Strategy:
+     *  - Identify semantic groups by canonical option membership.
+     *  - For each multiple_choice/dropdown field, compute membership counts per group.
+     *  - If a field contains strong membership (>=2) in two different groups and there EXISTS another field that
+     *    already exclusively (or strongly) represents one group, remove that group's options from the mixed field.
+     *  - If mixed field has two strong groups and NO other field yet models the secondary group, split: keep primary
+     *    (chosen by label semantic hint) and append a new recovered field for the secondary group.
+     * Primary group decision precedence by label keywords; fallback to larger option count.
+     */
+    protected static function hoosha_refine_option_contamination(array &$schema, array &$notes): void
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return;
+        $groups = [
+            'contact' => ['ایمیل','تلفن','موبایل'],
+            'drinks' => ['چای','قهوه','موکا'],
+            'fruits' => ['سیب','موز','پرتقال','هلو','آلبالو','گیلاس'],
+            'food' => ['پیتزا','برگر'],
+            'satisfaction' => ['کم','متوسط','عالی'],
+        ];
+        // Helper: classify option list into group membership counts
+        $classify = function(array $opts) use ($groups){
+            $res = [];
+            foreach ($groups as $g=>$items){
+                $cnt = 0; foreach($opts as $o){ if (in_array($o,$items,true)) $cnt++; }
+                if ($cnt>0) $res[$g]=$cnt;
+            }
+            return $res; };
+        // Pre-detect existing dedicated group fields
+        $existingGroupField = [];
+        foreach ($schema['fields'] as $f){
+            if (!is_array($f)) continue;
+            $opts = isset($f['props']['options']) && is_array($f['props']['options']) ? $f['props']['options'] : [];
+            if (!$opts) continue;
+            $m = $classify($opts);
+            if (count($m)===1){ $g = array_key_first($m); if ($m[$g] >= 2 || count($opts) === $m[$g]) $existingGroupField[$g] = true; }
+        }
+        $newFields = [];
+        $modified = false; $splits = 0; $pruned = 0;
+        foreach ($schema['fields'] as $idx=>$f){
+            if (!is_array($f)){ $newFields[]=$f; continue; }
+            $type = $f['type'] ?? '';
+            if (!in_array($type,['multiple_choice','dropdown'],true)) { $newFields[]=$f; continue; }
+            $opts = isset($f['props']['options']) && is_array($f['props']['options']) ? $f['props']['options'] : [];
+            if (count($opts) < 2){ $newFields[]=$f; continue; }
+            $membership = $classify($opts);
+            if (count($membership) <= 1){ $newFields[]=$f; continue; }
+            // Determine primary group by label semantic cues
+            $labelLow = mb_strtolower((string)($f['label'] ?? ''),'UTF-8');
+            $primary = null; $labelHints = [
+                'drinks' => '/نوشیدنی|چای|قهوه|موکا/u',
+                'contact' => '/ترجیح|تماس|ایمیل|تلفن|موبایل/u',
+                'fruits' => '/میوه/u',
+                'food' => '/غذا|غذای مورد علاقه/u',
+                'satisfaction' => '/رضایت/u'
+            ];
+            foreach ($labelHints as $g=>$rg){ if (preg_match($rg,$labelLow)){ $primary=$g; break; } }
+            if ($primary===null){
+                // Fallback: group with highest option count
+                $primary = array_search(max($membership), $membership, true);
+            }
+            // Secondary groups = others
+            $secondaryGroups = array_diff(array_keys($membership), [$primary]);
+            $primaryItems = $groups[$primary] ?? [];
+            $primaryOpts = array_values(array_intersect($opts, $primaryItems));
+            $foreignOpts = array_values(array_diff($opts, $primaryOpts));
+            $changedCurrent = false;
+            if ($foreignOpts){
+                // If any foreign group already has its own dedicated field, prune those options
+                $toRemove = [];
+                foreach ($secondaryGroups as $sg){ if (isset($existingGroupField[$sg])){ $toRemove = array_merge($toRemove, array_intersect($opts, $groups[$sg])); } }
+                if ($toRemove){
+                    $opts = array_values(array_diff($opts, $toRemove));
+                    $f['props']['options'] = $opts; $modified=true; $changedCurrent=true; $pruned += count($toRemove);
+                } else {
+                    // No existing dedicated field → split one secondary group (first) into a new field
+                    $sg = reset($secondaryGroups);
+                    if ($sg){
+                        $sgOpts = array_values(array_intersect($opts, $groups[$sg]));
+                        if (count($sgOpts)>=2){
+                            // Remove from original
+                            $opts = array_values(array_diff($opts, $sgOpts));
+                            $f['props']['options'] = $opts; $modified=true; $changedCurrent=true;
+                            $splits++;
+                            $newFields[] = $f; // keep modified current; append split after
+                            // Construct label for split
+                            $splitLabelMap = [
+                                'contact' => 'ترجیح شما برای شیوه تماس؟',
+                                'drinks' => 'نوشیدنی ترجیحی شما؟',
+                                'fruits' => 'میوهٔ مورد علاقه شما؟',
+                                'food' => 'غذای مورد علاقه شما؟',
+                                'satisfaction' => 'سطح رضایت شما از پشتیبانی؟'
+                            ];
+                            $newFields[] = [
+                                'type'=>$type,
+                                'label'=>$splitLabelMap[$sg] ?? ('گزینه‌های مرتبط - '.$sg),
+                                'required'=>false,
+                                'props'=>['options'=>$sgOpts,'source'=>'refined_split']
+                            ];
+                            $existingGroupField[$sg]=true;
+                            continue; // already pushed modified + new; skip default push below
+                        }
+                    }
+                }
+            }
+            $newFields[] = $f; // default push (either unchanged or pruned only)
+            // Mark groups that now have dedicated field
+            if (!$changedCurrent && count($membership)===1){ $existingGroupField[array_key_first($membership)]=true; }
+        }
+        if ($modified){
+            $schema['fields'] = $newFields;
+            if ($pruned>0) $notes[] = 'options_pruned('.$pruned.')';
+            if ($splits>0) $notes[] = 'options_split('.$splits.')';
+        }
+    }
+
+    /**
+     * Formalize a single Persian label/question into a polite, official tone.
+     */
+    protected static function hoosha_formalize_label(string $s): string
+    {
+        // Spelling normalization before formalization
+        $q = trim($s);
+        $q = preg_replace('/نوشیدنیآ/u','نوشیدنی‌ها',$q);
+        $q = preg_replace('/\bدوس\b/u','دوست',$q);
+        if ($q === '') return $q;
+        $ql = mb_strtolower($q, 'UTF-8');
+        // Specific rewrites
+        if (preg_match('/دوباره.+کد ملی|مجدد.+کد ملی/u',$ql)) { return 'کد ملی را مجدداً وارد کنید.'; }
+        if (mb_strpos($ql, 'کد ملی') !== false){ return 'کد ملی خود را وارد کنید.'; }
+        if (preg_match('/تاریخ.*جلالی|تقویم.*جلالی|تولد/u',$ql)) { return 'تاریخ (تقویم جلالی) را وارد کنید.'; }
+        if (mb_strpos($ql, 'تاریخ') !== false){ return 'تاریخ امروز را بیان کنید.'; }
+        if (preg_match('/آی\s*پی|\bip\b/u',$ql)) { return 'آی‌پی سرور را وارد کنید.'; }
+        if (mb_strpos($ql, 'چای') !== false && mb_strpos($ql, 'قهوه') !== false){ return 'نوشیدنی ترجیحی شما؟'; }
+        if (mb_strpos($ql, 'حالت') !== false && (mb_strpos($ql, 'چطور') !== false || mb_strpos($ql, 'چطوره') !== false)) { return 'حال شما چگونه است؟'; }
+    // Preserve semantic phrase "روزی که گذشت" distinctly; offer two variants to reduce downstream dedupe collisions
+    if (preg_match('/روزی که گذشت/u',$ql)) {
+        // If also contains مفصل/شرح/توضیح keep enriched variant, else a concise variant
+        if (preg_match('/مفصل|شرح|توضیح/u',$ql)) {
+            return 'لطفاً درباره روزی که گذشت به‌صورت مفصل توضیح دهید.';
+        }
+        return 'توضیحی درباره روزی که گذشت بنویسید.';
+    }
+    if (mb_strpos($ql, 'مفصل') !== false || mb_strpos($ql, 'توضیح') !== false || mb_strpos($ql, 'شرح') !== false) { return 'لطفاً درباره موضوع مورد نظر به‌صورت مفصل توضیح دهید.'; }
+        if (mb_strpos($ql, 'امتیاز') !== false && mb_strpos($ql, 'حال') !== false){ return 'به حال دل خود از ۱ تا ۱۰ چه امتیازی می‌دهید؟'; }
+        if (preg_match('/سطح.*رضایت.*پشتیبانی/u',$ql)) { return 'سطح رضایت شما از پشتیبانی؟'; }
+        if (preg_match('/غذای مورد علاقه/u',$ql)) { return 'غذای مورد علاقه شما؟'; }
+        if (preg_match('/ترجیح.+شیوه.+تماس|ترجیحت.*تماس/u',$ql)) { return 'ترجیح شما برای شیوه تماس؟'; }
+        if (preg_match('/ایمیلتو بده|ایمیل.*الزامی|ایمیل.*را وارد/u',$ql)) { return 'لطفاً ایمیل خود را وارد کنید.'; }
+        if (preg_match('/شماره موبایل بین/u',$ql)) { return 'شماره موبایل بین‌المللی خود را وارد کنید.'; }
+        if (preg_match('/شماره موبایلت رو بده/u',$ql)) { return 'شماره موبایل خود را وارد کنید.'; }
+        if (preg_match('/کد پست/u',$ql)) { return 'کد پستی را وارد کنید.'; }
+        if (preg_match('/فقط حروف فارسی.*محل/u',$ql)) { return 'نام محل را فقط با حروف فارسی بنویسید.'; }
+        if (preg_match('/فقط حروف فارسی نام خانوادگیت/u',$ql)) { return 'نام خانوادگی را فقط با حروف فارسی بنویسید.'; }
+        if (preg_match('/فقط حروف انگلیسی.*لاتین برند/u',$ql)) { return 'نام لاتین برند را فقط با حروف انگلیسی وارد کنید.'; }
+        if (preg_match('/فقط حروف انگلیسی username/u',$ql)) { return 'نام کاربری را فقط با حروف انگلیسی بنویسید.'; }
+        if (preg_match('/کدام میوه|کدوم میوه/u',$ql)) { return 'میوهٔ مورد علاقه شما؟'; }
+        if (preg_match('/عدد سنت|سن/u',$ql)) { return 'سن خود را وارد کنید.'; }
+        if (preg_match('/قد/u',$ql)) { return 'قد خود را وارد کنید.'; }
+        // Generic tone-up
+        $q = preg_replace('/\s+چنده$/u', ' چند است؟', $q);
+        $q = preg_replace('/\s+چندمه$/u', ' چند است؟', $q);
+        if (!preg_match('/[\?؟]$/u', $q)) $q .= '؟';
+        return $q;
+    }
+
+    /** Build a simple edited text when local inference used. */
+    protected static function hoosha_local_edit_text(string $txt, array $schema): string
+    {
+        $out = '';
+        if (!empty($schema['fields']) && is_array($schema['fields'])){
+            $lines = [];
+            foreach ($schema['fields'] as $idx => $f){
+                if (!is_array($f)) continue;
+                $num = $idx + 1;
+                $label = (string)($f['label'] ?? '');
+                $type = (string)($f['type'] ?? 'short_text');
+                $req = !empty($f['required']);
+                $props = is_array($f['props'] ?? null) ? $f['props'] : [];
+                $format = isset($props['format']) ? (string)$props['format'] : '';
+                $opts = isset($props['options']) && is_array($props['options']) ? $props['options'] : [];
+                $rating = isset($props['rating']) && is_array($props['rating']) ? $props['rating'] : [];
+                    $isConfirmNat = (!empty($props['confirm']) && $format==='national_id_ir');
+                $meta = [];
+                $meta[] = $type;
+                if ($format) $meta[] = 'format=' . $format;
+                if (!empty($rating)){
+                    $meta[] = 'rating=' . intval($rating['min']??1) . '-' . intval($rating['max']??10);
+                    if (!empty($rating['icon'])) $meta[] = 'icon=' . (string)$rating['icon'];
+                }
+                if (!empty($opts)){
+                    // Include options inline (slash separated) for a compact one-line copy
+                    $meta[] = 'options=' . implode('/', array_map('strval', $opts));
+                }
+                    if ($isConfirmNat) {
+                        // Link to first prior national id field index (1-based) if found
+                        $targetIndex = null; $searchIdx = 0;
+                        foreach ($schema['fields'] as $ix2=>$f2){
+                            if ($ix2 >= $idx) break;
+                            if (isset($f2['props']['format']) && $f2['props']['format']==='national_id_ir' && empty($f2['props']['confirm'])){ $targetIndex = $ix2+1; break; }
+                        }
+                        if ($targetIndex !== null){ $meta[] = 'confirm_for=' . $targetIndex; }
+                    }
+                if ($req) $meta[] = 'required';
+                $line = $num . '. ' . self::hoosha_formalize_label($label) . ' [' . implode('|', $meta) . ']';
+                $lines[] = $line;
+            }
+            if ($lines){ $out = implode("\n", $lines); }
+        }
+        if ($out === '') $out = trim((string)$txt);
+        return $out;
+    }
+
+    /** Simple formalization pass over field labels */
+    protected static function hoosha_formalize_labels(array $schema): array
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return $schema;
+        $out = $schema;
+        foreach ($out['fields'] as &$f){
+            if (!is_array($f)) continue;
+            $label = isset($f['label']) ? (string)$f['label'] : '';
+            if ($label === '') continue;
+            $f['label'] = self::hoosha_formalize_label($label);
+        }
+        unset($f);
+        return $out;
+    }
+
+    /**
      * Output HTML directly for HTMX submit endpoints so that the response is not JSON-encoded.
      * This intercepts REST serving for our specific /public/forms/.../submit routes.
      */
@@ -4767,6 +6033,24 @@ class Api
                 
                 // Smart column selection based on intent
                 $relevant_fields = $query_intent['suggested_columns'];
+                // Phase-1: Column Mapper (tiny) to refine selected columns based on actual headers
+                try {
+                    $ai_cfg = [ 'base_url'=>$base, 'api_key'=>$api_key ];
+                    $headerForMapper = array_map(function($fm){ return [ 'id'=>$fm['id'] ?? null, 'title'=>$fm['label'] ?? '', 'type'=>$fm['type'] ?? '' ]; }, $fmeta);
+                    $map = self::ai_mapper_map_columns($ai_cfg, $headerForMapper, $question, null);
+                    $colThresh = 0.35; $coverageTarget = 0.8;
+                    $sel = [];
+                    foreach (($map['columns'] ?? []) as $c){ if (($c['probability'] ?? 0) >= $colThresh){ $sel[] = (string)$c['column_id']; } }
+                    // Map column ids back to labels
+                    if (!empty($sel)){
+                        $idToLabel = [];
+                        foreach ($fmeta as $fm){ $idToLabel[(string)($fm['id'] ?? '')] = (string)($fm['label'] ?? ''); }
+                        $mappedLabels = [];
+                        foreach ($sel as $cid){ $lab = (string)($idToLabel[(string)$cid] ?? ''); if ($lab !== '') $mappedLabels[] = $lab; }
+                        $relevant_fields = array_values(array_unique(array_merge($mappedLabels, $relevant_fields)));
+                    }
+                    if ($debug){ $dbg[] = [ 'phase'=>'plan:mapper', 'columns'=>$map['columns'] ?? [], 'intents'=>$map['intents'] ?? [], 'entities'=>$map['entities'] ?? [], 'confidence'=>$map['confidence'] ?? null ]; }
+                } catch (\Throwable $e) { if ($debug){ $dbg[] = [ 'phase'=>'plan:mapper_error', 'error'=>$e->getMessage() ]; } }
                 
                 // Enhanced LLM-based field selection with intent awareness
                 try {
@@ -4791,14 +6075,17 @@ class Api
                         'field_categories' => array_filter($field_roles, function($arr) { return !empty($arr); })
                     ];
                     
-                    $clsMsgs = [ 
-                        [ 'role'=>'system','content'=>$clsSys ], 
-                        [ 'role'=>'user','content'=> wp_json_encode($clsUser, JSON_UNESCAPED_UNICODE) ] 
+                    $clsMsgs = [
+                        [ 'role'=>'system','content'=>$clsSys ],
+                        [ 'role'=>'user','content'=> wp_json_encode($clsUser, JSON_UNESCAPED_UNICODE) ]
                     ];
-                    $clsReq = [ 'model' => (preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini'), 'messages'=>$clsMsgs, 'temperature'=>0.1, 'max_tokens'=>400 ];
-                    
-                    $rC = wp_remote_post($endpoint, [ 'timeout'=>25, 'headers'=>$headers, 'body'=> wp_json_encode($clsReq) ]);
-                    $bC = is_wp_error($rC) ? null : json_decode((string)wp_remote_retrieve_body($rC), true);
+                    $clsModel = preg_match('/mini/i', $use_model) ? $use_model : 'gpt-4o-mini';
+                    $clsReq = [ 'model' => self::normalize_model_name($clsModel), 'messages'=>$clsMsgs, 'temperature'=>0.1, 'max_tokens'=>400 ];
+
+                    // Use resilient POST with retries/fallback
+                    $rC = self::wp_post_with_retries($endpoint, $headers, $clsReq, 25, 3, [500,1000,2000], 'gpt-4o-mini');
+                    $rawC = (string)($rC['body'] ?? '');
+                    $bC = is_array($rC['json'] ?? null) ? $rC['json'] : (json_decode($rawC, true) ?: null);
                     $txtC = '';
                     if (is_array($bC)){
                         if (isset($bC['choices'][0]['message']['content']) && is_string($bC['choices'][0]['message']['content'])) $txtC = (string)$bC['choices'][0]['message']['content'];
