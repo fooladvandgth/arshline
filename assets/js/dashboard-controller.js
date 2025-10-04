@@ -322,8 +322,10 @@
               '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">'+ 
                 '<button id="arHooshaPrepare" class="ar-btn">تحلیل و پیشنهاد</button>'+ 
                 '<button id="arHooshaApply" class="ar-btn ar-btn--soft">اعمال دستورات</button>'+ 
+                '<button id="arHooshaUndo" class="ar-btn ar-btn--soft" style="display:none">بازگشت</button>'+ 
                 '<input id="arHooshaCmd" class="ar-input" placeholder="مثلاً: سوال اول الزامی شود، ۳ گزینه اضافه کن، متن سوال دوم کوتاه‌تر" style="flex:1 1 340px;min-width:260px"/>'+ 
               '</div>'+ 
+              '<div id="arHooshaNlShell" style="display:none"></div>'+ 
               '<div id="arHooshaSteps" class="hint" style="white-space:pre-wrap;line-height:1.7;background:var(--surface,#fff);border:1px dashed var(--border,#e5e7eb);border-radius:8px;padding:.5rem;min-height:2.2rem"></div>'+ 
               '<details id="arHooshaDebug" style="margin-top:.25rem">'+
                 '<summary class="hint">دیباگ درخواست/پاسخ (هوشا)</summary>'+
@@ -331,6 +333,7 @@
               '</details>'+ 
               '<div id="arHooshaNotes" class="hint" style="white-space:pre-wrap;line-height:1.7"></div>'+ 
               '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none"></div>'+ 
+              '<div id="arHooshaVersions" class="hint" style="display:none;font-size:.7rem;opacity:.8"></div>'+ 
             '</div>'+ 
           '</div>';
         // Scroll sync (raw -> edited caret proximity)
@@ -346,6 +349,19 @@
         var inpRaw = document.getElementById('arHooshaRaw');
         var inpEdited = document.getElementById('arHooshaEdited');
         var inpCmd = document.getElementById('arHooshaCmd');
+  // Natural language preview edit elements (injected later)
+  var inpNl = document.getElementById('arHooshaNl');
+  var btnUndo = document.getElementById('arHooshaUndo');
+  var versionStack = [];
+  var versionsEl = document.getElementById('arHooshaVersions');
+  function refreshVersions(){ if(!versionsEl) return; if(!versionStack.length){ versionsEl.style.display='none'; versionsEl.textContent=''; return; } versionsEl.style.display='block'; versionsEl.textContent='نسخه‌های ذخیره‌شده: '+versionStack.length+' (آخرین: '+(new Date()).toLocaleTimeString()+')'; }
+  var interpretStatus = document.getElementById('arHooshaInterpretStatus');
+  var diffBox = document.getElementById('arHooshaDiff');
+  var btnPreviewEdit = document.getElementById('arHooshaPreviewEdit');
+  var nlActions = document.getElementById('arHooshaNlActions');
+  var btnConfirmPreview = document.getElementById('arHooshaConfirmPreview');
+  var btnCancelPreview = document.getElementById('arHooshaCancelPreview');
+  var pendingSchema = null;
         var notes = document.getElementById('arHooshaNotes');
         var preview = document.getElementById('arHooshaPreview');
   var stepsBox = document.getElementById('arHooshaSteps');
@@ -357,6 +373,43 @@
   var dbgOut = document.getElementById('arHooshaDebugOut');
   function dbg(line){ try { if(!dbgOut) return; var now=new Date().toLocaleTimeString(); var s=String(line||''); var div=document.createElement('div'); div.textContent='['+now+'] '+s; dbgOut.appendChild(div); dbgOut.scrollTop = dbgOut.scrollHeight; } catch(_){ } }
   try { if (window.ARSHCapture && typeof window.ARSHCapture.addListener==='function'){ window.ARSHCapture.addListener(function(ev){ try { if(!ev||ev.type!=='ajax') return; var tgt=String(ev.target||''); if(tgt.indexOf('/hoosha/prepare')===-1 && tgt.indexOf('/hoosha/apply')===-1) return; dbg((ev.message||'')+' :: '+tgt+' :: '+String(ev.data||'')); } catch(_){ } }); } } catch(_){ }
+  if (btnPreviewEdit){
+    btnPreviewEdit.onclick = function(){
+      if (!schema){ notify('ابتدا تحلیل اولیه فرم را انجام دهید', 'warn'); return; }
+      var txt = (inpNl && inpNl.value || '').trim(); if (!txt){ notify('متن طبیعی ویرایش را وارد کنید', 'warn'); return; }
+      interpretStatus.textContent='در حال تولید پیش‌نمایش...'; interpretStatus.style.color='#2563eb';
+      if (diffBox){ diffBox.style.display='none'; }
+      if (nlActions){ nlActions.style.display='none'; }
+      pendingSchema = null;
+      var url = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/preview_edit';
+      var body = { schema: schema, natural_prompt: txt };
+      try { dbg('SEND preview_edit '+url+' :: '+JSON.stringify(body)); } catch(_){ }
+      fetch(url, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(body) })
+        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(function(j){
+          try { dbg('RECV preview_edit :: '+JSON.stringify(j).slice(0,1500)); } catch(_){ }
+          if (!j || !j.preview_schema){ throw new Error('خروجی نامعتبر'); }
+          pendingSchema = j.preview_schema;
+          var cmds = j.commands || [];
+          if (inpCmd){ inpCmd.value = cmds.join('، '); }
+          // Diff basic
+          if (diffBox){
+            var deltas = Array.isArray(j.deltas)? j.deltas : [];
+            var html=[]; if (!deltas.length){ html.push('<div class="hint">تغییری شناسایی نشد.</div>'); }
+            var colorForOp = function(op){ if(op.indexOf('add_')===0) return '#065f46'; if(op.indexOf('remove_')===0) return '#991b1b'; if(op.indexOf('update_')===0) return '#1e3a8a'; return '#374151'; };
+            deltas.forEach(function(d){ var op=d.op||'op'; var fi = (typeof d.field_index==='number')? (' #'+(d.field_index+1)) : ''; var det = d.detail||''; html.push('<div style="margin:.2rem 0;padding:.2rem .35rem;border-radius:4px;background:rgba(0,0,0,0.03);direction:rtl"><span style="color:'+colorForOp(op)+';font-weight:600">'+op+'</span>'+fi+(det?(' — '+escapeHtml(String(det))):'')+'</div>'); });
+            diffBox.innerHTML = html.join(''); diffBox.style.display='block';
+          }
+          if (nlActions){ nlActions.style.display='flex'; }
+          interpretStatus.textContent='پیش‌نمایش آماده است'; interpretStatus.style.color='#16a34a';
+        })
+        .catch(function(e){ console.error(e); interpretStatus.textContent='خطا در پیش‌نمایش'; interpretStatus.style.color='#dc2626'; })
+        .finally(function(){ setTimeout(function(){ if(interpretStatus.textContent==='پیش‌نمایش آماده است'){ /* keep */ } else { interpretStatus.textContent=''; } }, 8000); });
+    };
+  }
+  if (btnConfirmPreview){ btnConfirmPreview.onclick = function(){ if (!pendingSchema){ notify('پیش‌نمایشی برای اعمال نیست','warn'); return; } try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); } catch(_vs){} refreshVersions(); if (btnUndo) btnUndo.style.display='inline-block'; schema = pendingSchema; pendingSchema=null; showPreview(schema); if (diffBox) diffBox.style.display='none'; if (nlActions) nlActions.style.display='none'; notify('تغییرات اعمال شد','success'); interpretStatus.textContent='اعمال شد'; interpretStatus.style.color='#16a34a'; setTimeout(function(){ interpretStatus.textContent=''; },4000); } }
+  if (btnUndo){ btnUndo.onclick = function(){ if (!versionStack.length){ notify('نسخه قبلی موجود نیست','warn'); return; } schema = versionStack.pop(); refreshVersions(); showPreview(schema); notify('بازگشت انجام شد','info'); if (!versionStack.length){ btnUndo.style.display='none'; } } }
+  if (btnCancelPreview){ btnCancelPreview.onclick = function(){ pendingSchema=null; if (diffBox) diffBox.style.display='none'; if (nlActions) nlActions.style.display='none'; interpretStatus.textContent='لغو شد'; interpretStatus.style.color='#dc2626'; setTimeout(function(){ interpretStatus.textContent=''; },3000); } }
 
         function cap(type, message, data){
           try {
@@ -420,11 +473,27 @@
 
             function formatBadge(fmt){
               if (!fmt) return '';
-              var map = {
-                'national_id_ir':'کدملی','national_id_company_ir':'شناسه‌ملی‌شركت','mobile_ir':'موبایل','mobile_intl':'موبایل بین‌الملل','postal_code_ir':'کدپستی','fa_letters':'حروف‌فارسی','en_letters':'حروف‌انگلیسی','ip':'IP','date_greg':'تاریخ','date_jalali':'تاریخ جلالی','time':'زمان','numeric':'عدد','sheba_ir':'شبا','credit_card_ir':'کارت','captcha_alphanumeric':'کپچا','alphanumeric':'آلفا','alphanumeric_no_space':'آلفا-بی‌فاصله','alphanumeric_extended':'آلفا+','file_upload':'فایل'
-              };
-              var txt = map[fmt] || fmt;
-              return '<span class="hoosha-badge" data-fmt="'+fmt+'">'+escapeHtml(txt)+'</span>';
+              var tip = '';
+              switch(fmt){
+                case 'file_upload': tip='فایل (آپلود امن محدود به پسوندهای مجاز)'; break;
+                case 'sheba_ir': tip='شماره شبا بانکی (IBAN ایران)'; break;
+                case 'credit_card_ir': tip='شماره کارت بانکی (الگوریتم لون)'; break;
+                case 'captcha_alphanumeric': tip='کد کپچا حروف/اعداد'; break;
+                case 'alphanumeric': tip='حروف و اعداد (با فاصله مجاز)'; break;
+                case 'alphanumeric_no_space': tip='فقط حروف و اعداد بدون فاصله'; break;
+                case 'alphanumeric_extended': tip='شناسه توسعه‌یافته (حروف، اعداد، _ و -)'; break;
+                case 'national_id_company_ir': tip='شناسه ملی شرکت (ایران)'; break;
+                case 'national_id_ir': tip='کد ملی شخصی'; break;
+                case 'postal_code_ir': tip='کد پستی ۱۰ رقمی'; break;
+                case 'mobile_ir': tip='موبایل ایران (09...)'; break;
+                case 'mobile_intl': tip='موبایل بین‌المللی با +'; break;
+                case 'fa_letters': tip='حروف فارسی'; break;
+                case 'en_letters': tip='حروف لاتین'; break;
+                case 'sheba': tip='شماره شبا'; break;
+              }
+              var txt = fmt;
+              var titleAttr = tip ? (' title="'+escapeAttr(tip)+'" data-tip="'+escapeAttr(tip)+'"') : '';
+              return '<span class="hoosha-badge" data-fmt="'+fmt+'"'+titleAttr+'>'+escapeHtml(txt)+'</span>';
             }
 
             function buildInputMeta(fmt, f){
@@ -480,6 +549,23 @@
             var html = s.fields.map(function(f, i){
               var idx = i + 1;
               var q = String(f.label || f.question || '');
+              var source = f.props && f.props.source || '';
+              var injectBadge='';
+              if (source==='coverage_injected' || source==='coverage_injected_refined'){
+                injectBadge+='<span class="hint" style="background:#2563eb;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Injected to satisfy coverage">COV+</span> ';
+              } else if (source==='file_injected'){
+                injectBadge+='<span class="hint" style="background:#7c3aed;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Injected file field">FILE+</span> ';
+              }
+              try {
+                if (f && f.props && typeof f.props.duplicate_of !== 'undefined' && f.props.duplicate_of !== null){
+                  var dIdx = parseInt(f.props.duplicate_of);
+                  if (!isNaN(dIdx)){
+                    injectBadge+='<span class="hint" style="background:#dc2626;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Duplicate of original field #'+(dIdx+1)+'">DUP</span> ';
+                  } else {
+                    injectBadge+='<span class="hint" style="background:#dc2626;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Duplicate field">DUP</span> ';
+                  }
+                }
+              } catch(_db){}
               var num = '<span class="hint" style="min-width:2ch;display:inline-block">'+idx+'.</span> ';
               var req = f.required ? '<span class="hint" style="color:#ef4444">(الزامی)</span>' : '';
               var line = '';
@@ -497,13 +583,13 @@
               inputExtra = meta.extra || '';
               var badge = formatBadge(fmt);
               if (type==='short_text'){
-                line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
+                line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
               }
-              else if (type==='long_text'){ line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
-              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
-              else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
-              else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
-              else if (type==='file'){ var accept=''; if(fmt==='file_upload'){ /* could derive from pattern later */ } line='<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/><input type="file" class="ar-input" '+(accept?(' accept="'+escapeAttr(accept)+'"'):'')+' /></div>'; }
+              else if (type==='long_text'){ line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
+              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
+              else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
+              else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
+              else if (type==='file'){ var accept=''; if(fmt==='file_upload'){ /* could derive from pattern later */ } line='<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><input type="file" class="ar-input" '+(accept?(' accept="'+escapeAttr(accept)+'"'):'')+' /></div>'; }
               return line;
             }).join('');
             preview.innerHTML = html; preview.style.display='block';
@@ -511,17 +597,27 @@
         }
         function setBusy(el, busy){ if (!el) return; el.disabled = !!busy; el.classList.toggle('is-busy', !!busy); }
         function headers(){ return { 'Content-Type':'application/json', 'X-WP-Nonce': (window.ARSHLINE_NONCE || (window.ARSHLINE_ADMIN && ARSHLINE_ADMIN.nonce) || '') }; }
+        // attempt to find / create form name input
+        var inpFormName = document.querySelector('#ar-form-name');
         btnPrepare.onclick = function(){
           var txt = (inpRaw && inpRaw.value || '').trim(); if (!txt){ notify('متن اولیه را وارد کنید', 'warn'); return; }
+          var frmName = (inpFormName && inpFormName.value || '').trim();
           stepsBox.textContent=''; setProgress('آغاز تحلیل', 10); step('۱) آغاز تحلیل'); cap('info','hoosha.prepare.start', txt.slice(0,120));
           setBusy(btnPrepare, true);
           cap('ajax','hoosha.prepare.request',(window.ARSHLINE_REST||ARSHLINE_REST)+'hoosha/prepare'); setProgress('ارسال درخواست به مدل', 30); step('۲) ارسال درخواست به مدل');
           var _prepUrl = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/prepare';
           var _prepBody = { user_text: txt };
+          if (frmName){ _prepBody.form_name = frmName; }
           try { dbg('SEND prepare '+_prepUrl+' :: '+JSON.stringify(_prepBody)); } catch(_){ }
           fetch(_prepUrl, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(_prepBody) })
             .then(function(r){ cap('info','hoosha.prepare.response','HTTP '+r.status); if (!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('دریافت پاسخ', 60); step('۳) دریافت پاسخ'); return r.clone().text().then(function(t){ try{ dbg('RECV prepare HTTP '+r.status+' :: '+String(t||'').slice(0,2000)); }catch(_){ } return t; }); })
-            .then(function(txtRaw){ var j=null; try { j = txtRaw ? JSON.parse(txtRaw) : {}; } catch(e){ dbg('PARSE ERROR prepare :: '+String(e&&e.message||e)); throw e; } try { cap('info','hoosha.prepare.parsed'); setProgress('اعتبارسنجی خروجی', 80); schema = j.schema||null; var editedText = (j && typeof j.edited_text==='string')? j.edited_text : (j && typeof j.text==='string')? j.text : (j && typeof j.output==='string')? j.output : ''; if (inpEdited) inpEdited.value = editedText; showNotes(j.notes||[], j.confidence); showPreview(schema); if (!editedText && (!schema || !Array.isArray(schema.fields) || !schema.fields.length)){ var keys = []; try { keys = Object.keys(j||{}); } catch(_e){} notify('پاسخی از مدل دریافت نشد', 'warn'); step('۴) خروجی متنی از مدل دریافت نشد'); if (keys && keys.length){ step('کلیدهای پاسخ: ' + keys.slice(0,12).join(',')); try { dbg('prepare keys :: '+keys.join(',')); } catch(_){ } } cap('warn','hoosha.prepare.empty', keys.slice(0,12).join(',')); } else { step('۴) پیش‌نمایش به‌روزرسانی شد'); } if (autoApply && autoApply.checked && j.confidence && j.confidence >= 0.9){ notify('اعتماد بالا؛ اعمال خودکار انجام شد', 'success'); cap('info','hoosha.prepare.autoApply'); } doneProgress(); cap('info','hoosha.prepare.success'); } catch(e){ console.error(e); cap('error','hoosha.prepare.parseError', String(e&&e.message||e)); } })
+            .then(function(txtRaw){ var j=null; try { j = txtRaw ? JSON.parse(txtRaw) : {}; } catch(e){ dbg('PARSE ERROR prepare :: '+String(e&&e.message||e)); throw e; } try { cap('info','hoosha.prepare.parsed'); schema = j.schema||null; var editedText = (j && typeof j.edited_text==='string')? j.edited_text : (j && typeof j.text==='string')? j.text : (j && typeof j.output==='string')? j.output : ''; if (inpEdited) inpEdited.value = editedText; showNotes(j.notes||[], j.confidence); // backend progress integration
+              if (j && j.form_name && inpFormName && !frmName){ try { inpFormName.value = j.form_name; } catch(_fn){} }
+              try { if (Array.isArray(j.events)){ j.events.forEach(function(ev){ try { var kind=(ev.type||'evt'); var msg = (ev.message||ev.step||ev.note||''); console.log('%c[ARSH-EVENT]','color:#3b82f6', '['+kind.toUpperCase()+']', msg); if (typeof cap==='function'){ cap('event','hoosha.prepare.'+kind, msg); } } catch(_l){} }); } } catch(_ev){}
+              try { if (Array.isArray(j.progress) && j.progress.length){ stepsBox.textContent=''; var total=j.progress.length; j.progress.forEach(function(p,i){ var pct=Math.round(((i+1)/total)*90); step((i+1)+') '+(p.message||p.step)); setProgress(p.message || p.step, pct); }); } } catch(_pr){}
+              showPreview(schema); if (!editedText && (!schema || !Array.isArray(schema.fields) || !schema.fields.length)){ var keys = []; try { keys = Object.keys(j||{}); } catch(_e){} notify('پاسخی از مدل دریافت نشد', 'warn'); step('خروجی متنی از مدل دریافت نشد'); if (keys && keys.length){ step('کلیدهای پاسخ: ' + keys.slice(0,12).join(',')); try { dbg('prepare keys :: '+keys.join(',')); } catch(_){ } } cap('warn','hoosha.prepare.empty', keys.slice(0,12).join(',')); } else { step('پیش‌نمایش به‌روزرسانی شد'); }
+              if (autoApply && autoApply.checked && j.confidence && j.confidence >= 0.9){ notify('اعتماد بالا؛ اعمال خودکار انجام شد', 'success'); cap('info','hoosha.prepare.autoApply'); }
+              setProgress('اعتبارسنجی خروجی', 95); doneProgress(); cap('info','hoosha.prepare.success'); } catch(e){ console.error(e); cap('error','hoosha.prepare.parseError', String(e&&e.message||e)); } })
             .catch(function(e){ console.error('[ARSH] hoosha.prepare failed', e); cap('error','hoosha.prepare.error', String(e&&e.message||e)); notify('تحلیل ناموفق بود', 'error'); setProgress('خطا در تحلیل', 100); })
             .finally(function(){ setBusy(btnPrepare, false); });
         };
@@ -2037,6 +2133,7 @@
               <div id="arS_AI" class="s-panel" style="display:none;">\
                 <div class="title">تنظیمات هوش مصنوعی (سراسری)</div>\
                 <label><input type="checkbox" id="gsAiEnabled"/> فعال‌سازی هوش مصنوعی ضداسپم</label>\
+                <label style="display:inline-flex;align-items:center;gap:.35rem"><input type="checkbox" id="gsAiFinalReview"/> بازبینی نهایی AI (پاس نهایی طرح فرم)</label>\
                 <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
                   <span class="hint">آستانه امتیاز (0 تا 1)</span><input id="gsAiThreshold" type="number" min="0" max="1" step="0.05" class="ar-input" style="width:120px"/>\
                 </div>\
@@ -2087,13 +2184,13 @@
         (function(){ try { var btns = content.querySelectorAll('[data-s-tab]'); function show(which){ ['Security','AI','Users'].forEach(function(k){ var el = document.getElementById('arS_'+k); if (el) el.style.display = (k.toLowerCase()===which)?'block':'none'; }); btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-s-tab')===which); }); } btns.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-s-tab')); }); }); show('security'); } catch(_){ } })();
         fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-          .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try { var hp=document.getElementById('gsHoneypot'); if(hp) hp.checked=!!s.anti_spam_honeypot; var ms=document.getElementById('gsMinSec'); if(ms) ms.value=String(s.min_submit_seconds||0); var rpm=document.getElementById('gsRatePerMin'); if(rpm) rpm.value=String(s.rate_limit_per_min||0); var rwin=document.getElementById('gsRateWindow'); if(rwin) rwin.value=String(s.rate_limit_window_min||1); var ce=document.getElementById('gsCaptchaEnabled'); if(ce) ce.checked=!!s.captcha_enabled; var cs=document.getElementById('gsCaptchaSite'); if(cs) cs.value=s.captcha_site_key||''; var ck=document.getElementById('gsCaptchaSecret'); if(ck) ck.value=s.captcha_secret_key||''; var cv=document.getElementById('gsCaptchaVersion'); if(cv) cv.value=s.captcha_version||'v2'; var uk=document.getElementById('gsUploadKB'); if(uk) uk.value=String(s.upload_max_kb||300); var bsvg=document.getElementById('gsBlockSvg'); if(bsvg) bsvg.checked=(s.block_svg !== false); var aiE=document.getElementById('gsAiEnabled'); if(aiE) aiE.checked=!!s.ai_enabled; var aiT=document.getElementById('gsAiThreshold'); if(aiT) aiT.value=String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5)); var mode=document.getElementById('gsAiMode'); if(mode) mode.value = s.ai_mode || 'hybrid'; var mx=document.getElementById('gsAiMaxRows'); if(mx) mx.value = String(s.ai_max_rows || 400); var ap=document.getElementById('gsAiAllowPII'); if(ap) ap.checked = !!s.ai_allow_pii; var tt=document.getElementById('gsAiTokTypical'); if(tt) tt.value = String(s.ai_tok_typical || 8000); var tm=document.getElementById('gsAiTokMax'); if(tm) tm.value = String(s.ai_tok_max || 32000); function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; } updC(); if (ce) ce.addEventListener('change', updC); } catch(_){ } })
+          .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try { var hp=document.getElementById('gsHoneypot'); if(hp) hp.checked=!!s.anti_spam_honeypot; var ms=document.getElementById('gsMinSec'); if(ms) ms.value=String(s.min_submit_seconds||0); var rpm=document.getElementById('gsRatePerMin'); if(rpm) rpm.value=String(s.rate_limit_per_min||0); var rwin=document.getElementById('gsRateWindow'); if(rwin) rwin.value=String(s.rate_limit_window_min||1); var ce=document.getElementById('gsCaptchaEnabled'); if(ce) ce.checked=!!s.captcha_enabled; var cs=document.getElementById('gsCaptchaSite'); if(cs) cs.value=s.captcha_site_key||''; var ck=document.getElementById('gsCaptchaSecret'); if(ck) ck.value=s.captcha_secret_key||''; var cv=document.getElementById('gsCaptchaVersion'); if(cv) cv.value=s.captcha_version||'v2'; var uk=document.getElementById('gsUploadKB'); if(uk) uk.value=String(s.upload_max_kb||300); var bsvg=document.getElementById('gsBlockSvg'); if(bsvg) bsvg.checked=(s.block_svg !== false); var aiE=document.getElementById('gsAiEnabled'); if(aiE) aiE.checked=!!s.ai_enabled; var aiT=document.getElementById('gsAiThreshold'); if(aiT) aiT.value=String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5)); var mode=document.getElementById('gsAiMode'); if(mode) mode.value = s.ai_mode || 'hybrid'; var mx=document.getElementById('gsAiMaxRows'); if(mx) mx.value = String(s.ai_max_rows || 400); var ap=document.getElementById('gsAiAllowPII'); if(ap) ap.checked = !!s.ai_allow_pii; var tt=document.getElementById('gsAiTokTypical'); if(tt) tt.value = String(s.ai_tok_typical || 8000); var tm=document.getElementById('gsAiTokMax'); if(tm) tm.value = String(s.ai_tok_max || 32000); var fr=document.getElementById('gsAiFinalReview'); if(fr) fr.checked = !!s.ai_final_review_enabled; function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; } updC(); if (ce) ce.addEventListener('change', updC); } catch(_){ } })
           .then(function(){ return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(resp){ try { var c = resp && resp.config ? resp.config : {}; var bu=document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || ''; var mo=document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'auto'; var pa=document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid'; var ak=document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || ''; var hm=document.getElementById('gsHoshModel'); if (hm) hm.value = c.hosh_model || ''; var hmd=document.getElementById('gsHoshMode'); if (hmd) hmd.value = c.hosh_mode || 'hybrid'; } catch(_){ } }); })
           .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
         function putSettings(part){ return fetch(ARSHLINE_REST + 'settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ settings: part }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
         function putAiConfig(cfg){ return fetch(ARSHLINE_REST + 'ai/config', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ config: cfg }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
     var saveSec=document.getElementById('gsSaveSecurity'); if (saveSec){ saveSec.addEventListener('click', function(){ var payload = { anti_spam_honeypot: !!(document.getElementById('gsHoneypot')?.checked), min_submit_seconds: Math.max(0, parseInt(document.getElementById('gsMinSec')?.value||'0')||0), rate_limit_per_min: Math.max(0, parseInt(document.getElementById('gsRatePerMin')?.value||'0')||0), rate_limit_window_min: Math.max(1, parseInt(document.getElementById('gsRateWindow')?.value||'1')||1), captcha_enabled: !!(document.getElementById('gsCaptchaEnabled')?.checked), captcha_site_key: String(document.getElementById('gsCaptchaSite')?.value||''), captcha_secret_key: String(document.getElementById('gsCaptchaSecret')?.value||''), captcha_version: String(document.getElementById('gsCaptchaVersion')?.value||'v2'), upload_max_kb: Math.max(50, Math.min(4096, parseInt(document.getElementById('gsUploadKB')?.value||'300')||300)), block_svg: !!(document.getElementById('gsBlockSvg')?.checked) }; putSettings(payload).then(function(){ notify('تنظیمات امنیت ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات امنیت ناموفق بود', 'error'); }); }); }
-  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)), ai_mode: String(document.getElementById('gsAiMode')?.value||'hybrid'), ai_max_rows: Math.max(50, Math.min(1000, parseInt(document.getElementById('gsAiMaxRows')?.value||'400')||400)), ai_allow_pii: !!(document.getElementById('gsAiAllowPII')?.checked), ai_tok_typical: Math.max(1000, Math.min(16000, parseInt(document.getElementById('gsAiTokTypical')?.value||'8000')||8000)), ai_tok_max: Math.max(4000, Math.min(32000, parseInt(document.getElementById('gsAiTokMax')?.value||'32000')||32000)) }; var selectedModel = String(document.getElementById('gsAiModel')?.value||'auto'); var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: selectedModel, model_mode: (selectedModel==='auto'?'auto':'manual'), parser: String(document.getElementById('gsAiParser')?.value||'hybrid'), hosh_model: String(document.getElementById('gsHoshModel')?.value||''), hosh_mode: String(document.getElementById('gsHoshMode')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
+  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_final_review_enabled: !!(document.getElementById('gsAiFinalReview')?.checked), ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)), ai_mode: String(document.getElementById('gsAiMode')?.value||'hybrid'), ai_max_rows: Math.max(50, Math.min(1000, parseInt(document.getElementById('gsAiMaxRows')?.value||'400')||400)), ai_allow_pii: !!(document.getElementById('gsAiAllowPII')?.checked), ai_tok_typical: Math.max(1000, Math.min(16000, parseInt(document.getElementById('gsAiTokTypical')?.value||'8000')||8000)), ai_tok_max: Math.max(4000, Math.min(32000, parseInt(document.getElementById('gsAiTokMax')?.value||'32000')||32000)) }; var selectedModel = String(document.getElementById('gsAiModel')?.value||'auto'); var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: selectedModel, model_mode: (selectedModel==='auto'?'auto':'manual'), parser: String(document.getElementById('gsAiParser')?.value||'hybrid'), hosh_model: String(document.getElementById('gsHoshModel')?.value||''), hosh_mode: String(document.getElementById('gsHoshMode')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
         var exportBtn=document.getElementById('gsExportAI'); if (exportBtn){ exportBtn.addEventListener('click', function(){ Promise.all([
           fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){return {};}); }),
           fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){return {};}); })

@@ -28,13 +28,12 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     $plugin_url = plugins_url('', dirname(__DIR__, 2) . '/arshline.php');
     $version = defined('\\Arshline\\Dashboard\\Dashboard::VERSION') ? \Arshline\Dashboard\Dashboard::VERSION : '1.0.0';
     ?>
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/dashboard.css?ver=' . $version . '.' . (file_exists(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/css/dashboard.css') ? filemtime(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/css/dashboard.css') : '0')); ?>" />
+    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/dashboard.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/variables.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/layout.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/components.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/utilities.css?ver=' . $version); ?>" />
     <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/wp-admin-compat.css?ver=' . $version); ?>" />
-    <link rel="stylesheet" href="<?php echo esc_url($plugin_url . '/assets/css/modules/cards-stack.css?ver=' . $version); ?>" />
 
             <!-- Runtime config JSON (consumed by assets/js/core/runtime-config.js) -->
             <script id="arshline-config" type="application/json">
@@ -108,6 +107,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/notify.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/auth.js?ver=' . $version ); ?>"></script>
             <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/input-masks.js?ver=' . $version ); ?>"></script>
+            <!-- UI module: legacy modern cards renderer -->
+            <script src="<?php echo esc_url( $plugin_url . '/assets/js/ui/modern-cards.js?ver=' . $version ); ?>"></script>
     <!-- Load external tool modules (must come after Tools registry) -->
     <!-- Load main dashboard JavaScript -->
     <script src="<?php echo esc_url( plugins_url('assets/js/dashboard.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
@@ -119,9 +120,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/rating.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/welcome.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
     <script src="<?php echo esc_url( plugins_url('assets/js/tools/thank_you.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
-    <script src="<?php echo esc_url( plugins_url('assets/js/ui/cards-stack.js', dirname(__DIR__, 2).'/arshline.php') ); ?>?ver=<?php echo esc_attr($version); ?>"></script>
     <!-- Externalized controller (extracted from inline block) -->
-    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>?ver=<?php echo esc_attr($version . '.' . (file_exists(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/js/dashboard-controller.js') ? filemtime(plugin_dir_path(dirname(__DIR__, 2) . '/arshline.php') . 'assets/js/dashboard-controller.js') : '0')); ?>"></script>
+    <script src="<?php echo esc_url( plugins_url('assets/js/dashboard-controller.js', dirname(__DIR__, 2).'/arshline.php') ); ?>"></script>
         <?php
     // Console-capture config and script (template bypasses wp_head, so we include manually)
     $capture_enabled_wp = (bool) get_option('arshline_capture_console_events', false);
@@ -352,7 +352,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             var seg0 = (parts[0]||'').split('?')[0];
             // Backward-compat: if someone navigates to old #submissions, redirect to forms
             if (seg0==='submissions'){ renderTab('forms'); return; }
-            if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(seg0)){ renderTab(seg0); return; }
+            if (['dashboard','forms','hoosha','reports','users','settings','messaging','analytics'].includes(seg0)){ renderTab(seg0); return; }
             if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
             if (seg0==='editor' && parts[1]){ var id = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id, idx:idx, parts:parts }); if (id) { renderFormEditor(id, { index: isNaN(idx)?0:idx }); return; } }
             if (seg0==='preview' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { renderFormPreview(id); return; } }
@@ -2741,7 +2741,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         function renderTab(tab){
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
             try {
-                if (['dashboard','forms','reports','users','settings','messaging'].includes(tab)){
+                if (['dashboard','forms','hoosha','reports','users','settings','messaging'].includes(tab)){
                     var _h = (location.hash||'').replace('#','');
                     var _seg0 = (_h.split('/')[0]||'').split('?')[0];
                     if (_seg0 !== tab) setHash(tab); // keep existing query if first segment matches
@@ -3387,7 +3387,7 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 <h3 style="margin:0 0 .5rem 0;color:#2271b1;font-size:1.1em;display:flex;align-items:center;gap:.5rem;"><span>🧪</span> آزمایش عملکرد</h3>\
                                                 <div class="field" style="margin-bottom:.5rem;">\
                                                     <label style="display:block;font-weight:500;margin-bottom:.5rem;">دستور آزمایشی برای هوشیار:</label>\
-                                                    <textarea id="aiAgentCmd" class="ar-input" placeholder="مثال: «یک فرم جدید با عنوان 'نظرسنجی' بساز» یا «لیست فرم‌ها را نمایش بده»" style="min-height:60px;width:100%;resize:vertical;"></textarea>\
+                                                    <textarea id="aiAgentCmd" class="ar-input" placeholder="مثال: «یک فرم جدید با عنوان نظرسنجی بساز» یا «لیست فرم‌ها را نمایش بده»" style="min-height:60px;width:100%;resize:vertical;"></textarea>\
                                                 </div>\
                                                 <div style="margin-bottom:.5rem;">\
                                                     <button id="aiAgentRun" class="ar-btn" style="background:#2271b1;color:white;">🚀 اجرای دستور</button>\
@@ -3722,12 +3722,13 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
     </head>
     <body>
     <div class="arshline-dashboard-root">
-    <aside id="arSidebar" class="arshline-sidebar">
+        <aside class="arshline-sidebar">
             <div class="logo"><span class="label">عرشلاین</span></div>
             <button id="arSidebarToggle" class="toggle" aria-expanded="true" title="باز/بسته کردن منو"><span class="chev">❮</span></button>
             <nav>
                 <a href="#dashboard" data-tab="dashboard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-10.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="label">داشبورد</span></a>
                 <a href="#forms" data-tab="forms"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.6"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ها</span></a>
+                <a href="#hoosha" data-tab="hoosha"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9 10a3 3 0 1 1 6 0v4H9v-4Z" stroke="currentColor" stroke-width="1.6"/><path d="M8 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">فرم‌ساز هوشا</span></a>
                 <a href="#reports" data-tab="reports"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="10" width="3" height="6" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="7" width="3" height="9" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">گزارشات</span></a>
                 <a href="#analytics" data-tab="analytics"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6" y="12" width="3" height="4" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="9" width="3" height="7" stroke="currentColor" stroke-width="1.6"/><rect x="16" y="6" width="3" height="10" stroke="currentColor" stroke-width="1.6"/></svg></span><span class="label">تحلیل‌ها</span></a>
                 <a href="#users" data-tab="users"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="label">کاربران</span></a>
@@ -3738,11 +3739,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         </aside>
         <main class="arshline-main">
             <div class="arshline-header">
-                <button id="arHamburger" class="ar-hamburger" aria-label="باز کردن منو" aria-controls="arSidebar" aria-expanded="false">
-                    <span class="bar" aria-hidden="true"></span>
-                    <span class="bar" aria-hidden="true"></span>
-                    <span class="bar" aria-hidden="true"></span>
-                </button>
                 <div id="arHeaderActions"></div>
                 <div id="arThemeToggle" class="theme-toggle" role="switch" aria-checked="false" tabindex="0">
                     <span class="sun">☀</span>
@@ -3753,7 +3749,6 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
             <div id="arshlineDashboardContent" class="view"></div>
         </main>
     </div>
-    <div id="arSidebarOverlay" hidden></div>
     <!-- Floating AI Terminal -->
     <button id="arAiFab" class="ar-ai-fab" title="ترمینال هوشیار">هوشیار ▷</button>
     <div id="arAiPanel" class="ar-ai-panel" aria-hidden="true">

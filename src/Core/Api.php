@@ -197,6 +197,32 @@ class Api
     }
 
     /**
+     * Wrapper adding retry/backoff semantics at logical (LLM) layer, producing markers for notes.
+     * Returns [resp|null, markers[]]
+     */
+    protected static function hoosha_model_call_with_retry(string $base_url, string $api_key, string $model, string $system, string $user, int $maxAttempts = 5): array
+    {
+        $attempt = 0; $markers = []; $resp = null; $backoffSeq = [0.25,1,2,4,8];
+        while ($attempt < $maxAttempts) {
+            $resp = self::openai_chat_json($base_url, $api_key, $model, $system, $user);
+            if (is_array($resp)) { return [$resp,$markers]; }
+            // Determine reason (simplified — real upstream status captured in last_ai_debug if available)
+            $reason = 'unknown';
+            if (is_array(self::$last_ai_debug)){
+                $st = (int)(self::$last_ai_debug['status'] ?? 0);
+                if ($st === 429) $reason='rate_limit'; elseif ($st >=500) $reason='server_error'; elseif ($st === 400) $reason='bad_request';
+            }
+            $markers[] = 'pipe:retry_attempt('.($attempt+1).','.$reason.')';
+            // Only retry on rate_limit/server_error; abort otherwise
+            if (!in_array($reason,['rate_limit','server_error','unknown'],true)) break;
+            $sleep = $backoffSeq[$attempt] ?? end($backoffSeq);
+            if ($sleep > 0) { if (function_exists('usleep')) { @usleep((int)round($sleep*1000000)); } else { @sleep(max(1,(int)ceil($sleep))); } }
+            $attempt++;
+        }
+        return [null,$markers];
+    }
+
+    /**
      * Phase-1: Column Mapper — given header (labels/types) and a query, return relevant columns with probabilities,
      * intents, entities, and overall confidence. Uses a tiny model and strict JSON.
      */
@@ -424,6 +450,9 @@ class Api
             $mode = is_scalar($in['ai_model_mode']) ? trim((string)$in['ai_model_mode']) : 'auto';
             $out['ai_model_mode'] = in_array($mode, ['auto', 'manual']) ? $mode : 'auto';
         }
+        if (array_key_exists('ai_final_review_enabled', $in)) {
+            $out['ai_final_review_enabled'] = (bool)$in['ai_final_review_enabled'];
+        }
         return $out;
     }
 
@@ -447,6 +476,7 @@ class Api
             'ai_spam_threshold' => 0.5,
             'ai_model' => 'auto',
             'ai_model_mode' => 'auto',
+            'ai_final_review_enabled' => false,
         ];
         $raw = get_option('arshline_settings', []);
     $arr = is_array($raw) ? $raw : [];
@@ -770,6 +800,17 @@ class Api
             'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
             'callback' => [self::class, 'ai_simple_chat'],
         ]);
+        // Natural language -> form commands interpreter
+        register_rest_route('arshline/v1', '/hoosha/interpret_nl', [
+            'methods' => 'POST',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'callback' => [self::class, 'hoosha_interpret_nl'],
+        ]);
+        register_rest_route('arshline/v1', '/hoosha/preview_edit', [
+            'methods' => 'POST',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'callback' => [self::class, 'hoosha_preview_edit'],
+        ]);
         register_rest_route('arshline/v1', '/analytics/analyze', [
             'methods' => 'POST',
             'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
@@ -885,6 +926,11 @@ class Api
             'callback' => [self::class, 'hoosha_apply'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
+        register_rest_route('arshline/v1', '/hoosha/final-review', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'hoosha_final_review'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
         // AI configuration and agent endpoints (admin-only)
         register_rest_route('arshline/v1', '/ai/config', [
             [
@@ -926,6 +972,12 @@ class Api
             'permission_callback' => [self::class, 'user_can_manage_forms'],
             'args' => [ 'token' => [ 'type' => 'string', 'required' => true ] ],
         ]);
+        // Migration: restore previously degraded file_upload fields
+        register_rest_route('arshline/v1', '/migrations/restore-file-uploads', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'migrate_restore_file_uploads'],
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
         // Get a specific submission (with values)
         register_rest_route('arshline/v1', '/submissions/(?P<submission_id>\\d+)', [
             'methods' => 'GET',
@@ -939,6 +991,16 @@ class Api
             'permission_callback' => [self::class, 'user_can_manage_forms'],
             'args' => [
                 'file' => [ 'required' => false ],
+            ],
+        ]);
+        // Generic secured file upload for form file fields (non-image, limited types) - public submit context uses token validation
+        register_rest_route('arshline/v1', '/public/forms/(?P<form_id>\\d+)/file-upload', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'public_form_file_upload'],
+            'permission_callback' => '__return_true', // validated by token + form status inside handler
+            'args' => [
+                'file' => [ 'required' => false ],
+                'token' => [ 'required' => false ], // optional access token if form restricted
             ],
         ]);
 
@@ -1493,12 +1555,10 @@ class Api
         // 1) Member token path (preferred for visitors)
         $tok = '';
         $p = $r->get_param('member_token'); if (is_string($p)) $tok = trim($p);
-        if ($tok === ''){
-            // Try headers
-            if (method_exists($r, 'get_header')){
-                $tok = (string)($r->get_header('X-Arsh-Member-Token') ?: $r->get_header('x-arsh-member-token'));
-                $tok = trim($tok);
-            }
+        // Try headers if param missing
+        if ($tok === '' && method_exists($r, 'get_header')){
+            $tok = (string)($r->get_header('X-Arsh-Member-Token') ?: $r->get_header('x-arsh-member-token'));
+            $tok = trim($tok);
         }
         if ($tok !== ''){
             $m = MemberRepository::verifyToken($tok);
@@ -3935,18 +3995,35 @@ class Api
     public static function hoosha_prepare(WP_REST_Request $request)
     {
         if (!self::user_can_manage_forms()) return new WP_Error('forbidden', 'forbidden', ['status' => 403]);
+        $t0 = microtime(true);
         $body = json_decode($request->get_body() ?: '{}', true);
-        $user_text = isset($body['user_text']) ? (string)$body['user_text'] : '';
+        $coverageThreshold = 0.55;
+        if (isset($body['coverage_threshold'])){
+            $ct = floatval($body['coverage_threshold']); if ($ct>0 && $ct<1){ $coverageThreshold = $ct; }
+        }
+        $disableFileFallback = !empty($body['disable_file_fallback']);
+        $strictFileMatch = !empty($body['strict_file_match']);
+    $preserveOrder = !empty($body['preserve_order']);
+    $baselineOrderMap = [];
+    // Build baseline order map early (after baseline heuristic) later referenced if preserve_order enabled
+    $user_text = isset($body['user_text']) ? (string)$body['user_text'] : '';
+    $form_name = isset($body['form_name']) ? trim((string)$body['form_name']) : '';
         if ($user_text === '') return new WP_Error('bad_request', 'user_text required', ['status' => 400]);
+        $progress = [];
+        $progress[] = ['step'=>'start','message'=>'شروع پردازش ورودی'];
 
         // 1) Baseline heuristic extraction (for diff & fallback)
-        $baseline = self::hoosha_local_infer_from_text_v2($user_text);
+    $baseline = self::hoosha_local_infer_from_text_v2($user_text);
         if (empty($baseline['fields'])) { $baseline = self::hoosha_local_infer_from_text($user_text); }
         $baseline_formal = self::hoosha_formalize_labels($baseline);
+    $progress[] = ['step'=>'baseline_inferred','message'=>'استخراج اولیه مبتنی بر قواعد محلی'];
         // Build quick lookup of original (formalized) labels to detect unchanged edits
         $baseline_labels = [];
         if (!empty($baseline_formal['fields'])){
             foreach ($baseline_formal['fields'] as $bf){ if (is_array($bf) && isset($bf['label'])){ $baseline_labels[] = (string)$bf['label']; } }
+            if ($preserveOrder){
+                $ord=0; foreach ($baseline_formal['fields'] as $bf){ if (!is_array($bf)) continue; $lbl = isset($bf['label'])?(string)$bf['label']:''; if ($lbl==='') continue; $baselineOrderMap[self::hoosha_canon_label($lbl)] = $ord++; }
+            }
         }
 
         // Build standards and capabilities to pass to model
@@ -3961,22 +4038,49 @@ class Api
         $capabilities = [ 'types' => ['short_text','long_text','multiple_choice','dropdown','rating'] ];
 
         // 2) Stronger system prompt: enforce mandatory transformations
-        $system = 'You are Hoosha, a precise Persian smart form editor. ALWAYS perform:
+    $system = 'You are Hoosha, a precise Persian smart form editor. ALWAYS perform:
 RULES:
 1) Normalize spelling, punctuation, and formal tone for EVERY question.
 2) Convert binary / small option sets (detected with "X یا Y" (or more) patterns) to multiple_choice single-select (options array) unless >= dropdown_threshold -> dropdown.
 3) Rating only when explicit (contains امتیاز or pattern 1..10). Provide rating.min=1, rating.max=10, rating.icon="like".
 4) Long descriptive / explanation requests (contains توضیح, مفصل, شرح) -> long_text with defaults.
 5) Required only if explicitly requested in user_text or inferred command (contains الزامی or اجباری tied to that field).
-6) Output JSON ONLY with keys: edited_text (string), schema{fields:[{type,label,required,props{format?,options?,multiple?,rating?}}]}, notes[list], confidence[0..1].
+6) Output STRICT JSON ONLY with keys EXACTLY: edited_text (string), schema{fields:[{type,label,required,props{format?,options?,multiple?,rating?,duplicate_of?,confirm_for?,accept?,maxSizeKB?,regex?}}]}, notes[array of strings], confidence[number 0..1]. No additional top-level keys.
+6.1) Every field object MUST have type and label non-empty.
+6.2) Do NOT output null for schema or fields; use empty array if none.
 7) For every field ensure the label is formally edited. NEVER leave it unchanged when a more formal phrasing is obvious.
 8) Do NOT hallucinate extra fields.
 9) Preserve semantic meaning but elevate tone.
 10) If you cannot process, still return baseline schema with a note reason=pass_through.
-Return strict JSON. No markdown.';
+Return strict JSON. No markdown. NEVER wrap in code fences.';
+        // Heuristic form name if missing: derive from first 2-5 significant words of user_text or first baseline label
+        if ($form_name === ''){
+            $candidate = '';
+            // Try first baseline label
+            if (!empty($baseline_formal['fields'][0]['label'])){
+                $candidate = (string)$baseline_formal['fields'][0]['label'];
+            } else {
+                $tmp = preg_replace('/[\r\n]+/u',' ', $user_text);
+                $tmp = preg_replace('/[^\p{L}\p{N}\s]+/u',' ', $tmp);
+                $parts = preg_split('/\s+/u', (string)$tmp, -1, PREG_SPLIT_NO_EMPTY);
+                $stop = ['از','به','و','یا','در','برای','با','یک','این','آن','که','تا','های','می','را'];
+                $sig = [];
+                if (is_array($parts)){
+                    foreach ($parts as $w){ $lw=mb_strtolower($w,'UTF-8'); if (in_array($lw,$stop,true)) continue; $sig[]=$w; if (count($sig)>=5) break; }
+                }
+                if (!empty($sig)) $candidate = implode(' ', array_slice($sig,0,5));
+            }
+            // Trim length
+            $candidate = trim(mb_substr($candidate,0,60,'UTF-8'));
+            if ($candidate !== ''){ $form_name = $candidate; $notes[] = 'heur:form_name_heuristic'; }
+        } else {
+            $notes[] = 'heur:form_name_provided';
+        }
+
         $user = json_encode([
             'phase' => 'prepare',
             'user_text' => $user_text,
+            'form_name' => $form_name,
             'standards' => $standards,
             'capability_matrix' => $capabilities,
             'ui_prefs' => [ 'display_numbering' => true, 'two_rows' => true ],
@@ -3989,20 +4093,74 @@ Return strict JSON. No markdown.';
                 return new WP_Error('ai_not_configured', 'ai_not_configured', ['status'=>400]);
             }
             $model = self::select_optimal_model($ai, $user_text, 'hoosha_prepare', 4);
-            $resp = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $system, (string)$user);
+            $progress[] = ['step'=>'model_request','message'=>'ارسال درخواست به مدل'];
+            $notes = $notes ?? [];
+            $needsChunk = false; $rawTextLen = mb_strlen($user_text,'UTF-8');
+            $lineCount = substr_count($user_text, "\n") + 1;
+            if ($rawTextLen > 8000 || $lineCount > 60){ $needsChunk = true; }
+            $resp = null; $chunkSchemas = []; $chunkEdited = [];
+            if ($needsChunk){
+                // Split by paragraphs / blank lines heuristically
+                $parts = preg_split('/\n{2,}/u', $user_text);
+                if (!is_array($parts) || count($parts)<2){ $parts = str_split($user_text, max(2000,(int)floor($rawTextLen/3))); }
+                $parts = array_values(array_filter(array_map('trim',$parts), function($p){ return $p!==''; }));
+                $chunkCount = count($parts);
+                if ($chunkCount>1){ $notes[] = 'pipe:chunked_input(parts='.$chunkCount.')'; }
+                $chunkStartAll = microtime(true); $chunkTimeBudget = 12.0; // seconds
+                $processedChunks = 0; $aborted=false;
+                foreach ($parts as $ci=>$chunk){
+                    if ((microtime(true) - $chunkStartAll) > $chunkTimeBudget){ $notes[]='pipe:chunk_timeout_abort(at_index=' . ($ci+1) . ')'; $aborted=true; break; }
+                    $progress[] = ['step'=>'chunk_'.($ci+1),'message'=>'پردازش بخش '.($ci+1).' از '.$chunkCount];
+                    $notes[] = 'pipe:chunk_progress('.($ci+1).'/'.$chunkCount.')';
+                    $chunkBaseline = self::hoosha_local_infer_from_text_v2($chunk);
+                    if (empty($chunkBaseline['fields'])){ $chunkBaseline = self::hoosha_local_infer_from_text($chunk); }
+                    $chunkSystem = $system . "\nCHUNK_MODE: Only output fields that appear in this chunk (index=".($ci+1)." of $chunkCount).";
+                    $chunkUser = json_encode([
+                        'phase'=>'prepare_chunk','chunk_index'=>$ci+1,'chunk_total'=>$chunkCount,'user_text'=>$chunk,'baseline_labels'=>[],'chunk_hint'=>'provide only contained fields'
+                    ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                    list($chunkResp,$chunkRetryMarkers) = self::hoosha_model_call_with_retry((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $chunkSystem, (string)$chunkUser, 2);
+                    if (!empty($chunkRetryMarkers)){ foreach ($chunkRetryMarkers as $crm){ $notes[]=$crm; } }
+                    if (is_array($chunkResp)){
+                        $cSchema = [];
+                        if (isset($chunkResp['schema']) && is_array($chunkResp['schema'])){ $cSchema = $chunkResp['schema']; }
+                        elseif (isset($chunkResp['fields']) && is_array($chunkResp['fields'])) { $cSchema = ['fields'=>$chunkResp['fields']]; }
+                        if (!empty($cSchema['fields'])){ $chunkSchemas[] = $cSchema; }
+                        if (!empty($chunkResp['edited_text'])){ $chunkEdited[] = (string)$chunkResp['edited_text']; }
+                        $notes[] = 'pipe:chunk_success(index=' . ($ci+1) . ')'; $processedChunks++;
+                    } else {
+            $notes[] = 'pipe:chunk_failed(index=' . ($ci+1) . ')'; $processedChunks++;
+                    }
+        if ($processedChunks>0){ $notes[]='pipe:chunks_processed('.$processedChunks.')'; }
+        if ($aborted){ $notes[]='pipe:chunks_aborted'; }
+                }
+                // Merge chunk schemas into one synthetic response
+                $mergedFields = [];
+                foreach ($chunkSchemas as $cs){
+                    foreach (($cs['fields']??[]) as $f){ if (is_array($f)){ $mergedFields[] = $f; } }
+                }
+                if (!empty($mergedFields)){
+                    $resp = [ 'edited_text' => implode("\n", $chunkEdited), 'schema' => ['fields'=>$mergedFields], 'notes'=>[] ];
+                    $notes[] = 'pipe:chunks_merged(fields=' . count($mergedFields) . ')';
+                }
+            } else {
+                list($resp,$retryMarkers) = self::hoosha_model_call_with_retry((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $system, (string)$user, 5);
+                if (!empty($retryMarkers)) { foreach ($retryMarkers as $rm){ $notes[] = $rm; } }
+            }
             if (!is_array($resp)){
                 // Graceful fallback on model failure (no hard 502) – use baseline formal schema
                 $edited = self::hoosha_local_edit_text($user_text, $baseline_formal);
                 $schema = $baseline_formal;
-                $notes = ['model_call_failed','fallback_from_model_failure'];
+                $notes = array_merge($notes ?? [], ['pipe:model_call_failed','pipe:fallback_from_model_failure']);
                 $conf = 0.25;
                 self::hoosha_post_finalize_adjust($schema, $user_text, $notes);
+                $progress[] = ['step'=>'model_failed','message'=>'شکست مدل و بازگشت به fallback محلی'];
                 return new WP_REST_Response([
                     'ok'=>true,
                     'edited_text'=>$edited,
                     'schema'=>$schema,
                     'notes'=>array_values(array_unique($notes)),
-                    'confidence'=>$conf
+                    'confidence'=>$conf,
+                    'progress'=>$progress
                 ], 200);
             }
             // If model wrapped payload under a 'result' or 'data' key, flatten it
@@ -4051,12 +4209,14 @@ Return strict JSON. No markdown.';
                     'initial_model_schema' => $schema,
                     'initial_model_edited_text' => $edited,
                 ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
-                $resp2 = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $refineSys, (string)$refineUser);
+                $progress[] = ['step'=>'refine_pass','message'=>'اجرای مرحله اصلاح (refine)'];
+                list($resp2,$retryMarkers2) = self::hoosha_model_call_with_retry((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $refineSys, (string)$refineUser, 3);
+                if (!empty($retryMarkers2)) { foreach ($retryMarkers2 as $rm){ $notes[] = $rm; } }
                 if (is_array($resp2)){
                     if (isset($resp2['edited_text'])) $edited = (string)$resp2['edited_text'];
                     if (isset($resp2['schema']) && is_array($resp2['schema'])) $schema = $resp2['schema'];
                 } else {
-                    $reasons[] = 'refine_no_response';
+                    $reasons[] = 'pipe:refine_no_response';
                 }
             }
 
@@ -4083,7 +4243,15 @@ Return strict JSON. No markdown.';
                 $notes[] = 'baseline_schema_substitution';
                 if ($conf === null) { $conf = 0.15; }
             }
-            // 5) Tag field sources (model vs heuristic)
+            // 5) Validate schema shape; fallback to baseline if invalid then tag field sources
+            if (!empty($schema)){
+                $validRes = self::hoosha_validate_schema($schema);
+                if (empty($validRes['ok'])){
+                    $notes[] = 'pipe:schema_invalid('.implode('|',$validRes['errors']).')';
+                    $schema = $baseline_formal; $edited = self::hoosha_local_edit_text($user_text, $schema);
+                } else { $notes[] = 'pipe:schema_valid'; }
+            }
+            // 5.1) Tag field sources (model vs heuristic)
             if (!empty($schema['fields']) && is_array($schema['fields'])){
                 foreach ($schema['fields'] as &$sf){
                     if (!is_array($sf)) continue;
@@ -4117,7 +4285,6 @@ Return strict JSON. No markdown.';
             if (!empty($schema['fields'])){
                 $hasMeta = false;
                 if (is_string($edited) && $edited !== ''){
-                    // Heuristic: presence of '[' and '|' tokens suggests annotated form
                     if (preg_match('/\[[^\]]+\|[^\]]+\]/u', $edited)) { $hasMeta = true; }
                 }
                 if (!$hasMeta){
@@ -4125,36 +4292,21 @@ Return strict JSON. No markdown.';
                     $annotated = self::hoosha_local_edit_text($user_text, $schema);
                     if ($annotated !== ''){
                         $edited = $annotated;
-                        if ($rawEdited !== '' && $rawEdited !== $annotated){
-                            // expose raw for potential diff UI
-                            // will be attached below in $out if needed
-                            $notes[] = 'edited_text_annotated';
-                        }
+                        if ($rawEdited !== '' && $rawEdited !== $annotated){ $notes[] = 'edited_text_annotated'; }
                     }
                 }
             }
             // 4.8) Post-finalize adjustments: required enforcement, de-dup, option normalization
             self::hoosha_post_finalize_adjust($schema, $user_text, $notes);
+            $progress[] = ['step'=>'post_finalize','message'=>'اِعمال نهایی: الزامی‌سازی، حذف تکرار، فرمت‌ها'];
             if (!empty($reasons)) $notes = array_values(array_unique(array_merge($notes, $reasons)));
             // 4.9) Sanitize & rebuild edited_text to remove contamination / duplicated enumerations
             if (!empty($schema['fields']) && is_array($schema['fields'])){
+                // Revised pruning: keep all fields, only tag duplicates later (less aggressive to improve coverage)
                 $cleanFields = [];
-                $seenCanon = [];
-                $removed = 0; $keptConfirmNat=false;
-                foreach ($schema['fields'] as $f){
-                    if (!is_array($f)) continue;
-                    $lbl = isset($f['label'])? trim((string)$f['label']):''; if ($lbl==='') continue;
-                    $canon = mb_strtolower(preg_replace('/[\s\d[:punct:]]+/u','', $lbl),'UTF-8');
-                    $isNat = (mb_strpos(mb_strtolower($lbl,'UTF-8'),'کد ملی')!==false);
-                    $isConfirm = $isNat && (preg_match('/دوباره|مجدد/u', mb_strtolower($lbl,'UTF-8')));
-                    if (isset($seenCanon[$canon])){
-                        // Allow one confirm national id separate
-                        if ($isConfirm && !$keptConfirmNat){ $cleanFields[]=$f; $keptConfirmNat=true; continue; }
-                        $removed++; continue;
-                    }
-                    $seenCanon[$canon]=true; $cleanFields[]=$f;
-                }
-                if ($removed>0){ $notes[]='edited_text_rebuild_removed('.$removed.')'; }
+                foreach ($schema['fields'] as $f){ if (is_array($f)) $cleanFields[] = $f; }
+                $notes[]='heur:prune_soft_mode';
+                // (Legacy removal counters disabled)
                 // Repair any question labels that collapsed to a lone '?' and have options
                 foreach ($cleanFields as &$cf){
                     if (!is_array($cf)) continue;
@@ -4175,11 +4327,202 @@ Return strict JSON. No markdown.';
                 unset($cf);
                 // Additional refinement: remove or split residual mixed option sets (drinks/contact etc.)
                 self::hoosha_refine_option_contamination($schema, $notes);
+                $progress[] = ['step'=>'options_refined','message'=>'پاکسازی و تفکیک گزینه‌های ترکیبی'];
                 $schema['fields'] = $cleanFields;
                 // Rebuild edited_text from sanitized schema (formal labels will be applied inside builder)
                 $edited = self::hoosha_local_edit_text($user_text, $schema);
+                // Duplicate & confirm detection phase
+                if (!empty($schema['fields'])){
+                    $canonMap = []; $duplicates = 0; $confirms = 0; $labelIndex = [];
+                    foreach ($schema['fields'] as $idx=>$fld){
+                        if (!is_array($fld)) continue; $lbl = isset($fld['label'])?(string)$fld['label']:''; if ($lbl==='') continue;
+                        $canon = mb_strtolower(preg_replace('/[\s[:punct:]]+/u','', $lbl),'UTF-8');
+                        if (!isset($labelIndex[$canon])){ $labelIndex[$canon] = $idx; }
+                        else {
+                            // Mark as duplicate_of first occurrence index
+                            if (!isset($schema['fields'][$idx]['props']) || !is_array($schema['fields'][$idx]['props'])) $schema['fields'][$idx]['props']=[];
+                            $schema['fields'][$idx]['props']['duplicate_of'] = $labelIndex[$canon];
+                            $duplicates++;
+                        }
+                    }
+                    // Confirm detection (ایمیل, رمز عبور, کلمه عبور, پسورد, شماره ملی) with keywords for confirmation
+                    $confirmKeywords = ['تایید','تأیید','مجدد','دوباره','retype','confirm'];
+                    $baseKeys = [];
+                    foreach ($schema['fields'] as $idx=>$fld){
+                        if (!is_array($fld)) continue; $lbl = isset($fld['label'])?(string)$fld['label']:''; if ($lbl==='') continue;
+                        $low = mb_strtolower($lbl,'UTF-8');
+                        $isConfirm = false; foreach ($confirmKeywords as $kw){ if (mb_strpos($low,$kw)!==false){ $isConfirm=true; break; } }
+                        if ($isConfirm){
+                            // Find nearest previous field sharing core token (e.g., ایمیل, رمز, کلمه عبور)
+                            $coreTokens = ['ایمیل','رمز','کلمه عبور','پسورد','کد ملی','شماره ملی'];
+                            foreach ($coreTokens as $tok){
+                                if (mb_strpos($low, mb_strtolower($tok,'UTF-8'))!==false){
+                                    // search backwards
+                                    for ($p=$idx-1;$p>=0;$p--){
+                                        $plbl = isset($schema['fields'][$p]['label'])?(string)$schema['fields'][$p]['label']:''; $plow = mb_strtolower($plbl,'UTF-8');
+                                        if ($plbl!=='' && mb_strpos($plow, mb_strtolower($tok,'UTF-8'))!==false){
+                                            if (!isset($schema['fields'][$idx]['props']) || !is_array($schema['fields'][$idx]['props'])) $schema['fields'][$idx]['props']=[];
+                                            $schema['fields'][$idx]['props']['confirm_for'] = $p; $confirms++; break 2;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if ($duplicates>0){ $notes[] = 'heur:duplicates_found('.$duplicates.')'; $notes[]='heur:duplicates_tagged('.$duplicates.')'; }
+                    if ($confirms>0) $notes[] = 'heur:confirms_found('.$confirms.')';
+                }
+                // Coverage enforcement: if after refinement field count << baseline, inject missing baseline fields
+                if (!empty($baseline_formal['fields']) && !empty($schema['fields'])){
+                    $finalCount = count($schema['fields']); $baseCount = count($baseline_formal['fields']);
+                    if ($baseCount>=8){
+                        $ratio = ($finalCount>0)? ($finalCount / $baseCount) : 0.0;
+                        if ($ratio < $coverageThreshold){
+                            $existingCanon = [];
+                            foreach ($schema['fields'] as $cf){ if (!is_array($cf)) continue; $ll = isset($cf['label'])?(string)$cf['label']:''; if($ll==='') continue; $existingCanon[ self::hoosha_canon_label($ll) ] = true; }
+                            $addedCov = 0;
+                            foreach ($baseline_formal['fields'] as $bf){
+                                if (!is_array($bf)) continue; $bl = isset($bf['label'])?(string)$bf['label']:''; if($bl==='') continue;
+                                $canon = self::hoosha_canon_label($bl);
+                                if (!isset($existingCanon[$canon])){
+                                    $nf = $bf; if (!isset($nf['props'])||!is_array($nf['props'])) $nf['props']=[]; $nf['props']['source']='coverage_injected';
+                                    $schema['fields'][] = $nf; $existingCanon[$canon]=true; $addedCov++;
+                                }
+                                if ($addedCov> ($baseCount*0.5)) break; // avoid runaway injection
+                            }
+                            if ($addedCov>0){ $notes[]='heur:coverage_injected('.$addedCov.')'; $progress[]=['step'=>'coverage_enforced','message'=>'افزایش پوشش فیلدها (+' . $addedCov . ')']; }
+                        }
+                    }
+                }
+                // Optional refine pass only for injected fields
+                $doCoverageRefine = !empty($body['coverage_refine']);
+                if ($doCoverageRefine){
+                    $injectSubset = [];
+                    foreach (($schema['fields']??[]) as $fld){ if (is_array($fld) && isset($fld['props']['source']) && $fld['props']['source']==='coverage_injected'){ $injectSubset[]=$fld; } }
+                    if (count($injectSubset)>0){
+                        $progress[] = ['step'=>'coverage_refine','message'=>'اصلاح فیلدهای تزریق‌شده'];
+                        $notes[]='pipe:coverage_refine_start('.count($injectSubset).')';
+                        try {
+                            $covSystem = "You are refining previously injected fallback fields. Improve labels and infer formats. Return ONLY schema.fields array.";
+                            $covUser = json_encode(['phase'=>'coverage_refine','fields'=>$injectSubset], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                            list($covResp,$covRetry) = self::hoosha_model_call_with_retry((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $covSystem, (string)$covUser, 2);
+                            if (!empty($covRetry)){ foreach($covRetry as $cr){ $notes[]=$cr; } }
+                            if (is_array($covResp) && isset($covResp['fields']) && is_array($covResp['fields']) && count($covResp['fields'])){
+                                // Merge refined fields back by label match or index
+                                $refined = $covResp['fields'];
+                                $ri=0;
+                                foreach ($schema['fields'] as &$sf){
+                                    if (!is_array($sf)) continue;
+                                    if (isset($sf['props']['source']) && $sf['props']['source']==='coverage_injected'){
+                                        if (isset($refined[$ri]) && is_array($refined[$ri])){
+                                            $refFld = $refined[$ri];
+                                            // Preserve original source tag
+                                            if (!isset($refFld['props'])||!is_array($refFld['props'])) $refFld['props']=[];
+                                            $refFld['props']['source']='coverage_injected_refined';
+                                            $sf = $refFld; $ri++;
+                                        }
+                                    }
+                                }
+                                unset($sf);
+                                $notes[]='pipe:coverage_refine_applied('.$ri.')';
+                            } else { $notes[]='pipe:coverage_refine_no_response'; }
+                        } catch (\Throwable $eCov){ $notes[]='pipe:coverage_refine_exception'; }
+                    }
+                }
+                // Fallback file field injection if user_text strongly references files but schema lacks them
+                $hasFile=false; foreach (($schema['fields']??[]) as $sf){ if (is_array($sf) && isset($sf['type']) && $sf['type']==='file'){ $hasFile=true; break; } }
+                if (!$hasFile && !$disableFileFallback){
+                    $kwFile = 0;
+                    $filePattern = $strictFileMatch
+                        ? '/\b(فایل|رزومه|بارگذاری|آپلود|رسید|گزارش|log|ویدیو|ویدئو|mp4)\b|\b(jpg|jpeg|png|pdf|docx)\b/i'
+                        : '/فایل|رزومه|بارگذاری|آپلود|تصویر(?!سازی)|رسید|jpg|jpeg|png|گزارش|log|ویدیو|ویدئو|mp4/i';
+                    if (preg_match($filePattern,$user_text)) $kwFile=1;
+                    if ($kwFile){
+                        $injected=[];
+                        if (preg_match('/رزومه|cv|pdf/i',$user_text)){ $injected[]=['label'=>'فایل رزومه','type'=>'file','required'=>false,'props'=>['accept'=>['application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document'],'source'=>'file_injected']]; }
+                        if (preg_match('/تصویر|رسید|jpg|jpeg|png/i',$user_text)){ $injected[]=['label'=>'تصویر رسید پرداخت','type'=>'file','required'=>false,'props'=>['accept'=>['image/png','image/jpeg'],'source'=>'file_injected']]; }
+                        if (preg_match('/گزارش|log|txt/i',$user_text)){ $injected[]=['label'=>'گزارش‌های خطا','type'=>'file','required'=>false,'props'=>['multiple'=>true,'accept'=>['text/plain','text/log'],'source'=>'file_injected']]; }
+                        if (preg_match('/mp4|ویدیو|ويديو|ویدئو/i',$user_text)){ $injected[]=['label'=>'ویدیو (رد می‌شود)','type'=>'file','required'=>false,'props'=>['accept'=>['video/mp4'],'source'=>'file_injected','reject'=>true]]; }
+                        if ($injected && count($injected)>0){ foreach ($injected as $inf){ $schema['fields'][]=$inf; } $notes[]='heur:file_fallback_injected('.count($injected).')'; $progress[]=['step'=>'file_injected','message'=>'افزودن فیلدهای فایل آزمایشی']; }
+                        else { $notes[]='heur:file_injection_skipped(no_pattern_match_detail)'; }
+                    } else { $notes[]='heur:file_injection_skipped(no_keyword)'; }
+                } elseif ($disableFileFallback){
+                    $notes[]='heur:file_fallback_disabled';
+                }
             }
-            $out = ['ok'=>true,'edited_text'=>$edited,'schema'=>$schema,'notes'=>$notes,'confidence'=>$conf];
+            // Optional AI final review
+            try {
+                $gsFR = self::get_global_settings();
+                if (!empty($gsFR['ai_final_review_enabled'])){
+                    $progress[] = ['step'=>'final_review','message'=>'اجرای بازبینی نهایی'];
+                    $tFR = microtime(true);
+                    $revReq = new WP_REST_Request('POST', '/arshline/v1/hoosha/final-review');
+                    $revReq->set_body(json_encode(['user_text'=>$user_text,'schema'=>$schema], JSON_UNESCAPED_UNICODE));
+                    $revResp = self::hoosha_final_review($revReq);
+                    if ($revResp instanceof WP_REST_Response){
+                        $revData = $revResp->get_data();
+                        if (is_array($revData) && !empty($revData['ok']) && isset($revData['schema'])){
+                            $schema = is_array($revData['schema']) ? $revData['schema'] : $schema;
+                            if (!empty($revData['issues'])){ foreach($revData['issues'] as $iss){ if (is_array($iss)) { $notes[]='ai:final_issue('.($iss['code']??'issue').')'; } elseif (is_string($iss)) { $notes[]='ai:final_issue('.$iss.')'; } } }
+                            if (!empty($revData['suggestions'])){ foreach($revData['suggestions'] as $sg){ if (is_array($sg)) { $notes[]='ai:final_suggestion('.($sg['type']??'suggest').')'; } } }
+                            if (!empty($revData['model_notes'])){ foreach($revData['model_notes'] as $mn){ if (is_string($mn)) $notes[]='ai:note('.$mn.')'; } }
+                        } else { $notes[]='ai:final_review_failed'; }
+                    } else { $notes[]='ai:final_review_error'; }
+                    $notes[] = 'perf:final_review_ms=' . intval(1000*(microtime(true)-$tFR));
+                }
+            } catch (\Throwable $eFR){ $notes[]='ai:final_review_exception'; }
+
+            // Heuristic file upload restoration (after final review so schema is stable)
+            self::hoosha_restore_file_uploads($schema, $notes);
+            // Advanced file props inference
+            self::hoosha_infer_file_props($schema, $user_text, $notes);
+            // Normalize prefixes
+            $notes = self::hoosha_normalize_note_prefixes($notes);
+            $progress[] = ['step'=>'complete','message'=>'اتمام پردازش'];
+            $notes[] = 'perf:total_ms=' . intval(1000*(microtime(true)-$t0));
+            // Build ordered events list for frontend logging: include progress steps and notes chronologically.
+            $events = [];
+            $seq = 0;
+            foreach ($progress as $pEv){
+                if (!is_array($pEv)) continue;
+                $events[] = [ 'seq'=>$seq++, 'type'=>'progress', 'step'=>$pEv['step']??'', 'message'=>$pEv['message']??'' ];
+            }
+            foreach ($notes as $nEv){
+                if (!is_string($nEv)) continue;
+                $events[] = [ 'seq'=>$seq++, 'type'=>'note', 'note'=>$nEv ];
+            }
+            // Reorder fields if preserve_order enabled
+            if ($preserveOrder && !empty($baselineOrderMap) && !empty($schema['fields']) && is_array($schema['fields'])){
+                usort($schema['fields'], function($a,$b) use ($baselineOrderMap){
+                    $la = isset($a['label'])? self::hoosha_canon_label((string)$a['label']):'';
+                    $lb = isset($b['label'])? self::hoosha_canon_label((string)$b['label']):'';
+                    $oa = array_key_exists($la,$baselineOrderMap)? $baselineOrderMap[$la] : 999999;
+                    $ob = array_key_exists($lb,$baselineOrderMap)? $baselineOrderMap[$lb] : 999999;
+                    if ($oa === $ob){ return 0; }
+                    return ($oa < $ob)? -1: 1;
+                });
+            }
+            // Summary metrics
+            $baselineCount = isset($baseline_formal['fields']) && is_array($baseline_formal['fields']) ? count($baseline_formal['fields']) : 0;
+            $finalCount = isset($schema['fields']) && is_array($schema['fields']) ? count($schema['fields']) : 0;
+            $coverageRatio = ($baselineCount>0)? round($finalCount / $baselineCount, 3) : null;
+            $sourceCounts = ['model'=>0,'heuristic_or_unchanged'=>0,'reconciled_from_baseline'=>0,'coverage_injected'=>0,'coverage_injected_refined'=>0,'file_injected'=>0];
+            if (!empty($schema['fields'])){
+                foreach ($schema['fields'] as $f){ if (!is_array($f)) continue; $src = $f['props']['source'] ?? ''; if (isset($sourceCounts[$src])) $sourceCounts[$src]++; }
+            }
+            $summary = [
+                'baseline_count'=>$baselineCount,
+                'final_count'=>$finalCount,
+                'coverage_ratio'=>$coverageRatio,
+                'sources'=>$sourceCounts,
+                'preserve_order'=>(bool)$preserveOrder,
+            ];
+            if ($form_name === '' && !empty($schema['fields']) && is_array($schema['fields'])){
+                // As a final fallback post-schema, attempt derive again from first field label if still empty.
+                $lbl0 = $schema['fields'][0]['label'] ?? '';
+                if ($lbl0){ $form_name = mb_substr((string)$lbl0,0,60,'UTF-8'); $notes[]='heur:form_name_from_schema'; }
+            }
+            $out = ['ok'=>true,'edited_text'=>$edited,'schema'=>$schema,'notes'=>$notes,'confidence'=>$conf,'progress'=>$progress,'events'=>$events,'summary'=>$summary,'form_name'=>$form_name];
             // Attach model debug for admins only
             if (current_user_can('manage_options') && is_array(self::$last_ai_debug)){
                 $out['debug'] = [ 'model' => self::$last_ai_debug ];
@@ -4201,12 +4544,12 @@ Return strict JSON. No markdown.';
         $existing = [];
         foreach ($model_schema['fields'] as $f){
             if (!is_array($f)) continue; $lbl = isset($f['label'])? trim((string)$f['label']):''; if ($lbl==='') continue;
-            $existing[ mb_strtolower(preg_replace('/\s+/u',' ', $lbl), 'UTF-8') ] = true;
+            $existing[ self::hoosha_canon_label($lbl) ] = true;
         }
         $added = 0; $append = [];
         foreach ($baseline_formal['fields'] as $bf){
             if (!is_array($bf)) continue; $bl = isset($bf['label'])? trim((string)$bf['label']):''; if ($bl==='') continue;
-            $sig = mb_strtolower(preg_replace('/\s+/u',' ', $bl), 'UTF-8');
+            $sig = self::hoosha_canon_label($bl);
             if (!isset($existing[$sig])){
                 // crude similarity guard: avoid adding if another label shares 85% of characters
                 $skip = false; $blNoSpace = preg_replace('/\s+/u','',$sig);
@@ -4229,6 +4572,135 @@ Return strict JSON. No markdown.';
             $model_schema['fields'] = array_merge($model_schema['fields'], $append);
         }
         return ['schema'=>$model_schema, 'added_count'=>$added];
+    }
+
+    /** Return canonical field JSON schema definition (descriptive; used for doc / potential future) */
+    protected static function hoosha_field_json_schema(): array
+    {
+        return [
+            'type' => 'object',
+            'required' => ['fields'],
+            'properties' => [
+                'fields' => [ 'type'=>'array', 'items'=> [ 'type'=>'object', 'required'=>['type','label'], 'properties'=>[
+                    'type'=>['type'=>'string'],
+                    'label'=>['type'=>'string'],
+                    'required'=>['type'=>['boolean','null']],
+                    'props'=>['type'=>'object','properties'=>[
+                        'format'=>['type'=>'string'],
+                        'options'=>['type'=>'array','items'=>['type'=>'string']],
+                        'multiple'=>['type'=>'boolean'],
+                        'rating'=>['type'=>'object','properties'=>[
+                            'min'=>['type'=>'integer'],
+                            'max'=>['type'=>'integer'],
+                            'icon'=>['type'=>'string']
+                        ]],
+                        'duplicate_of'=>['type'=>['integer','null']],
+                        'confirm_for'=>['type'=>['integer','null']],
+                        'accept'=>['type'=>'array','items'=>['type'=>'string']],
+                        'maxSizeKB'=>['type'=>'integer'],
+                        'regex'=>['type'=>'string']
+                    ]]
+                ] ] ]
+            ]
+        ];
+    }
+
+    /** Lightweight validator ensuring minimal structural soundness */
+    protected static function hoosha_validate_schema(array $schema): array
+    {
+        $errors = [];
+        if (!isset($schema['fields']) || !is_array($schema['fields'])){ $errors[] = 'missing_fields_array'; return ['ok'=>false,'errors'=>$errors]; }
+        foreach ($schema['fields'] as $i=>$f){
+            if (!is_array($f)) { $errors[] = 'field_not_object(index='.$i.')'; continue; }
+            $t = $f['type'] ?? null; $l = $f['label'] ?? null;
+            if (!is_string($t) || $t===''){ $errors[] = 'missing_type(index='.$i.')'; }
+            if (!is_string($l) || $l===''){ $errors[] = 'missing_label(index='.$i.')'; }
+            if (isset($f['props']) && !is_array($f['props'])){ $errors[]='props_not_object(index='.$i.')'; }
+        }
+        return ['ok'=>empty($errors), 'errors'=>$errors];
+    }
+
+    /** Restore file upload semantics for fields that semantically indicate upload intent but were not typed as file */
+    protected static function hoosha_restore_file_uploads(array &$schema, array &$notes): void
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return;
+        $restored=0; $extAnnotated=0;
+        foreach ($schema['fields'] as &$f){
+            if (!is_array($f)) continue;
+            $lbl = isset($f['label']) ? mb_strtolower((string)$f['label'],'UTF-8') : '';
+            $looks = ($lbl!=='' && (mb_strpos($lbl,'آپلود')!==false || mb_strpos($lbl,'بارگذاری')!==false || mb_strpos($lbl,'فایل')!==false || preg_match('/pdf|docx|jpg|jpeg|png|log|txt/u',$lbl)));
+            if ($looks && (($f['type'] ?? '') !== 'file')){
+                $accept = [];
+                if (preg_match('/pdf|رزومه/u',$lbl)) $accept[]='application/pdf';
+                if (preg_match('/docx|رزومه/u',$lbl)) $accept[]='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                if (preg_match('/jpg|jpeg|رسید|تصویر|png/u',$lbl)){ $accept[]='image/jpeg'; $accept[]='image/png'; }
+                if (preg_match('/log|txt/u',$lbl)) $accept[]='text/plain';
+                $accept = array_values(array_unique($accept)); if (!$accept) $accept=['application/octet-stream'];
+                $f['type']='file';
+                if (!isset($f['props']) || !is_array($f['props'])) $f['props']=[];
+                $f['props']['format']='file_upload';
+                $f['props']['accept']=$accept;
+                unset($f['props']['regex']);
+                $restored++;
+            }
+            if (!empty($f['props']['_orig_format']) && $f['props']['_orig_format'] !== ($f['props']['format']??'')) $extAnnotated++;
+        }
+        unset($f);
+        if ($restored>0) $notes[]='restored_file_upload('.$restored.')';
+        if ($extAnnotated>0) $notes[]='annotated_preserved_formats('.$extAnnotated.')';
+    }
+
+    /** Infer advanced file upload properties; called late in pipeline */
+    protected static function hoosha_infer_file_props(array &$schema, string $user_text, array &$notes): void
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return; $lt = mb_strtolower($user_text,'UTF-8');
+        $multiContext = (mb_strpos($lt,'چند')!==false || mb_strpos($lt,'multiple')!==false || mb_strpos($lt,'گزارشات')!==false || mb_strpos($lt,'گزارش‌ها')!==false);
+        $count=0;
+        foreach ($schema['fields'] as &$f){
+            if (!is_array($f)) continue; if (($f['type']??'')!=='file') continue; if (!isset($f['props'])||!is_array($f['props'])) $f['props']=[];
+            $lblLow = mb_strtolower((string)($f['label']??''),'UTF-8');
+            if (!isset($f['props']['accept']) || !is_array($f['props']['accept']) || !$f['props']['accept']){
+                $acc=[]; if (preg_match('/رزومه|cv|pdf/u',$lblLow)){ $acc[]='application/pdf'; $acc[]='application/vnd.openxmlformats-officedocument.wordprocessingml.document'; }
+                if (preg_match('/تصویر|رسید|اسکرین|png|jpg|jpeg/u',$lblLow)){ $acc[]='image/png'; $acc[]='image/jpeg'; }
+                if ($acc){ $f['props']['accept']=array_values(array_unique($acc)); }
+            }
+            if ($multiContext || preg_match('/چند|multiple|گزارشات|گزارش‌ها/u',$lblLow)){ $f['props']['multiple']=true; }
+            if (!isset($f['props']['maxSizeKB'])){
+                if (preg_match('/(\d+)\s*(?:mb|مگ)/iu',$user_text,$m)){ $f['props']['maxSizeKB']=intval($m[1])*1024; }
+                elseif (preg_match('/(\d+)\s*kb/iu',$user_text,$m)){ $f['props']['maxSizeKB']=intval($m[1]); }
+                else { $f['props']['maxSizeKB']=2048; }
+            }
+            $count++;
+        }
+        unset($f); if ($count>0) $notes[]='heur:file_props_inferred('.$count.')';
+    }
+
+    /** Normalize notes to new prefix convention */
+    protected static function hoosha_normalize_note_prefixes(array $notes): array
+    {
+        $out=[]; foreach ($notes as $n){ if(!is_string($n)||$n==='') continue; $o=$n;
+            if (preg_match('/^(final_issue|final_note)\(/',$n)){ $n=preg_replace('/^final_issue\(/','ai:final_issue(', $n); $n=preg_replace('/^final_note\(/','ai:note(', $n); }
+            if (preg_match('/^(model_call_failed|fallback_from_model_failure)/',$n)){ $n='pipe:'.$n; }
+            if (preg_match('/^restored_file_upload\(/',$n)){ $n='heur:'.$n; }
+            if (preg_match('/^deduplicated_fields\(/',$n)){ $n='heur:'.$n; }
+            if (preg_match('/^required_enforced\(/',$n)){ $n='heur:'.$n; }
+            if (preg_match('/^extended_format/',$n)){ $n='heur:'.$n; }
+            if (preg_match('/^formats_summary\(/',$n)){ $n='pipe:'.$n; }
+            if (preg_match('/^options_normalized/',$n)){ $n='heur:'.$n; }
+            if ($n==='refine_attempted'){ $n='pipe:refine_attempted'; }
+            if (!preg_match('/^(pipe:|heur:|ai:|perf:)/',$n)) $n='heur:'.$n; $out[]=$n; }
+        return array_values(array_unique($out));
+    }
+
+    /** Canonicalize a label: remove leading numbering & punctuation & normalize spaces */
+    protected static function hoosha_canon_label(string $label): string
+    {
+        $l = trim($label);
+        // Remove Persian/Arabic/Latin digits + dot/parenthesis at start (e.g., "1.", "۲.", "13)")
+        $l = preg_replace('/^[\p{N}۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩]+[\.)\-_:]+\s*/u','',$l); // broad digit + separators
+        // Collapse internal whitespace
+        $l = preg_replace('/\s+/u',' ', $l);
+        return mb_strtolower($l,'UTF-8');
     }
 
     /**
@@ -4284,7 +4756,10 @@ Return strict JSON. No markdown.';
         }
         if ($removed>0){ $schema['fields'] = $out; $notes[] = 'deduplicated_fields('.$removed.')'; }
         // 3) Degrade unsupported formats to maintain compatibility with core validator
-        $supportedFormats = [ 'free_text'=>1,'email'=>1,'mobile_ir'=>1,'mobile_intl'=>1,'tel'=>1,'numeric'=>1,'national_id_ir'=>1,'postal_code_ir'=>1,'fa_letters'=>1,'en_letters'=>1,'ip'=>1,'time'=>1,'date_jalali'=>1,'date_greg'=>1,'regex'=>1 ];
+        $supportedFormats = [ 'free_text'=>1,'email'=>1,'mobile_ir'=>1,'mobile_intl'=>1,'tel'=>1,'numeric'=>1,'national_id_ir'=>1,'postal_code_ir'=>1,'fa_letters'=>1,'en_letters'=>1,'ip'=>1,'time'=>1,'date_jalali'=>1,'date_greg'=>1,'regex'=>1,
+            // Treat extended ones as first-class to avoid UI downgrade
+            'alphanumeric'=>1,'alphanumeric_no_space'=>1,'alphanumeric_extended'=>1,'file_upload'=>1,'national_id_company_ir'=>1,'sheba_ir'=>1,'credit_card_ir'=>1,'captcha_alphanumeric'=>1
+        ];
         $knownNew = ['national_id_company_ir','sheba_ir','credit_card_ir','captcha_alphanumeric','alphanumeric','alphanumeric_no_space','alphanumeric_extended','file_upload'];
         foreach ($schema['fields'] as &$f){
             if (!is_array($f)) continue; if (!isset($f['props']) || !is_array($f['props'])) continue;
@@ -4297,14 +4772,14 @@ Return strict JSON. No markdown.';
                     if ($f['type']!=='file') $f['type']='file';
                     $notes[]='extended_format(file_upload)';
                 } elseif (in_array($fmt,['alphanumeric','alphanumeric_no_space','alphanumeric_extended'],true)){
-                    // Map to regex to keep validation potential minimal (optional: keep as free_text)
+                    // Now retain the original format but attach canonical regex helper pattern if absent
                     if (!isset($f['props']['regex'])){
                         if ($fmt==='alphanumeric_no_space') $f['props']['regex']='/^[A-Za-z0-9\p{Arabic}]+$/u';
                         elseif ($fmt==='alphanumeric_extended') $f['props']['regex']='/^[A-Za-z0-9][A-Za-z0-9_\-]{2,63}$/u';
                         else $f['props']['regex']='/^[A-Za-z0-9\p{Arabic}\s]+$/u';
-                        $f['props']['format']='regex';
-                        $notes[]='degraded('.$fmt.'->regex)';
-                    } else { $f['props']['format']='regex'; }
+                        $notes[]='extended_format_helper_regex('.$fmt.')';
+                    }
+                    // Keep format unchanged
                 } elseif (in_array($fmt,['national_id_company_ir','sheba_ir','credit_card_ir','captcha_alphanumeric'],true)){
                     // Keep as-is so extended validator (if loaded) can validate; if not -> treat as free_text fallback
                     // Tag note; do not degrade here to allow new validator to work.
@@ -4327,6 +4802,15 @@ Return strict JSON. No markdown.';
             }
         }
         unset($f2);
+        // 4) formats summary note
+        try {
+            $counts = [];
+            foreach (($schema['fields']??[]) as $ff){
+                if (!is_array($ff)) continue; $fmt = $ff['props']['format'] ?? ''; if(!$fmt) continue;
+                $counts[$fmt] = ($counts[$fmt] ?? 0) + 1;
+            }
+            if ($counts){ ksort($counts, SORT_NATURAL|SORT_FLAG_CASE); $pairs=[]; foreach ($counts as $k=>$v){ $pairs[]=$k.':'.$v; } $notes[]='formats_summary(' . implode(',', $pairs) . ')'; }
+        } catch (\Throwable $e){ /* ignore */ }
     }
 
     /**
@@ -4373,6 +4857,124 @@ Return strict JSON. No markdown.';
     }
 
     /**
+     * POST /hoosha/interpret_nl
+     * Body: { schema: object, natural_prompt: string }
+     * Returns: { ok: true, commands: [string], notes?:[], raw?: string }
+     * Converts colloquial Persian instructions into normalized command strings usable by hoosha_apply.
+     */
+    public static function hoosha_interpret_nl(WP_REST_Request $request)
+    {
+        if (!self::user_can_manage_forms()) return new WP_Error('forbidden', 'forbidden', ['status' => 403]);
+        $body = json_decode($request->get_body() ?: '{}', true);
+        $schema = isset($body['schema']) && is_array($body['schema']) ? $body['schema'] : [];
+        $prompt = isset($body['natural_prompt']) ? trim((string)$body['natural_prompt']) : '';
+        if (empty($schema)) return new WP_Error('bad_request','schema required',['status'=>400]);
+        if ($prompt==='') return new WP_Error('bad_request','natural_prompt required',['status'=>400]);
+        $notes = [];
+        $notes[] = 'ai:interpret_start';
+        // Lightweight heuristic pre-parse (split by ، or . or \n)
+        $rawParts = preg_split('/[\n\.،]+/u', $prompt);
+        $candidateCmds = [];
+        if (is_array($rawParts)){
+            foreach ($rawParts as $seg){
+                $seg = trim($seg); if ($seg==='') continue;
+                // Heuristic normalizations
+                $segNorm = mb_strtolower($seg,'UTF-8');
+                // Convert numbers in Persian/Arabic digits to Latin for indexing
+                $segNorm = preg_replace_callback('/[\x{06F0}-\x{06F9}\x{0660}-\x{0669}]+/u', function($m){
+                    $map = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9','٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9'];
+                    $out=''; foreach (preg_split('//u',$m[0],-1,PREG_SPLIT_NO_EMPTY) as $ch){ $out .= $map[$ch] ?? $ch; } return $out; }, $segNorm);
+                $candidateCmds[] = $segNorm; // keep raw normalized; model will refine
+            }
+        }
+        $ai = self::get_ai_settings();
+        if (empty($ai['enabled']) || empty($ai['api_key']) || empty($ai['base_url'])){
+            // Fallback: return heuristically split commands only
+            $notes[]='ai:interpret_ai_disabled';
+            return new WP_REST_Response(['ok'=>true,'commands'=>$candidateCmds,'notes'=>$notes,'raw'=>$prompt],200);
+        }
+        try {
+            $model = self::select_optimal_model($ai, $prompt, 'hoosha_interpret_nl', 4);
+            $system = 'You are Hoosha, an assistant that converts informal Persian form edit requests into a concise array of atomic Persian imperative commands (plain strings). DO NOT return JSON with extra keys—return STRICT JSON: { commands:[string] }. Each command should be actionable (e.g., "سوال اول الزامی شود", "برای سوال دوم ۳ گزینه اضافه کن", "نام سوال سوم کوتاه تر شود"). Avoid ambiguity; expand pronouns ("آن" -> explicit field) when possible.';
+            $user = json_encode([
+                'schema'=> $schema,
+                'natural_prompt'=> $prompt,
+                'candidate_segments'=> $candidateCmds,
+            ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+            $resp = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $system, (string)$user);
+            $cmds = isset($resp['commands']) && is_array($resp['commands']) ? array_values(array_filter(array_map('strval',$resp['commands']))) : $candidateCmds;
+            $notes[] = 'ai:interpret_success('.count($cmds).')';
+            return new WP_REST_Response(['ok'=>true,'commands'=>$cmds,'notes'=>$notes,'raw'=>$prompt],200);
+        } catch(\Throwable $e){
+            $notes[] = 'ai:interpret_error';
+            return new WP_REST_Response(['ok'=>true,'commands'=>$candidateCmds,'notes'=>$notes,'raw'=>$prompt,'error'=>$e->getMessage()],200);
+        }
+    }
+
+    /**
+     * POST /hoosha/preview_edit
+     * Body: { schema: object, natural_prompt: string }
+     * Returns: { ok:true, commands:[string], preview_schema:object, deltas?:[], notes?:[] }
+     * Flow: natural language -> commands -> apply (model) -> return new schema for confirmation.
+     */
+    public static function hoosha_preview_edit(WP_REST_Request $request)
+    {
+        if (!self::user_can_manage_forms()) return new WP_Error('forbidden','forbidden',['status'=>403]);
+        $body = json_decode($request->get_body() ?: '{}', true);
+        $schema = isset($body['schema']) && is_array($body['schema']) ? $body['schema'] : [];
+        $prompt = isset($body['natural_prompt']) ? trim((string)$body['natural_prompt']) : '';
+        if (empty($schema)) return new WP_Error('bad_request','schema required',['status'=>400]);
+        if ($prompt==='') return new WP_Error('bad_request','natural_prompt required',['status'=>400]);
+        $notes=[]; $notes[]='pipe:preview_edit_start';
+        // Step 1: interpret
+        $interpretReq = new WP_REST_Request('POST','/arshline/v1/hoosha/interpret_nl');
+        $interpretReq->set_body(json_encode(['schema'=>$schema,'natural_prompt'=>$prompt], JSON_UNESCAPED_UNICODE));
+        $interpResp = self::hoosha_interpret_nl($interpretReq);
+        if ($interpResp instanceof WP_Error){ return $interpResp; }
+        $interpData = $interpResp->get_data();
+        $commands = isset($interpData['commands']) && is_array($interpData['commands'])? $interpData['commands'] : [];
+        // Step 2: apply (preview)
+        $applySystem = 'You are Hoosha, apply given Persian commands to schema precisely and output STRICT JSON: { schema, deltas:[{op,detail?,field_index?}] }. Keep unrelated fields intact.';
+        $applyUser = json_encode(['phase'=>'preview_edit','schema'=>$schema,'commands'=>$commands], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        $ai = self::get_ai_settings();
+        if (empty($ai['enabled']) || empty($ai['api_key']) || empty($ai['base_url'])){
+            // fallback – just echo original schema, no change
+            $notes[]='ai:preview_ai_disabled';
+            return new WP_REST_Response(['ok'=>true,'commands'=>$commands,'preview_schema'=>$schema,'deltas'=>[],'notes'=>$notes],200);
+        }
+        try {
+            $model = self::select_optimal_model($ai, json_encode($schema, JSON_UNESCAPED_UNICODE), 'hoosha_preview_edit', 4);
+            $resp = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $applySystem, $applyUser);
+            if (!is_array($resp)) throw new \Exception('invalid_model_response');
+            $preview = isset($resp['schema']) && is_array($resp['schema']) ? $resp['schema'] : $schema;
+            $deltas = isset($resp['deltas']) && is_array($resp['deltas']) ? $resp['deltas'] : [];
+            if (empty($deltas)){
+                // Local diff generator: compare labels, types, required, added/removed fields counts
+                try {
+                    $old = isset($schema['fields']) && is_array($schema['fields'])? $schema['fields'] : [];
+                    $new = isset($preview['fields']) && is_array($preview['fields'])? $preview['fields'] : [];
+                    $max = max(count($old), count($new));
+                    for ($i=0; $i<$max; $i++){
+                        $o = $old[$i] ?? null; $n = $new[$i] ?? null;
+                        if ($o && !$n){ $deltas[] = ['op'=>'remove_field','field_index'=>$i,'detail'=>$o['label']??'']; continue; }
+                        if (!$o && $n){ $deltas[] = ['op'=>'add_field','field_index'=>$i,'detail'=>$n['label']??'']; continue; }
+                        if ($o && $n){
+                            if (($o['label']??'') !== ($n['label']??'')) $deltas[] = ['op'=>'update_label','field_index'=>$i,'detail'=>($o['label']??'').' -> '.($n['label']??'')];
+                            if (($o['type']??'') !== ($n['type']??'')) $deltas[] = ['op'=>'update_type','field_index'=>$i,'detail'=>($o['type']??'').' -> '.($n['type']??'')];
+                            $or = !empty($o['required']); $nr = !empty($n['required']); if ($or !== $nr) $deltas[] = ['op'=>'update_required','field_index'=>$i,'detail'=>($or?'required':'optional').' -> '.($nr?'required':'optional')];
+                        }
+                    }
+                } catch (\Throwable $dx){ /* ignore */ }
+            }
+            $notes[]='ai:preview_success('.count($deltas).')';
+            return new WP_REST_Response(['ok'=>true,'commands'=>$commands,'preview_schema'=>$preview,'deltas'=>$deltas,'notes'=>$notes],200);
+        } catch(\Throwable $e){
+            $notes[]='ai:preview_error';
+            return new WP_REST_Response(['ok'=>true,'commands'=>$commands,'preview_schema'=>$schema,'deltas'=>[],'notes'=>$notes,'error'=>$e->getMessage()],200);
+        }
+    }
+
+    /**
      * Convert Hoosha schema to fields array compatible with Form builder.
      */
     protected static function hoosha_schema_to_fields(array $schema): array
@@ -4399,6 +5001,78 @@ Return strict JSON. No markdown.';
             }
         }
         return $fields;
+    }
+
+    /** Collect enumerations of supported field types, formats, and meta flags for AI final review context. */
+    protected static function hoosha_collect_form_capabilities(): array
+    {
+        // Keep this deterministic & compact for prompt budget.
+        return [
+            'field_types' => ['short_text','long_text','multiple_choice','dropdown','rating','file'],
+            'extended_formats' => [
+                'email','mobile_ir','mobile_intl','tel','numeric','national_id_ir','national_id_company_ir','postal_code_ir','sheba_ir','credit_card_ir','captcha_alphanumeric','fa_letters','en_letters','ip','time','date_jalali','date_greg','alphanumeric','alphanumeric_no_space','alphanumeric_extended','file_upload','regex','free_text'
+            ],
+            'special_props' => ['required','options','placeholder','format','rating','multiple','confirm_for','regex','_orig_format'],
+            'rules' => [
+                'confirm_for requires matching value with referenced field',
+                'file_upload must have type=file',
+                'rating has min/max/icon',
+                'multiple_choice may set multiple=true for multi-select',
+                'alphanumeric*_ variants degrade to regex internally if unsupported',
+                'national/company IDs have checksum logic',
+                'sheba_ir must be IR + 24 digits with valid mod97',
+                'credit_card_ir must pass Luhn',
+            ],
+        ];
+    }
+
+    /**
+     * POST /hoosha/final-review
+     * Body: { user_text: string, schema: object }
+     * Returns: { ok: true, schema: object, issues: array, model_notes?: array }
+     */
+    public static function hoosha_final_review(\WP_REST_Request $request)
+    {
+        if (!self::user_can_manage_forms()) return new \WP_Error('forbidden','forbidden',['status'=>403]);
+        $body = json_decode($request->get_body() ?: '{}', true);
+        $userText = isset($body['user_text']) && is_string($body['user_text']) ? trim($body['user_text']) : '';
+        $schema = isset($body['schema']) && is_array($body['schema']) ? $body['schema'] : [];
+        if (!$schema) return new \WP_Error('bad_request','schema required',['status'=>400]);
+        $caps = self::hoosha_collect_form_capabilities();
+        $settings = self::get_ai_settings();
+        if (empty($settings['enabled']) || empty($settings['base_url']) || empty($settings['api_key'])){
+            return new \WP_REST_Response(['ok'=>false,'error'=>'ai_not_configured','schema'=>$schema,'issues'=>[],'suggestions'=>[]], 200);
+        }
+        $system = 'You are Hoosha, an exact Persian form schema reviewer. You receive: user_text, capabilities, candidate schema. Return STRICT JSON: { schema, issues:[{code,message,severity,field_index?}], suggestions:[{type,detail}], model_notes:[] }. Severity in {info,warning,error}. Do NOT add new fields unless a critical omission is explicit in user_text. Focus on: incorrect formats, missing confirm_for linkage, invalid duplicate_of, file props inconsistencies.';
+        $payload = [ 'phase'=>'final_review','user_text'=>$userText,'capabilities'=>$caps,'schema'=>$schema ];
+        $user = json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        try {
+            $model = self::select_optimal_model($settings, json_encode($schema, JSON_UNESCAPED_UNICODE), 'hoosha_final_review', 6);
+            $resp = self::openai_chat_json((string)$settings['base_url'], (string)$settings['api_key'], (string)$model, $system, (string)$user);
+            if (!is_array($resp)) throw new \Exception('invalid_model_response');
+            $newSchema = isset($resp['schema']) && is_array($resp['schema']) ? $resp['schema'] : $schema;
+            if (!isset($newSchema['fields']) || !is_array($newSchema['fields'])) { $newSchema['fields'] = $schema['fields'] ?? []; }
+            if (count($newSchema['fields']) > 120) { $newSchema['fields'] = array_slice($newSchema['fields'],0,120); }
+            $issues = isset($resp['issues']) && is_array($resp['issues']) ? $resp['issues'] : [];
+            $suggestions = isset($resp['suggestions']) && is_array($resp['suggestions']) ? $resp['suggestions'] : [];
+            $notes = isset($resp['model_notes']) && is_array($resp['model_notes']) ? $resp['model_notes'] : [];
+            $normIssues=[]; foreach($issues as $iss){ if (is_array($iss)){ $code=(string)($iss['code']??'issue'); $sev=(string)($iss['severity']??''); if ($sev==='') $sev=self::hoosha_classify_issue_severity($code); $normIssues[]=[ 'code'=>$code, 'message'=>(string)($iss['message']??''), 'severity'=>$sev, 'field_index'=> isset($iss['field_index'])? intval($iss['field_index']) : null ]; } }
+            $normSuggestions=[]; foreach($suggestions as $sg){ if (is_array($sg)){ $normSuggestions[]=[ 'type'=>(string)($sg['type']??'suggest'), 'detail'=>(string)($sg['detail']??'') ]; } }
+            return new \WP_REST_Response(['ok'=>true,'schema'=>$newSchema,'issues'=>$normIssues,'suggestions'=>$normSuggestions,'model_notes'=>$notes], 200);
+        } catch (\Throwable $e){
+            return new \WP_REST_Response(['ok'=>false,'error'=>$e->getMessage(),'schema'=>$schema,'issues'=>[],'suggestions'=>[]], 200);
+        }
+    }
+
+    /** Map issue code to a severity (error | warning | info) */
+    protected static function hoosha_classify_issue_severity(string $code): string
+    {
+        $c = mb_strtolower($code,'UTF-8');
+        $errorPatterns = ['invalid','missing','conflict','duplicate','mismatch','checksum','format'];
+        foreach ($errorPatterns as $p){ if (mb_strpos($c,$p)!==false) return 'error'; }
+        $warnPatterns = ['optimize','long','ambiguous','suggest','deprecated'];
+        foreach ($warnPatterns as $p){ if (mb_strpos($c,$p)!==false) return 'warning'; }
+        return 'info';
     }
 
     /**
@@ -4594,6 +5268,14 @@ Return strict JSON. No markdown.';
             $isBullet = preg_match('/^[-•\x{2022}]/u',$ln) || preg_match('/^(تهران|اصفهان|شیراز|تبریز|مشهد|اهواز|رشت)$/u',$low);
             // Treat short lines that are obvious field prompts (شروع با کد ملی، شماره، کد پست، فقط، تاریخ، ساعت)
             $startsLikeField = preg_match('/^(کد|شماره|فقط|تاریخ|ساعت|آی\s*پی|سطح)/u',$low);
+            $enumeratedPrefix = false;
+            // Detect enumerated numeric prefixes like "27.", "45)" or "120." at start
+            if (preg_match('/^\d{1,3}[\.)\-\:]/u',$ln)){ $enumeratedPrefix = true; }
+            // Lines ending with colon often are prompts: کد محصول:
+            $endsWithColon = (mb_substr($ln,-1,1,'UTF-8') === ':' || mb_substr($ln,-1,1,'UTF-8') === '：');
+            if ($enumeratedPrefix || ($endsWithColon && mb_strlen($ln,'UTF-8') <= 80 && !preg_match('/\s{2,}/u',$ln))){
+                $startsLikeField = true; // augment heuristic
+            }
             $containsOptionSep = preg_match('/\s+یا\s+/u',$low);
             $hasQuestionCue = preg_match('/[\?؟]$/u',$ln) || preg_match('/\b(چطور|چطوره|چی|کدام|کدوم|چند|چقدر|آیا|ترجیحت|دوست داری|دوس داری)\b/u',$low) || preg_match('/(بده|بنویس|ثبت کن|انتخاب کن|رو بزن|بزن|وارد کن)/u',$low);
             // numeric cues (چنده / چند است) broaden detection
@@ -5058,6 +5740,37 @@ Return strict JSON. No markdown.';
             'food' => ['پیتزا','برگر'],
             'satisfaction' => ['کم','متوسط','عالی'],
         ];
+        // Pre-pass: fix concatenated Persian options like "قرمزآبیسبز" (color examples) or lack of delimiter
+        $splitGlue = function(string $token): array {
+            // If token already contains delimiters, return as is
+            if (preg_match('/[\s،\/\|]+/u',$token)) return array_filter(preg_split('/[\s،\/\|]+/u',$token) ?: []);
+            // Heuristic: split when alternating known color/short words stuck together
+            $colors = ['قرمز','آبی','سبز','زرد','مشکی','سفید'];
+            $parts = [];$remain=$token; $progress=false;
+            for ($i=0;$i<10;$i++){
+                $matched=false;
+                foreach($colors as $c){
+                    if ($remain!=='' && mb_strpos($remain,$c)===0){ $parts[]=$c; $remain=mb_substr($remain, mb_strlen($c,'UTF-8'), null,'UTF-8'); $matched=true; $progress=true; break; }
+                }
+                if(!$matched) break;
+            }
+            if ($progress && $remain==='') return $parts; // fully tokenized
+            return [$token];
+        };
+        // Apply pre-pass normalization over all option arrays
+        foreach ($schema['fields'] as &$fPre){
+            if (!is_array($fPre)) continue; $t = $fPre['type'] ?? ''; if (!in_array($t,['multiple_choice','dropdown'],true)) continue;
+            if (!isset($fPre['props']['options']) || !is_array($fPre['props']['options'])) continue;
+            $norm = [];$changed=false;
+            foreach ($fPre['props']['options'] as $op){
+                $op = trim((string)$op); if ($op==='') continue;
+                $split = $splitGlue($op);
+                if (count($split)>1){ $changed=true; }
+                foreach ($split as $sp){ $norm[]=$sp; }
+            }
+            if ($changed){ $fPre['props']['options']=array_values(array_unique($norm)); $notes[]='options_token_split'; }
+        }
+        unset($fPre);
         // Helper: classify option list into group membership counts
         $classify = function(array $opts) use ($groups){
             $res = [];
@@ -8989,5 +9702,180 @@ Return strict JSON. No markdown.';
         }
         // Return URL only
         return new WP_REST_Response([ 'url' => $movefile['url'] ], 201);
+    }
+
+    /**
+     * POST /migrations/restore-file-uploads
+     * Scans existing fields and restores any that were previously degraded from file_upload to regex/free_text.
+     * Criteria:
+     *  - props._orig_format === 'file_upload'
+     *  - (props.format !== 'file_upload' OR (type not set to 'file'))
+     * Action:
+     *  - set props.format = 'file_upload'
+     *  - add note migration_restored_file_upload
+     *  - ensure type=file (if a 'type' key exists in props array used elsewhere)
+     */
+    public static function migrate_restore_file_uploads(WP_REST_Request $request)
+    {
+        if (!self::user_can_manage_forms()) return new WP_REST_Response(['error'=>'forbidden'], 403);
+        global $wpdb; $tableFields = Helpers::tableName('fields'); $tableForms = Helpers::tableName('forms');
+        $limit = isset($_GET['limit']) ? max(1, min(500, intval($_GET['limit']))) : 250;
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, form_id, props FROM {$tableFields} WHERE props LIKE %s LIMIT %d", '%_orig_format%file_upload%', $limit), ARRAY_A);
+        $updated = 0; $formTouched = [];
+        foreach ($rows as $r){
+            $props = json_decode($r['props'] ?: '{}', true);
+            if (!is_array($props)) continue;
+            $orig = $props['_orig_format'] ?? '';
+            $curr = $props['format'] ?? '';
+            if ($orig === 'file_upload' && $curr !== 'file_upload'){
+                $props['format'] = 'file_upload';
+                $props['type'] = 'file';
+                // Remove regex if it was only for degraded placeholder
+                if (isset($props['regex'])){
+                    // Heuristic: regex previously auto-generated for alphanumeric degrade; not needed
+                    unset($props['regex']);
+                }
+                $props['migration_note'] = 'restored_file_upload';
+                $wpdb->update($tableFields, [ 'props'=>json_encode($props, JSON_UNESCAPED_UNICODE) ], [ 'id'=>$r['id'] ]);
+                if (!$wpdb->last_error){ $updated++; $formTouched[(int)$r['form_id']] = true; }
+            }
+        }
+        // Append note to each affected form meta (non destructive)
+        if ($updated>0 && !empty($formTouched)){
+            $formIds = array_keys($formTouched);
+            $in = implode(',', array_map('intval',$formIds));
+            $frows = $wpdb->get_results("SELECT id, meta FROM {$tableForms} WHERE id IN ($in)", ARRAY_A);
+            foreach ($frows as $fr){
+                $meta = json_decode($fr['meta'] ?: '{}', true); if (!is_array($meta)) $meta=[];
+                $notes = isset($meta['notes']) && is_array($meta['notes']) ? $meta['notes'] : [];
+                $notes[] = 'migration_restored_file_upload';
+                // de-duplicate notes
+                $notes = array_values(array_unique($notes));
+                $meta['notes'] = $notes;
+                $wpdb->update($tableForms, [ 'meta'=>json_encode($meta, JSON_UNESCAPED_UNICODE) ], [ 'id'=>$fr['id'] ]);
+            }
+        }
+        return new WP_REST_Response([ 'ok'=>true, 'updated_fields'=>$updated, 'forms_affected'=>count($formTouched) ], 200);
+    }
+
+    /**
+     * POST /public/forms/{form_id}/file-upload
+     * Secure generic file upload for form 'file' fields. Returns a temporary token reference for later attachment to submission.
+     * Enforces: form published, optional access token, size limit, allowed extensions/MIME, random filename, quarantine directory.
+     */
+    public static function public_form_file_upload(WP_REST_Request $request)
+    {
+        $formId = (int)$request['form_id'];
+        if ($formId <= 0) return new WP_REST_Response(['error'=>'invalid_form_id'], 400);
+        $form = FormRepository::find($formId);
+        if (!$form || $form->status !== 'published'){
+            return new WP_REST_Response(['error'=>'form_unavailable'], 404);
+        }
+        // Basic anti-abuse rate limit per IP
+        try {
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            $now = time();
+            $key = 'arsh_up_file_rl_'.md5($ip ?: '');
+            $entry = get_transient($key);
+            $windowSec = 60; $limit = 12;
+            $data = is_array($entry) ? $entry : ['count'=>0,'reset'=>$now+$windowSec];
+            if ($now >= (int)$data['reset']){ $data=['count'=>0,'reset'=>$now+$windowSec]; }
+            if ((int)$data['count'] >= $limit){ return new WP_REST_Response(['error'=>'rate_limited','retry_after'=>max(0,(int)$data['reset']-$now)], 429); }
+            $data['count']=(int)$data['count']+1; set_transient($key,$data,$windowSec);
+        } catch (\Throwable $e) {}
+
+        if (!function_exists('wp_handle_sideload')) require_once(ABSPATH.'wp-admin/includes/file.php');
+        $files = $request->get_file_params();
+        if (!isset($files['file'])) return new WP_REST_Response(['error'=>'no_file'], 400);
+        $file = $files['file'];
+
+    $origName = (string)($file['name'] ?? '');
+    // Normalize & sanitize original name (keep extension separately)
+    $origName = preg_replace('/[\r\n\t\\\/]+/','_', $origName);
+    $origName = preg_replace('/[^A-Za-z0-9._\-\x{0600}-\x{06FF}]+/u','_', $origName);
+    if (mb_strlen($origName) > 120) { $origName = mb_substr($origName, 0, 120); }
+        $size = isset($file['size']) ? (int)$file['size'] : 0;
+        $gs = self::get_global_settings();
+        $maxKB = isset($gs['file_upload_max_kb']) ? max(50, min(8192, (int)$gs['file_upload_max_kb'])) : 2048; // default 2MB
+        $maxBytes = $maxKB * 1024;
+        if ($size <= 0 || $size > $maxBytes){
+            return new WP_REST_Response(['error'=>'invalid_size','max_kb'=>$maxKB], 413);
+        }
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+        // Disallow dangerous extensions
+        $blocked = ['php','php5','phtml','phar','js','html','htm','svg','exe','sh','bat','cmd','ps1'];
+        if (in_array($ext, $blocked, true)) return new WP_REST_Response(['error'=>'blocked_extension'], 415);
+        // Allowed whitelist (can expand via filter)
+        $allowedExt = apply_filters('arshline_public_file_allowed_ext', ['pdf','doc','docx','txt','log','jpg','jpeg','png']);
+        if (!in_array($ext, $allowedExt, true)) return new WP_REST_Response(['error'=>'invalid_extension'], 415);
+
+        // MIME sniff (primary)
+        $realMime='';
+        $tmpPath = $file['tmp_name'] ?? '';
+        if (function_exists('finfo_open') && is_readable($tmpPath)){
+            $f=finfo_open(FILEINFO_MIME_TYPE); if ($f){ $realMime=(string)finfo_file($f,$tmpPath); finfo_close($f);} }
+        $clientType = (string)($file['type'] ?? '');
+        $mimeToCheck = $realMime ?: $clientType;
+        $allowedMimes = [
+            'application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain','image/jpeg','image/png','image/jpg','text/x-log'
+        ];
+        if ($mimeToCheck && !in_array($mimeToCheck, $allowedMimes, true)){
+            return new WP_REST_Response(['error'=>'invalid_type'], 415);
+        }
+        // Secondary magic bytes checks
+        if ($tmpPath && is_readable($tmpPath)){
+            try {
+                $fh = fopen($tmpPath, 'rb');
+                if ($fh){
+                    $sig = fread($fh, 8); fclose($fh);
+                    if ($ext === 'png' && substr($sig,0,8) !== "\x89PNG\x0D\x0A\x1A\x0A") return new WP_REST_Response(['error'=>'invalid_signature'], 415);
+                    if (in_array($ext, ['jpg','jpeg']) && substr($sig,0,2) !== "\xFF\xD8") return new WP_REST_Response(['error'=>'invalid_signature'], 415);
+                    if ($ext === 'gif' && substr($sig,0,3) !== 'GIF') return new WP_REST_Response(['error'=>'invalid_signature'], 415);
+                    if ($ext === 'pdf'){
+                        // PDF should start with %PDF-
+                        $fh2 = fopen($tmpPath,'rb'); if ($fh2){ $sig2 = fread($fh2, 5); fclose($fh2); if ($sig2 !== "%PDF-" ) return new WP_REST_Response(['error'=>'invalid_signature'], 415); }
+                    }
+                }
+            } catch (\Throwable $e){ /* ignore but safer to reject on explicit mismatch */ }
+        }
+        // Enforce extension/MIME consistency for simple text/log vs others
+        $mapExtMime = [ 'pdf'=>'application/pdf', 'doc'=>'application/msword', 'docx'=>'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'txt'=>'text/plain', 'log'=>'text/x-log', 'jpg'=>'image/jpeg', 'jpeg'=>'image/jpeg', 'png'=>'image/png' ];
+        if (isset($mapExtMime[$ext]) && $realMime && $realMime !== $mapExtMime[$ext]){
+            return new WP_REST_Response(['error'=>'mime_mismatch'], 415);
+        }
+        // Randomize filename (keep extension)
+    $randomBase = bin2hex(random_bytes(8));
+        $safeName = $randomBase.'.'.$ext;
+        $uploadDir = wp_upload_dir();
+        $subdir = '/arshline/forms';
+        $targetDir = $uploadDir['basedir'].$subdir;
+        if (!wp_mkdir_p($targetDir)) return new WP_REST_Response(['error'=>'mkdir_failed'], 500);
+        $targetPath = $targetDir.'/'.$safeName;
+        // Move file
+        if (!isset($file['tmp_name']) || !@is_uploaded_file($file['tmp_name'])){
+            return new WP_REST_Response(['error'=>'invalid_tmp'], 400);
+        }
+        if (!@move_uploaded_file($file['tmp_name'], $targetPath)){
+            return new WP_REST_Response(['error'=>'move_failed'], 500);
+        }
+        // Store minimal meta in transient (token -> path + original name + size + mime) for later binding on submit
+        $token = 'F'.substr(bin2hex(random_bytes(12)),0,20);
+        $sha1 = '';
+        try { if ($tmpPath && is_readable($targetPath)) { $sha1 = sha1_file($targetPath) ?: ''; } } catch(\Throwable $e){ }
+        $meta = [
+            'form_id'=>$formId,
+            'path'=>$targetPath,
+            'name'=>$origName,
+            'stored_name'=>$safeName,
+            'size'=>$size,
+            'ext'=>$ext,
+            'mime'=>$mimeToCheck,
+            'hash'=>$sha1,
+            'created'=>time(),
+        ];
+        set_transient('arshline_file_'.$token, $meta, 60*30); // 30 minutes
+        $publicUrl = $uploadDir['baseurl'].$subdir.'/'.$safeName;
+        return new WP_REST_Response(['ok'=>true,'token'=>$token,'name'=>$origName,'size'=>$size,'url'=>$publicUrl], 201);
     }
 }

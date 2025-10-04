@@ -3,31 +3,93 @@ namespace Arshline\Modules\Forms;
 
 class FormValidator
 {
+    // Simple performance counters (aggregate) for heavy validators
+    protected static array $perf = [
+        'luhn' => ['count'=>0,'time'=>0.0],
+        'iban' => ['count'=>0,'time'=>0.0],
+        'regex' => ['count'=>0,'time'=>0.0],
+    ];
+    protected static int $perfFlushEvery = 25; // persist every N updates
+    protected static int $perfOps = 0;
+    protected static function perfAdd(string $key, float $dur): void
+    {
+        if (!isset(self::$perf[$key])) return;
+        self::$perf[$key]['count']++;
+        self::$perf[$key]['time'] += $dur;
+        self::$perfOps++;
+        if (self::$perfOps % self::$perfFlushEvery === 0) {
+            try {
+                if (function_exists('set_transient')) {
+                    // Store a lightweight snapshot (average ms)
+                    $snap = [];
+                    foreach (self::$perf as $k=>$v){
+                        $avg = ($v['count']>0) ? ($v['time'] / $v['count']) : 0.0;
+                        $snap[$k] = [
+                            'count' => $v['count'],
+                            'total_ms' => round($v['time']*1000,2),
+                            'avg_ms' => round($avg*1000,4)
+                        ];
+                    }
+                    set_transient('arsh_val_perf', $snap, 15 * MINUTE_IN_SECONDS);
+                }
+            } catch (\Throwable $e) {}
+        }
+    }
+    public static function getPerfStats(): array
+    {
+        $out = [];
+        foreach (self::$perf as $k=>$v){
+            $out[$k] = [
+                'count'=>$v['count'],
+                'total_ms'=>round($v['time']*1000,2),
+                'avg_ms'=> $v['count']? round(($v['time']/$v['count'])*1000,4):0.0
+            ];
+        }
+        // Merge last persisted snapshot (if any) but do not override live counters when higher
+        try {
+            if (function_exists('get_transient')){
+                $snap = get_transient('arsh_val_perf');
+                if (is_array($snap)){
+                    foreach ($snap as $k=>$v){
+                        if (!isset($out[$k])) { $out[$k] = $v; continue; }
+                        // Combine counts (best effort)
+                        if (isset($v['count']) && $v['count'] > $out[$k]['count']){
+                            $out[$k] = $v; // assume snapshot newer if bigger
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
+        return $out;
+    }
     // Luhn check for credit card numbers (digits only)
     protected static function luhnValid(string $num): bool
     {
-        if ($num === '' || preg_match('/[^0-9]/', $num)) return false;
+        $t0 = microtime(true);
+        if ($num === '' || preg_match('/[^0-9]/', $num)) { self::perfAdd('luhn', microtime(true)-$t0); return false; }
         $sum = 0; $alt = false; for ($i = strlen($num) - 1; $i >= 0; $i--) {
             $n = intval($num[$i]); if ($alt) { $n *= 2; if ($n > 9) $n -= 9; } $sum += $n; $alt = !$alt; }
-        return $sum % 10 === 0;
+        $ok = ($sum % 10 === 0);
+        self::perfAdd('luhn', microtime(true)-$t0);
+        return $ok;
     }
 
     // IBAN (basic) mod97 for IR (assumes already normalized, e.g., IRxxxxxxxxxxxxxxxxxxxxxxxx)
     protected static function ibanMod97(string $iban): bool
     {
+        $t0 = microtime(true);
         $iban = strtoupper(preg_replace('/\s+/', '', $iban));
-        if (strlen($iban) < 4) return false;
-        // Move first 4 chars to end
+        if (strlen($iban) < 4) { self::perfAdd('iban', microtime(true)-$t0); return false; }
         $rearranged = substr($iban, 4) . substr($iban, 0, 4);
-        // Replace letters
         $expanded = '';
         foreach (str_split($rearranged) as $ch){
             if (ctype_alpha($ch)) { $expanded .= (string)(ord($ch) - 55); } else { $expanded .= $ch; }
         }
-        // Large number mod 97
         $mod = 0; $len = strlen($expanded);
         for ($i=0; $i<$len; $i++) { $mod = ($mod*10 + intval($expanded[$i])) % 97; }
-        return $mod === 1;
+        $ok = ($mod === 1);
+        self::perfAdd('iban', microtime(true)-$t0);
+        return $ok;
     }
     public static function validate(Form $form): array
     {
@@ -129,13 +191,20 @@ class FormValidator
                         if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/', $val)) $errors[] = 'تاریخ میلادی نامعتبر است.';
                         break;
                     case 'national_id_company_ir':
-                        if (!preg_match('/^\d{11}$/', $val)) { $errors[]='شناسه ملی شرکت نامعتبر است.'; break; }
-                        if (preg_match('/^(\d)\1{10}$/', $val)) { $errors[]='شناسه ملی شرکت نامعتبر است.'; break; }
+                        if (!preg_match('/^\d{11}$/', $val)) { $errors[]='شناسه ملی شرکت نامعتبر است (طول یا کاراکترها).'; break; }
+                        if (preg_match('/^(\d)\1{10}$/', $val)) { $errors[]='شناسه ملی شرکت نامعتبر است (تکرار رقم).'; break; }
+                        // Placeholder checksum TODO: الگوریتم کنترل شناسه ملی شرکت پیاده‌سازی نشده است.
+                        // If algorithm becomes available, implement here and push specific error.
                         break;
                     case 'sheba_ir':
                         $canon = strtoupper(preg_replace('/\s+/', '', $val));
-                        if (!preg_match('/^IR\d{24}$/', $canon)) { $errors[]='شماره شبا نامعتبر است.'; break; }
-                        if (!self::ibanMod97($canon)) { $errors[]='شماره شبا نامعتبر است.'; }
+                        if (substr($canon,0,2) !== 'IR') { $errors[]='شبا: کد کشور باید IR باشد.'; break; }
+                        $len = strlen($canon);
+                        if ($len !== 26 || !preg_match('/^IR\d{24}$/', $canon)) { $errors[]='شبا: طول باید 26 کاراکتر (IR + 24 رقم) باشد.'; break; }
+                        // Extract bank code (digits 5-7 overall positions 4,5,6 zero-based after IR + 2 check digits)
+                        $bankCode = substr($canon,4,3);
+                        if (preg_match('/^0{3}$/', $bankCode)) { $errors[]='شبا: کد بانک نامعتبر است.'; }
+                        if (!self::ibanMod97($canon)) { $errors[]='شبا: رقم کنترل نامعتبر است.'; }
                         break;
                     case 'credit_card_ir':
                         $digits = preg_replace('/[^0-9]/', '', $val);
@@ -155,8 +224,10 @@ class FormValidator
                         break;
                     case 'regex':
                         $pattern = (string)($props['regex'] ?? '');
-                        if ($pattern === '' || @preg_match($pattern, '') === false) { $errors[] = 'الگوی دلخواه نامعتبر است.'; break; }
-                        if (!preg_match($pattern, $val)) $errors[] = 'مقدار با الگوی دلخواه تطابق ندارد.';
+                        $tR = microtime(true);
+                        if ($pattern === '' || @preg_match($pattern, '') === false) { $errors[] = 'الگوی دلخواه نامعتبر است.'; self::perfAdd('regex', microtime(true)-$tR); break; }
+                        if (!preg_match($pattern, $val)) { $errors[] = 'مقدار با الگوی دلخواه تطابق ندارد.'; }
+                        self::perfAdd('regex', microtime(true)-$tR);
                         break;
                     case 'free_text':
                     default:
@@ -191,7 +262,13 @@ class FormValidator
                 $v1 = $valueMap[$refId] ?? '';
                 $v2 = $valueMap[$fid] ?? '';
                 if ($v1 !== '' && $v2 !== '' && $v1 !== $v2){
-                    $errors[] = ($props['label'] ?? 'فیلد تایید').' با مقدار اصلی مطابقت ندارد.';
+                    if ($fmt === 'national_id_ir') {
+                        $errors[] = 'کد ملی و تأیید آن یکسان نیست.';
+                    } elseif ($fmt === 'email') {
+                        $errors[] = 'ایمیل و تأیید آن یکسان نیست.';
+                    } else {
+                        $errors[] = ($props['label'] ?? 'فیلد تأیید').' با مقدار اصلی مطابقت ندارد.';
+                    }
                 }
             }
         }

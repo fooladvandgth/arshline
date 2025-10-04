@@ -34,6 +34,9 @@
   var maxBatch = 50;
   var flushInterval = 500; // ms
   var started = false;
+  var listeners = [];
+  var rid = 0;
+  function nextId(){ try { rid = (rid+1) % 1000000; return rid; } catch(_){ return Date.now()%1000000; } }
 
   // Regex ها برای سانسور داده‌ها
   var reEmail = /([a-zA-Z0-9_.+-]+)@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)/g;
@@ -45,7 +48,7 @@
   function summarizeTarget(el){ try { if(!el) return ''; var sel=cssPath(el); if(sel) return sel; var html=el.outerHTML||''; return html? html.slice(0,120).replace(/\s+/g,' ')+'…' : (el.nodeName||''); } catch(_){ return ''; } }
   function sanitize(val){ try { var s = (typeof val==='string')? val : JSON.stringify(val); if (!s) return s; s = s.replace(reEmail, '***@***'); s = s.replace(rePhone, '********'); return s; } catch(_){ return ''; } }
   function validate(entry){ try { if(!entry || !entry.type) return false; if(typeof entry.message==='string' && entry.message.length>2000) entry.message = entry.message.slice(0,2000)+'…'; return true; } catch(_){ return false; } }
-  function push(entry){ if(!validate(entry)) return; queue.push(entry); if(queue.length>=maxBatch){ flush(); } }
+  function push(entry){ if(!validate(entry)) return; try { listeners.forEach(function(fn){ try { fn(entry); } catch(_){ } }); } catch(_){ } queue.push(entry); if(queue.length>=maxBatch){ flush(); } }
   function flush(){ if(flushing || !queue.length) return; flushing=true; var batch=queue.splice(0, maxBatch); setTimeout(function(){ try { batch.forEach(function(e){ var line = '['+ts()+'] '+e.type.toUpperCase()+ ' :: ' + (e.target||'') + (e.message?(' :: '+sanitize(e.message)):'') + (e.data?(' :: '+sanitize(e.data)):''); console.log('%c[ARSH-CAPTURE]','color:#16a34a', line); }); } finally { flushing=false; } }, 0); }
   setInterval(flush, flushInterval);
 
@@ -87,9 +90,68 @@
     } catch(_){ }
   }
 
-  // Fetch/XHR capture
-  function wrapFetch(){ if (!window.fetch) return; var _fetch = window.fetch; window.fetch = function(input, init){ try { var method = (init && init.method) ? String(init.method).toUpperCase() : 'GET'; var url = (typeof input==='string')? input : (input && input.url) ? input.url : ''; push({ type:'ajax', message:'fetch '+method, data:url }); } catch(_){ } return _fetch.apply(this, arguments); } }
-  function wrapXHR(){ if (!window.XMLHttpRequest) return; var _open = XMLHttpRequest.prototype.open; var _send = XMLHttpRequest.prototype.send; XMLHttpRequest.prototype.open = function(method, url){ try { this.__arsh_meta = { method:String(method||'GET').toUpperCase(), url:String(url||'') }; } catch(_){ } return _open.apply(this, arguments); }; XMLHttpRequest.prototype.send = function(body){ try { var info = (this && this.__arsh_meta) ? this.__arsh_meta : { method:'GET', url:'' }; push({ type:'ajax', message:'xhr '+info.method, data: info.url }); } catch(_){ } return _send.apply(this, arguments); }; }
+  // Fetch/XHR capture (request + response)
+  function wrapFetch(){
+    if (!window.fetch) return;
+    var _fetch = window.fetch;
+    window.fetch = function(input, init){
+      var startedAt = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+      var method = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
+      var url = (typeof input==='string')? input : (input && input.url) ? input.url : '';
+      var id = nextId();
+      try {
+        var bodyPreview = '';
+        if (init && init.body){ try { bodyPreview = String(init.body); } catch(_){ bodyPreview='[body]'; } }
+        push({ type:'ajax', message:'fetch request', target: method+' '+url, data: (bodyPreview||'').slice(0,1000), id:id });
+      } catch(_){ }
+      return _fetch.apply(this, arguments).then(function(r){
+        var endedAt = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+        try {
+          var ct = (r.headers && r.headers.get)? (r.headers.get('content-type')||''): '';
+          var clone = r.clone();
+          return clone.text().then(function(txt){
+            push({ type:'ajax', message:'fetch response', target: method+' '+url, data: 'HTTP '+r.status+' '+(ct?('('+ct+')'):'')+' :: '+(txt||'').slice(0,2000), id:id, duration_ms: Math.round(endedAt - startedAt) });
+            return r; // pass-through original response
+          }).catch(function(){
+            push({ type:'ajax', message:'fetch response', target: method+' '+url, data: 'HTTP '+r.status, id:id, duration_ms: Math.round(endedAt - startedAt) });
+            return r;
+          });
+        } catch(_){ return r; }
+      }).catch(function(err){
+        try { push({ type:'error', message:'fetch error', target: method+' '+url, data: String(err&&err.message||err), id:id }); } catch(_){ }
+        throw err;
+      });
+    };
+  }
+  function wrapXHR(){
+    if (!window.XMLHttpRequest) return;
+    var _open = XMLHttpRequest.prototype.open;
+    var _send = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url){
+      try { this.__arsh_meta = { method:String(method||'GET').toUpperCase(), url:String(url||''), id: nextId(), t0: (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now() }; } catch(_){ }
+      return _open.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(body){
+      try {
+        var info = (this && this.__arsh_meta) ? this.__arsh_meta : { method:'GET', url:'', id: nextId(), t0: Date.now() };
+        var bodyPreview = '';
+        if (body!=null){ try { bodyPreview = String(body); } catch(_){ bodyPreview = '[body]'; } }
+        push({ type:'ajax', message:'xhr request', target: info.method+' '+info.url, data: (bodyPreview||'').slice(0,1000), id: info.id });
+        var self = this;
+        this.addEventListener('readystatechange', function(){
+          try {
+            if (self.readyState === 4){
+              var t1 = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+              var txt = '';
+              try { txt = String(self.responseText||''); } catch(_){ }
+              push({ type:'ajax', message:'xhr response', target: info.method+' '+info.url, data: 'HTTP '+self.status+' :: '+(txt||'').slice(0,2000), id: info.id, duration_ms: Math.round(t1 - info.t0) });
+            }
+          } catch(_){ }
+        }, false);
+      } catch(_){ }
+      return _send.apply(this, arguments);
+    };
+  }
 
   function init(){ if (started) return; started = true;
     document.addEventListener('click', onClick, true);
@@ -151,7 +213,9 @@
   window.ARSHCapture = {
     init: init,
     push: push,
-    runTests: runTests
+    runTests: runTests,
+    addListener: function(fn){ try { if (typeof fn==='function') listeners.push(fn); } catch(_){ } },
+    removeListener: function(fn){ try { var i=listeners.indexOf(fn); if(i>=0) listeners.splice(i,1); } catch(_){ } }
   };
 
   if (CFG && CFG.enabled){

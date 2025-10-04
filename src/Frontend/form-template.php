@@ -184,6 +184,12 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
   var req = f.required ? ' <span style="color:#b91c1c">*</span>' : '';
   var labelNumber = (f.numbered!==false? ('<span class="hint" style="margin-inline-end:.4rem;opacity:.6">'+(idx+1)+'</span>') : '');
   var labelHtml = labelNumber + esc(f.question||'') + req;
+  if (typeof f.confirm_for === 'number') {
+    var origWrap = document.querySelector('.ar-field[data-index="'+String(f.confirm_for)+'"]');
+    var badge = '<span class="hint" data-confirm-ref="'+String(f.confirm_for)+'" style="cursor:pointer;background:#6366f120;color:#6366f1;padding:2px 6px;border-radius:999px;font-size:11px;margin-inline-start:.4rem;">تأیید</span>';
+    labelHtml += badge;
+    // deferred click binding after element insertion (later in render)
+  }
   wrap.innerHTML = '<div style="font-weight:600;margin-bottom:.4rem">'+labelHtml+'</div>';
   if (f.show_description && f.description) {
     var desc = document.createElement('div');
@@ -200,7 +206,32 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
       inp.name = 'field_'+f.id;
       inp.required = !!f.required;
       inp.className = 'ar-input'; inp.style.cssText = 'width:100%';
-      if (f.placeholder) inp.placeholder = f.placeholder;
+      var ph = f.placeholder || '';
+      if (!ph){
+        var fmt = f.format || '';
+        switch(fmt){
+          case 'sheba_ir': ph = 'IR** **** **** **** **** **** **'; break;
+          case 'credit_card_ir': ph = '####-####-####-####'; break;
+          case 'national_id_company_ir': ph = 'شناسه ملی شرکت (11 رقم)'; break;
+          case 'national_id_ir': ph = 'کد ملی (10 رقم)'; break;
+          case 'postal_code_ir': ph = 'کد پستی ۱۰ رقمی'; break;
+          case 'captcha_alphanumeric': ph = 'مثال: A7kP'; break;
+          case 'alphanumeric_no_space': ph = 'حروف و ارقام بدون فاصله'; break;
+          case 'alphanumeric_extended': ph = 'حروف، ارقام و _ -'; break;
+          case 'alphanumeric': ph = 'حروف و ارقام'; break;
+          case 'mobile_ir': ph = '09xxxxxxxxx'; break;
+          case 'mobile_intl': ph = '+989xxxxxxxxx'; break;
+          case 'sheba_ir': ph = 'IRxxxxxxxxxxxxxxxxxxxxxxxxxx'; break;
+          case 'time': ph = 'HH:MM'; break;
+          case 'date_jalali': ph = '1403/01/01'; break;
+          case 'date_greg': ph = '2025-01-01'; break;
+          case 'ip': ph = '192.168.1.1'; break;
+          default: break;
+        }
+        // numeric with maxLength pattern
+        if (!ph && fmt==='numeric' && f.max_length){ ph = 'عدد '+f.max_length+' رقمی'; }
+      }
+      if (ph) inp.placeholder = ph;
       body.appendChild(inp);
     } else if (f.type === 'multiple_choice'){
   (f.options||[]).forEach(function(opt, i){ var id='f'+f.id+'_'+i; var row = document.createElement('label'); row.setAttribute('for', id); row.style.cssText='display:flex;gap:.35rem;align-items:center;margin:.15rem 0'; var input=document.createElement('input'); input.type='radio'; input.name='field_'+f.id; input.id=id; input.value=String(opt.value||opt.label||''); if (i===0 && f.required) input.required=true; var span=document.createElement('span'); span.textContent = String(opt.label||''); row.appendChild(input); row.appendChild(span); body.appendChild(row); });
@@ -232,6 +263,35 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
         row.appendChild(reqStar);
       }
       body.appendChild(row);
+    } else if (f.type === 'file') {
+      // Hidden input to hold server token after upload
+      var tokenInput = document.createElement('input'); tokenInput.type='hidden'; tokenInput.name='field_'+f.id; body.appendChild(tokenInput);
+      var fileWrap = document.createElement('div'); fileWrap.style.cssText='display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;';
+      var fileInput = document.createElement('input'); fileInput.type='file'; fileInput.style.maxWidth='260px'; fileInput.setAttribute('aria-label', (f.question||'فایل'));
+      if (f.required) fileInput.required = true; // client side prompt before upload
+      var prog = document.createElement('progress'); prog.max=100; prog.value=0; prog.style.cssText='display:none;height:8px;';
+      var nameSpan = document.createElement('span'); nameSpan.className='arsh-hint'; nameSpan.style.minWidth='120px';
+      var clearBtn = document.createElement('button'); clearBtn.type='button'; clearBtn.textContent='حذف'; clearBtn.className='ar-btn ar-btn--outline'; clearBtn.style.cssText='display:none;padding:4px 10px;font-size:12px;';
+      function resetFile(){ tokenInput.value=''; nameSpan.textContent=''; clearBtn.style.display='none'; prog.style.display='none'; prog.value=0; fileInput.value=''; }
+      clearBtn.addEventListener('click', function(){ resetFile(); });
+      fileInput.addEventListener('change', function(){
+        if (!fileInput.files || !fileInput.files.length){ resetFile(); return; }
+        var file = fileInput.files[0];
+        // Basic front-end size guard (<= 8MB) to avoid unnecessary upload attempt
+        if (file.size > 8 * 1024 * 1024){ alert('حجم فایل بیش از حد مجاز است'); resetFile(); return; }
+        // Start upload
+        prog.style.display='inline-block'; prog.value=10; nameSpan.textContent='در حال آپلود…';
+        var formId = FORM_ID || (state.def && state.def.id) || 0;
+        var upUrl = AR_REST + 'public/forms/' + encodeURIComponent(formId) + '/file-upload';
+        var fd = new FormData(); fd.append('file', file);
+        fetch(upUrl, { method:'POST', body: fd })
+          .then(function(r){ if(!r.ok) return r.json().catch(function(){return {};}).then(function(j){ throw { status:r.status, body:j }; }); return r.json(); })
+          .then(function(resp){ if (!resp || !resp.ok || !resp.token){ throw { status:500, body:resp }; }
+            tokenInput.value = resp.token; nameSpan.textContent = (resp.name||file.name)+' ('+Math.round(file.size/1024)+'KB)'; prog.style.display='none'; prog.value=0; clearBtn.style.display='inline-block';
+          })
+          .catch(function(err){ console.error('[file-upload]', err); nameSpan.textContent='خطا در آپلود'; prog.style.display='none'; prog.value=0; resetFile(); });
+      });
+      fileWrap.appendChild(fileInput); fileWrap.appendChild(prog); fileWrap.appendChild(nameSpan); fileWrap.appendChild(clearBtn); body.appendChild(fileWrap);
     } else {
       body.innerHTML = '<div class="arsh-hint">نوع پشتیبانی‌نشده</div>';
     }
@@ -241,6 +301,10 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
     wrap.appendChild(err);
     // attach validators
     attachValidationHandlers(wrap, f);
+    // Bind confirm badge scroll
+    if (typeof f.confirm_for === 'number') {
+      setTimeout(function(){ try { var b = wrap.querySelector('[data-confirm-ref]'); if (b){ b.addEventListener('click', function(){ var idx=parseInt(b.getAttribute('data-confirm-ref')); var target=document.querySelector('.ar-field[data-index="'+idx+'"]'); if (target){ try { target.scrollIntoView({behavior:'smooth',block:'center'}); } catch(_){ } var ctl=target.querySelector('[name^="field_"]'); if (ctl){ try { ctl.focus(); } catch(_){ } } } }); } } catch(_){ } }, 50);
+    }
     return wrap;
   }
 
