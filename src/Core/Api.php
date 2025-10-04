@@ -4729,8 +4729,19 @@ Return strict JSON. No markdown.';
                 $maxInt = intval($maxNorm);
                 if ($maxInt>=3 && $maxInt<=10){ $ratingRange=[1,$maxInt]; }
             }
-            if ($ratingRange){ $type='rating'; $props['rating']=['min'=>1,'max'=>$ratingRange[1],'icon'=>'like']; }
-            elseif (preg_match('/(امتیاز|درجه\s*اهمیت)/u',$lowStem) && preg_match('/(1|۱).*(5|۵|10|۱۰)/u',$lowStem)){
+            // Numeric inline enumeration rating pattern: 1-کم 2-متوسط 3-زیاد ...
+            if (!$ratingRange && preg_match_all('/\b(\d{1,2})\s*[-–\.،:]\s*([^\d]+?)(?=(?:\b\d{1,2}\s*[-–\.،:]|$))/u',$lowStem,$mRate,PREG_SET_ORDER)){
+                $vals=[]; $maxFound=0; $sequential=true; $expect=1;
+                foreach($mRate as $mr){ $n=intval($mr[1]); $vals[]=$n; if($n>$maxFound)$maxFound=$n; if($n!==$expect)$sequential=false; $expect++; }
+                if(count($vals)>=3 && $sequential && $maxFound<=10){ $ratingRange=[1,$maxFound]; }
+            }
+            if ($ratingRange){
+                // Guard: avoid turning pure physical attribute like height into rating unless explicit امتیاز present
+                if (!preg_match('/قد|ارتفاع/u',$lowStem) || preg_match('/امتیاز|سطح/u',$lowStem)){
+                    $type='rating'; $props['rating']=['min'=>1,'max'=>$ratingRange[1],'icon'=>'like'];
+                }
+            }
+            elseif (!$ratingRange && preg_match('/(امتیاز|درجه\s*اهمیت)/u',$lowStem) && preg_match('/(1|۱).*(5|۵|10|۱۰)/u',$lowStem)){
                 // fallback rating detection
                 $type='rating'; $props['rating']=['min'=>1,'max'=> (preg_match('/5|۵/u',$lowStem)?5:10),'icon'=>'like'];
             }
@@ -4745,12 +4756,12 @@ Return strict JSON. No markdown.';
             elseif (preg_match('/بین\s*المل|\+\s*\d|\+\s*۹۸|\+98/u',$lowStem)) { $props['format']='mobile_intl'; }
             elseif (preg_match('/موبایل|شماره.*موبایل/u',$lowStem) && $type!=='rating') { $props['format']='mobile_ir'; }
             elseif (preg_match('/\bip\b|آی\s*پی/u',$lowStem)) { $props['format']='ip'; }
-            elseif (preg_match('/پستی|کد پست/u',$lowStem)) { $props['format']='postal_code_ir'; }
+            elseif (preg_match('/پستی|کد\s*پست|پ\.ک/u',$lowStem)) { $props['format']='postal_code_ir'; }
             elseif (preg_match('/شبا|sheba|شماره\s*شبا/u',$lowStem)) { $props['format']='sheba_ir'; }
             elseif (preg_match('/کارت|شماره\s*کارت|credit|card/u',$lowStem)) { $props['format']='credit_card_ir'; }
             elseif (preg_match('/فقط\s+حروف\s+فارسی/u',$lowStem)) { $props['format']='fa_letters'; }
             elseif (preg_match('/فقط\s+حروف\s+انگلیسی|username|name\s+لاتین/u',$lowStem)) { $props['format']='en_letters'; }
-            elseif (preg_match('/حروف\s*و\s*اعداد|الانگاری|آلفا\s*عددی|alphanumeric/u',$lowStem)) {
+            elseif (preg_match('/حروف\s*(?:eng|انگلیسی)\s*و\s*عدد|حروف\s*و\s*اعداد|حروف\s*\+\s*عدد|آلفا\s*عدد(?:ی)?|آلفا-?عددی|الانگاری|alphanumeric/u',$lowStem)) {
                 // Distinguish no space variant
                 if (preg_match('/بدون\s*فاصله|بی\s*فاصله|no\s*space/u',$lowStem)) $props['format']='alphanumeric_no_space'; else $props['format']='alphanumeric';
             }
@@ -4758,6 +4769,10 @@ Return strict JSON. No markdown.';
             elseif (preg_match('/تاریخ.*جلالی|تقویم\s+جلالی/u',$lowStem)) { $props['format']='date_jalali'; }
             elseif (preg_match('/تولد/u',$lowStem) && mb_strpos($lowStem,'میلادی')!==false) { $props['format']='date_greg'; }
             elseif (preg_match('/تاریخ/u',$lowStem)) { $props['format']='date_greg'; }
+            // Extended alphanumeric token patterns (e.g., REF-12ab_34) if not already typed
+            elseif (!isset($props['format']) && preg_match('/\b[a-zA-Z]{2,10}-?[a-zA-Z0-9]{2,}(?:_[a-zA-Z0-9]{2,})?\b/u',$stem)) {
+                $props['format']='alphanumeric_extended';
+            }
                         elseif (
                                 // Refined time detection: require explicit time keyword + either ':' pattern or contextual verbs
                                 (
@@ -4767,7 +4782,10 @@ Return strict JSON. No markdown.';
                                     )
                                 ) || preg_match('/مثال\s*[:：]?\s*\d{1,2}[:٫\.]\d{1,2}/u',$lowStem)
                         ) { $props['format']='time'; }
-            elseif (preg_match('/فایل|بارگذاری|آپلود|ارسال\s*فایل/u',$lowStem)) { $props['format']='file_upload'; $type='file'; }
+            elseif (preg_match('/(بارگذاری|آپلود|ارسال)\s*(یک)?\s*فایل|فایل\s*(را)?\s*آپلود|فایل\s*(را)?\s*بارگذاری/u',$lowStem)) {
+                // Exclude plain references like 'نام فایل config.php را وارد کن'
+                if (!preg_match('/نام\s+فایل|file\s+name/i',$lowStem)) { $props['format']='file_upload'; $type='file'; }
+            }
             // Alphanumeric precedence: if flagged already as alphanumeric[_no_space], do NOT downgrade to numeric
             elseif (preg_match('/عدد|تعداد|قد|سن|مقدار|شماره\s+پرسنلی|فاکتور/u',$lowStem)) {
                 if (!isset($props['format']) || !preg_match('/^alphanumeric/', $props['format'])) {
@@ -4776,6 +4794,11 @@ Return strict JSON. No markdown.';
             }
             // Required inline marker
             if (preg_match('/الزامی/u',$lowStem)) $required = true;
+            // Numeric max length extraction (حداکثر N رقم)
+            if (preg_match('/حداکثر\s*(\d+|[۰-۹]+)/u',$lowStem,$mMax) && (isset($props['format']) && $props['format']==='numeric')){
+                $rawMax = $mMax[1]; $normMax = strtr($rawMax,['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']);
+                $len = intval($normMax); if($len>0 && $len<50){ $props['maxLength']=$len; }
+            }
             // Multi-select hint (plural days / newsletter)
             if (!empty($props['options'])){
                 if (preg_match('/روزهای|روزهایی|خبرنامه|هفته/u',$lowStem)) { $props['multiple']=true; }
@@ -4844,6 +4867,26 @@ Return strict JSON. No markdown.';
                 }
             }
         }
+        // Confirm field chaining for repeated sensitive fields (national id, email)
+        $firstNatIndex = null; $natCount=0; $firstEmailIndex=null; $emailCount=0;
+        foreach($out as $i=>$f){
+            $lblL = mb_strtolower($f['label'],'UTF-8');
+            $fmt = $f['props']['format'] ?? '';
+            if ($fmt==='national_id_ir'){
+                $natCount++;
+                if ($firstNatIndex===null) { $firstNatIndex=$i; }
+                elseif (!isset($out[$i]['props']['confirm_for'])) {
+                    $out[$i]['props']['confirm_for'] = $firstNatIndex; // index reference
+                }
+            }
+            if ($fmt==='email'){
+                $emailCount++;
+                if ($firstEmailIndex===null) { $firstEmailIndex=$i; }
+                elseif (!isset($out[$i]['props']['confirm_for'])) {
+                    $out[$i]['props']['confirm_for'] = $firstEmailIndex;
+                }
+            }
+        }
         // Post-dedup required sync from label markers (اگر (الزامی) در متن برچسب باقی مانده)
         foreach($out as $k=>$of){
             $ll = mb_strtolower($of['label'],'UTF-8');
@@ -4856,6 +4899,20 @@ Return strict JSON. No markdown.';
         if (!$haveFormat('ip') && preg_match('/آی\s*پی|\bIP\b/u',$fullLower)){
             $out[] = [ 'type'=>'short_text','label'=>'آی‌پی سرور را وارد کنید؟','required'=>false,'props'=>['format'=>'ip','source'=>'recovered_scan'] ];
         }
+        // Composite splitting: قد و وزن / موبایل و ایمیل
+        $augmented=[]; foreach($out as $f){ $augmented[]=$f; }
+        foreach($out as $f){
+            if (!is_array($f) || empty($f['label'])) continue; $ll=mb_strtolower($f['label'],'UTF-8');
+            if (preg_match('/قد\s*و\s*وزن/u',$ll)){
+                $augmented[]=['type'=>'short_text','label'=>'قد (سانتی‌متر) را وارد کنید؟','required'=>false,'props'=>['format'=>'numeric','source'=>'split_composite']];
+                $augmented[]=['type'=>'short_text','label'=>'وزن (کیلوگرم) را وارد کنید؟','required'=>false,'props'=>['format'=>'numeric','source'=>'split_composite']];
+            }
+            if (preg_match('/موبایل\s*و\s*ایمیل/u',$ll)){
+                $augmented[]=['type'=>'short_text','label'=>'شماره موبایل را وارد کنید؟','required'=>false,'props'=>['format'=>'mobile_ir','source'=>'split_composite']];
+                $augmented[]=['type'=>'short_text','label'=>'ایمیل را وارد کنید؟','required'=>false,'props'=>['format'=>'email','source'=>'split_composite']];
+            }
+        }
+        if (count($augmented)>count($out)) { $out=$augmented; }
         // Pending split fields (cross contamination) -> create recovered ones if global flags set
         if (!empty($GLOBALS['__hoosha_pending_contact_field']) && !self::array_has_label_like($out,'ترجیح شما برای شیوه تماس')){
             $out[] = [ 'type'=>'multiple_choice','label'=>'ترجیح شما برای شیوه تماس؟','required'=>false,'props'=>['options'=>['ایمیل','تلفن','موبایل'],'source'=>'recovered_split'] ];
@@ -4884,7 +4941,7 @@ Return strict JSON. No markdown.';
         if (!$haveFormat('mobile_intl') && preg_match('/بین\s*المل|\+\s*\d/u',$fullLower)){
             $out[] = [ 'type'=>'short_text','label'=>'شماره موبایل بین‌المللی را وارد کنید؟','required'=>false,'props'=>['format'=>'mobile_intl','source'=>'recovered_scan'] ];
         }
-        if (!$haveFormat('postal_code_ir') && preg_match('/کد\s*پست|پستی/u',$fullLower)){
+        if (!$haveFormat('postal_code_ir') && preg_match('/کد\s*پست|پستی|پ\.ک/u',$fullLower)){
             $out[] = [ 'type'=>'short_text','label'=>'کد پستی را وارد کنید؟','required'=>false,'props'=>['format'=>'postal_code_ir','source'=>'recovered_scan'] ];
         }
         if (!$haveFormat('numeric') && preg_match('/سن|قد|مقدار|عدد\s+سنت|عدد\s+قد/u',$fullLower)){
