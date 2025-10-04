@@ -400,6 +400,25 @@
       btnConfirmPreview = document.getElementById('arHooshaConfirmPreview');
       btnCancelPreview = document.getElementById('arHooshaCancelPreview');
     }
+    // Move preview panel to very bottom (after outer card) if not already moved
+    try {
+      var previewEl = document.getElementById('arHooshaPreview');
+      if (previewEl){
+        var wrapperCard = previewEl.closest('.card');
+        // The first big card we injected has inline style padding:1.2rem; find it
+        var allCards = document.querySelectorAll('.card');
+        if (allCards && allCards.length){
+          var mainCard = allCards[0];
+          if (mainCard && mainCard!==previewEl && mainCard.parentNode){
+            if (previewEl.parentNode === mainCard){
+              // detach and append after main card
+              mainCard.parentNode.insertBefore(previewEl, mainCard.nextSibling);
+              previewEl.style.marginTop = '1.5rem';
+            }
+          }
+        }
+      }
+    } catch(_mv){}
   })();
   function dbg(line){ try { if(!dbgOut) return; var now=new Date().toLocaleTimeString(); var s=String(line||''); var div=document.createElement('div'); div.textContent='['+now+'] '+s; dbgOut.appendChild(div); dbgOut.scrollTop = dbgOut.scrollHeight; } catch(_){ } }
   try { if (window.ARSHCapture && typeof window.ARSHCapture.addListener==='function'){ window.ARSHCapture.addListener(function(ev){ try { if(!ev||ev.type!=='ajax') return; var tgt=String(ev.target||''); if(tgt.indexOf('/hoosha/prepare')===-1 && tgt.indexOf('/hoosha/apply')===-1) return; dbg((ev.message||'')+' :: '+tgt+' :: '+String(ev.data||'')); } catch(_){ } }); } } catch(_){ }
@@ -633,14 +652,15 @@
                 var clr = (op.indexOf('add_')===0)?'#065f46':(op.indexOf('remove_')===0?'#991b1b':(op.indexOf('update_')===0?'#1e3a8a':'#6366f1'));
                 changeBadge = '<span class="hint" style="background:'+clr+'20;color:'+clr+';padding:0 .35rem;border-radius:.25rem;font-size:.6rem;margin-inline-start:.35rem" title="'+escapeAttr(op)+'">'+escapeHtml(op.replace('update_','upd:'))+'</span>';
               }
+              var attrIdx = ' data-field-idx="'+i+'"';
               if (type==='short_text'){
-                line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
+                line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
               }
-              else if (type==='long_text'){ line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+changeBadge+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
-              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
-              else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
-              else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
-              else if (type==='file'){ var accept=''; if(fmt==='file_upload'){ /* could derive from pattern later */ } line='<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><input type="file" class="ar-input" '+(accept?(' accept="'+escapeAttr(accept)+'"'):'')+' /></div>'; }
+              else if (type==='long_text'){ line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+changeBadge+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
+              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
+              else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
+              else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
+              else if (type==='file'){ var accept=''; if(fmt==='file_upload'){ /* could derive from pattern later */ } line='<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><input type="file" class="ar-input" '+(accept?(' accept="'+escapeAttr(accept)+'"'):'')+' /></div>'; }
               return line;
             }).join('');
             preview.innerHTML = html; preview.style.display='block';
@@ -651,9 +671,11 @@
                 var idx = null;
                 if (typeof first.field_index==='number') idx = first.field_index; else if (typeof first.index==='number') idx = first.index; else if (typeof first.field==='number') idx = first.field;
                 if (idx!=null){
-                  var el = preview.querySelectorAll('div[style*="margin:"]')[idx]; // crude nth mapping
+                  var el = preview.querySelector('[data-field-idx="'+idx+'"]');
                   if (el){
                     el.classList.add('hoosha-field-highlight');
+                    var focusable = el.querySelector('input,textarea,select,button');
+                    if (focusable){ try { focusable.focus({preventScroll:true}); } catch(_f){} }
                     try { el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_sv){}
                     setTimeout(function(){ try { el.classList.remove('hoosha-field-highlight'); } catch(_rh){} }, 2600);
                   }
@@ -744,16 +766,17 @@
             numRaw = numRaw.replace(/[۰-۹]/g,function(ch){ return mapDigits[ch]||ch; });
             var idx = parseInt(numRaw,10); if (isNaN(idx) || idx<1) return;
             var fieldIndex = idx-1; if (!schema.fields[fieldIndex]) return;
-            var f = schema.fields[fieldIndex];
+            var originalClone = JSON.parse(JSON.stringify(schema));
+            var previewClone = JSON.parse(JSON.stringify(schema));
+            var f = previewClone.fields[fieldIndex];
             if (f.type==='long_text') return; // already
-            try { versionStack.push(JSON.parse(JSON.stringify(schema))); if(btnUndo) btnUndo.style.display='inline-block'; refreshVersions(); } catch(_vs){}
             f.type='long_text'; if(!f.props) f.props={}; f.props.rows=f.props.rows||4;
+            pendingSchema = previewClone;
             var deltas=[{ op:'update_type', field_index:fieldIndex, detail:'(fallback)->long_text' }];
-            showPreview(schema, deltas);
-            if (diffBox){ diffBox.innerHTML='<div style="direction:rtl">(Fallback محلی) سوال '+idx+' به پاسخ بلند تبدیل شد.</div>'; diffBox.style.display='block'; }
-            if (nlActions){ nlActions.style.display='none'; }
-            interpretStatus.textContent='پیش‌نمایش محلی (بدون مدل)'; interpretStatus.style.color='#f59e0b';
-            notify('اعمال محلی آزمایشی','info');
+            showPreview(previewClone, deltas);
+            if (diffBox){ diffBox.innerHTML='<div style="direction:rtl">(Fallback محلی) سوال '+idx+' به پاسخ بلند تبدیل می‌شود. تایید کن؟</div>'; diffBox.style.display='block'; }
+            if (nlActions){ nlActions.style.display='flex'; }
+            interpretStatus.textContent='پیش‌نمایش محلی (در انتظار تایید)'; interpretStatus.style.color='#f59e0b';
           } catch(_lf){}
         }
         function createDraftFromSchema(){
