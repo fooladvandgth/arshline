@@ -332,8 +332,8 @@
                 '<div id="arHooshaDebugOut" style="direction:ltr;white-space:pre-wrap;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:.5rem;max-height:260px;overflow:auto"></div>'+
               '</details>'+ 
               '<div id="arHooshaNotes" class="hint" style="white-space:pre-wrap;line-height:1.7"></div>'+ 
-              '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none"></div>'+ 
               '<div id="arHooshaVersions" class="hint" style="display:none;font-size:.7rem;opacity:.8"></div>'+ 
+              '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none;margin-top:.75rem"></div>'+ 
             '</div>'+ 
           '</div>';
         // Scroll sync (raw -> edited caret proximity)
