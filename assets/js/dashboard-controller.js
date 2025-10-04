@@ -371,6 +371,35 @@
   var progPct = document.getElementById('arHooshaProgressPct');
   var schema = null;
   var dbgOut = document.getElementById('arHooshaDebugOut');
+  // If NL shell exists but components missing, inject card now
+  (function(){
+    var shell = document.getElementById('arHooshaNlShell');
+    if (shell && !document.getElementById('arHooshaPreviewEdit')){
+      shell.innerHTML = ''+
+        '<div class="card" id="arHooshaNlCard" style="padding:.9rem 1rem;border:1px solid var(--border,#e5e7eb);border-radius:12px;background:var(--surface,#fff);margin-top:.35rem">'+
+          '<div class="hint" style="margin-bottom:.45rem;font-weight:600">ویرایش طبیعی فرم</div>'+ 
+          '<textarea id="arHooshaNl" class="ar-input" style="min-height:110px;resize:vertical;line-height:1.7" placeholder="مثلاً: سوال نام رسمی شود، سوال سوم اختیاری، گزینه جدید اضافه کن"></textarea>'+ 
+          '<div style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem;flex-wrap:wrap">'+
+            '<button id="arHooshaPreviewEdit" class="ar-btn ar-btn--soft">پیش‌نمایش تغییرات</button>'+ 
+            '<span class="hint" id="arHooshaInterpretStatus" style="min-height:1.5rem"></span>'+ 
+          '</div>'+ 
+          '<div id="arHooshaDiff" style="margin-top:.75rem;display:none;border:1px dashed var(--border,#e5e7eb);border-radius:8px;padding:.6rem;white-space:pre-wrap;font-size:.8rem;line-height:1.6"></div>'+ 
+          '<div id="arHooshaNlActions" style="display:none;margin-top:.6rem;gap:.5rem;align-items:center;flex-wrap:wrap">'+
+            '<button id="arHooshaConfirmPreview" class="ar-btn">تایید و اعمال</button>'+ 
+            '<button id="arHooshaCancelPreview" class="ar-btn ar-btn--soft">انصراف</button>'+ 
+          '</div>'+ 
+        '</div>';
+      shell.style.display='block';
+      // re-bind references after injection
+      inpNl = document.getElementById('arHooshaNl');
+      interpretStatus = document.getElementById('arHooshaInterpretStatus');
+      diffBox = document.getElementById('arHooshaDiff');
+      btnPreviewEdit = document.getElementById('arHooshaPreviewEdit');
+      nlActions = document.getElementById('arHooshaNlActions');
+      btnConfirmPreview = document.getElementById('arHooshaConfirmPreview');
+      btnCancelPreview = document.getElementById('arHooshaCancelPreview');
+    }
+  })();
   function dbg(line){ try { if(!dbgOut) return; var now=new Date().toLocaleTimeString(); var s=String(line||''); var div=document.createElement('div'); div.textContent='['+now+'] '+s; dbgOut.appendChild(div); dbgOut.scrollTop = dbgOut.scrollHeight; } catch(_){ } }
   try { if (window.ARSHCapture && typeof window.ARSHCapture.addListener==='function'){ window.ARSHCapture.addListener(function(ev){ try { if(!ev||ev.type!=='ajax') return; var tgt=String(ev.target||''); if(tgt.indexOf('/hoosha/prepare')===-1 && tgt.indexOf('/hoosha/apply')===-1) return; dbg((ev.message||'')+' :: '+tgt+' :: '+String(ev.data||'')); } catch(_){ } }); } } catch(_){ }
   if (btnPreviewEdit){
@@ -443,7 +472,7 @@
             }
           notes.textContent = lines.join('\n');
         }
-        function showPreview(s){
+        function showPreview(s, deltas){
           try {
             if (!s || !Array.isArray(s.fields)) { preview.style.display='none'; preview.innerHTML=''; return; }
             // Inject lightweight styles for format badges if not present
@@ -546,6 +575,10 @@
               }
               return attr;
             }
+            var changedIndexes = {};
+            if (Array.isArray(deltas)){
+              deltas.forEach(function(d){ if (d && typeof d.field_index==='number'){ changedIndexes[d.field_index] = d; } });
+            }
             var html = s.fields.map(function(f, i){
               var idx = i + 1;
               var q = String(f.label || f.question || '');
@@ -582,11 +615,17 @@
               }
               inputExtra = meta.extra || '';
               var badge = formatBadge(fmt);
-              if (type==='short_text'){
-                line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
+              var changeBadge='';
+              if (changedIndexes[i]){
+                var op = changedIndexes[i].op || '';
+                var clr = (op.indexOf('add_')===0)?'#065f46':(op.indexOf('remove_')===0?'#991b1b':(op.indexOf('update_')===0?'#1e3a8a':'#6366f1'));
+                changeBadge = '<span class="hint" style="background:'+clr+'20;color:'+clr+';padding:0 .35rem;border-radius:.25rem;font-size:.6rem;margin-inline-start:.35rem" title="'+escapeAttr(op)+'">'+escapeHtml(op.replace('update_','upd:'))+'</span>';
               }
-              else if (type==='long_text'){ line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
-              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
+              if (type==='short_text'){
+                line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
+              }
+              else if (type==='long_text'){ line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+changeBadge+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
+              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
               else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
               else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
               else if (type==='file'){ var accept=''; if(fmt==='file_upload'){ /* could derive from pattern later */ } line='<div style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><input type="file" class="ar-input" '+(accept?(' accept="'+escapeAttr(accept)+'"'):'')+' /></div>'; }

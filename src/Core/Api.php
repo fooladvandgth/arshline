@@ -4966,8 +4966,38 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     }
                 } catch (\Throwable $dx){ /* ignore */ }
             }
+            // Heuristic confidence scoring for preview (used by auto-apply in UI)
+            $confidence = 0.0;
+            try {
+                $deltaCount = count($deltas);
+                $hasStructural = false; // add/remove/update_type indicates structural vs cosmetic
+                foreach ($deltas as $d){
+                    $op = isset($d['op']) ? (string)$d['op'] : '';
+                    if (strpos($op,'add_')===0 || strpos($op,'remove_')===0 || $op==='update_type'){ $hasStructural = true; break; }
+                }
+                if ($deltaCount > 0 && count($commands) > 0){
+                    $confidence = 0.90 + min(0.05, $deltaCount * 0.01);
+                } elseif ($deltaCount === 0 && count($commands) > 0){
+                    // Commands understood but produced no diff (maybe idempotent)
+                    $confidence = 0.70;
+                } elseif ($deltaCount > 0){
+                    $confidence = 0.65;
+                } else {
+                    $confidence = 0.40; // nothing happened
+                }
+                if ($hasStructural) { $confidence = min(1.0, $confidence + 0.03); }
+                $confidence = max(0.0, min(1.0, $confidence));
+            } catch (\Throwable $ce) { $confidence = 0.0; }
             $notes[]='ai:preview_success('.count($deltas).')';
-            return new WP_REST_Response(['ok'=>true,'commands'=>$commands,'preview_schema'=>$preview,'deltas'=>$deltas,'notes'=>$notes],200);
+            $notes[]='heur:preview_conf_'.number_format($confidence,2,'.','');
+            return new WP_REST_Response([
+                'ok'=>true,
+                'commands'=>$commands,
+                'preview_schema'=>$preview,
+                'deltas'=>$deltas,
+                'confidence'=>$confidence,
+                'notes'=>$notes
+            ],200);
         } catch(\Throwable $e){
             $notes[]='ai:preview_error';
             return new WP_REST_Response(['ok'=>true,'commands'=>$commands,'preview_schema'=>$schema,'deltas'=>[],'notes'=>$notes,'error'=>$e->getMessage()],200);
