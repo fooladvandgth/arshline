@@ -1,10 +1,10 @@
-# افزونه عرشلاین (ARSHLINE) v7.0.0 🚀
+# افزونه عرشلاین (ARSHLINE) v7.2.0 🚀
 
 **فرم‌ساز پیشرفته فارسی با هوش مصنوعی برای وردپرس**
 
 داشبورد تمام‌صفحه، فرم‌ساز مدرن RTL، هوش مصنوعی هوشیار، و API نسخه‌دار برای ساخت فرم‌های ساده تا پیشرفته در وردپرس.
 
-[![نسخه](https://img.shields.io/badge/version-7.0.0-blue.svg)](https://github.com/fooladvandgth/arshline)
+[![نسخه](https://img.shields.io/badge/version-7.2.0-blue.svg)](https://github.com/fooladvandgth/arshline)
 [![لایسنس](https://img.shields.io/badge/license-GPL2-green.svg)](LICENSE)
 [![وردپرس](https://img.shields.io/badge/wordpress-6.0%2B-blue.svg)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/php-8.1%2B-purple.svg)](https://php.net)
