@@ -4589,18 +4589,57 @@ Return strict JSON. No markdown.';
                 if (preg_match('/(.+?)(?:\s+(?:سیب|چای|پیتزا|ایمیل)\s+یا\s+.*)/u',$stemWork,$mHeuTail)){
                     $afterQ = trim(mb_substr($stemWork, mb_strlen($mHeuTail[1],'UTF-8')));
                 }
-            }
-            if ($afterQ !== '' && mb_strlen($afterQ,'UTF-8') < 120 && preg_match_all('/([^\s]+)(?:\s+یا\s+|$)/u',$afterQ,$mAll)){
-                $rawOpts = [];
-                // split again on یا to be more robust
-                $rawParts = preg_split('/\s+یا\s+/u',$afterQ) ?: [];
-                foreach($rawParts as $rp){
-                    $rp = trim(preg_replace('/[\?؟،,.؛]+/u','',$rp));
-                    if ($rp!=='') $rawOpts[] = $rp;
+                // Additional heuristic: lines with "انتخاب کن" and a single " یا " pattern
+                if ($afterQ==='' && preg_match('/انتخاب(?:\s+کن(?:ید)?)?/u',$stemWork) && preg_match('/\sیا\s/u',$stemWork)){
+                    $afterQ = trim(preg_replace('/^.*?(?:انتخاب کن|انتخاب کنید)[:：]?/u','',$stemWork));
                 }
-                if (count($rawOpts) >= 2){
-                    $options = $rawOpts;
-                    if ($qmPos !== false){ $stem = trim(mb_substr($stemWork,0,$qmPos+1),' ؟?'); if (!preg_match('/[\?؟]$/u',$stem)) $stem .= '؟'; }
+            }
+            // Primary split strategies for inline enumerations
+            if ($afterQ !== '' && mb_strlen($afterQ,'UTF-8') < 220){
+                $candidateText = $afterQ;
+                // Strip surrounding parentheses if they wrap the entire enumeration
+                if (preg_match('/^[(\[]([^()\[\]]{2,200})[)\]]$/u',$candidateText,$mWrap)){
+                    $candidateText = trim($mWrap[1]);
+                }
+                $rawOpts = [];
+                // First: numeric enumerations like 1-کم 2-متوسط 3-زیاد
+                if (preg_match_all('/\b\d+\s*[-–.،:]\s*([^\d]+?)(?=(?:\b\d+\s*[-–.،:]|$))/u',$candidateText,$mNum,PREG_SET_ORDER)){
+                    foreach($mNum as $mm){
+                        $opt = trim(preg_replace('/[\?؟،,.؛]+$/u','',$mm[1]));
+                        if($opt!=='') $rawOpts[]=$opt;
+                    }
+                }
+                // Second: split on یا
+                if (empty($rawOpts) && preg_match('/\sیا\s/u',$candidateText)){
+                    $parts = preg_split('/\s+یا\s+/u',$candidateText) ?: [];
+                    foreach($parts as $pp){
+                        // further split by commas inside each part
+                        $subSegs = preg_split('/[،,]/u',$pp) ?: [$pp];
+                        foreach($subSegs as $sg){
+                            $sg = trim(preg_replace('/[\?؟،,.؛]+/u','',$sg));
+                            if($sg!=='') $rawOpts[] = $sg;
+                        }
+                    }
+                }
+                // Third: if still empty, try delimiters inside parentheses or tail: comma / slash / hyphen
+                if (empty($rawOpts) && preg_match('/[،,\/\-]/u',$candidateText)){
+                    $tmp = preg_split('/[،,\/\-]/u',$candidateText) ?: [];
+                    foreach($tmp as $t){
+                        $t = trim(preg_replace('/[\?؟،,.؛]+/u','',$t));
+                        if($t!=='') $rawOpts[]=$t;
+                    }
+                }
+                // Validate
+                if (count($rawOpts)>=2 && count($rawOpts)<=20){
+                    // Deduplicate order preserve
+                    $seenLocal=[]; $final=[]; foreach($rawOpts as $ro){ if(!isset($seenLocal[$ro])){ $seenLocal[$ro]=true; $final[]=$ro; } }
+                    if(count($final)>=2){
+                        $options = $final;
+                        if ($qmPos !== false){
+                            $stem = trim(mb_substr($stemWork,0,$qmPos+1),' ؟?');
+                            if (!preg_match('/[\?؟]$/u',$stem)) $stem .= '؟';
+                        }
+                    }
                 }
             }
             // Trailing block options (up to 10 lines) if next lines opt
