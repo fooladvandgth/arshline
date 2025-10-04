@@ -4283,6 +4283,37 @@ Return strict JSON. No markdown.';
             $seen[$canon] = true; $out[] = $f;
         }
         if ($removed>0){ $schema['fields'] = $out; $notes[] = 'deduplicated_fields('.$removed.')'; }
+        // 3) Degrade unsupported formats to maintain compatibility with core validator
+        $supportedFormats = [ 'free_text'=>1,'email'=>1,'mobile_ir'=>1,'mobile_intl'=>1,'tel'=>1,'numeric'=>1,'national_id_ir'=>1,'postal_code_ir'=>1,'fa_letters'=>1,'en_letters'=>1,'ip'=>1,'time'=>1,'date_jalali'=>1,'date_greg'=>1,'regex'=>1 ];
+        $knownNew = ['national_id_company_ir','sheba_ir','credit_card_ir','captcha_alphanumeric','alphanumeric','alphanumeric_no_space','alphanumeric_extended','file_upload'];
+        foreach ($schema['fields'] as &$f){
+            if (!is_array($f)) continue; if (!isset($f['props']) || !is_array($f['props'])) continue;
+            $fmt = $f['props']['format'] ?? '';
+            if ($fmt && !isset($supportedFormats[$fmt])){
+                // Preserve original
+                $f['props']['_orig_format'] = $fmt;
+                if ($fmt === 'file_upload'){
+                    // Downgrade to free_text for now (future: real file field type)
+                    $f['props']['format'] = 'free_text';
+                    if ($f['type']==='file') $f['type']='short_text';
+                    $notes[]='degraded(file_upload->free_text)';
+                } elseif (in_array($fmt,['alphanumeric','alphanumeric_no_space','alphanumeric_extended'],true)){
+                    // Map to regex to keep validation potential minimal (optional: keep as free_text)
+                    if (!isset($f['props']['regex'])){
+                        if ($fmt==='alphanumeric_no_space') $f['props']['regex']='/^[A-Za-z0-9\p{Arabic}]+$/u';
+                        elseif ($fmt==='alphanumeric_extended') $f['props']['regex']='/^[A-Za-z0-9][A-Za-z0-9_\-]{2,63}$/u';
+                        else $f['props']['regex']='/^[A-Za-z0-9\p{Arabic}\s]+$/u';
+                        $f['props']['format']='regex';
+                        $notes[]='degraded('.$fmt.'->regex)';
+                    } else { $f['props']['format']='regex'; }
+                } elseif (in_array($fmt,['national_id_company_ir','sheba_ir','credit_card_ir','captcha_alphanumeric'],true)){
+                    // Keep as-is so extended validator (if loaded) can validate; if not -> treat as free_text fallback
+                    // Tag note; do not degrade here to allow new validator to work.
+                    $notes[]='extended_format('.$fmt.')';
+                }
+            }
+        }
+        unset($f);
         // 3) Option normalization (آلبالو) if still corrupted (e.g., بالا & گیلاس)
         foreach ($schema['fields'] as &$f2){
             if (!is_array($f2)) continue; if (!isset($f2['props']) || !is_array($f2['props'])) continue;

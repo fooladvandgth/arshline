@@ -3,6 +3,32 @@ namespace Arshline\Modules\Forms;
 
 class FormValidator
 {
+    // Luhn check for credit card numbers (digits only)
+    protected static function luhnValid(string $num): bool
+    {
+        if ($num === '' || preg_match('/[^0-9]/', $num)) return false;
+        $sum = 0; $alt = false; for ($i = strlen($num) - 1; $i >= 0; $i--) {
+            $n = intval($num[$i]); if ($alt) { $n *= 2; if ($n > 9) $n -= 9; } $sum += $n; $alt = !$alt; }
+        return $sum % 10 === 0;
+    }
+
+    // IBAN (basic) mod97 for IR (assumes already normalized, e.g., IRxxxxxxxxxxxxxxxxxxxxxxxx)
+    protected static function ibanMod97(string $iban): bool
+    {
+        $iban = strtoupper(preg_replace('/\s+/', '', $iban));
+        if (strlen($iban) < 4) return false;
+        // Move first 4 chars to end
+        $rearranged = substr($iban, 4) . substr($iban, 0, 4);
+        // Replace letters
+        $expanded = '';
+        foreach (str_split($rearranged) as $ch){
+            if (ctype_alpha($ch)) { $expanded .= (string)(ord($ch) - 55); } else { $expanded .= $ch; }
+        }
+        // Large number mod 97
+        $mod = 0; $len = strlen($expanded);
+        for ($i=0; $i<$len; $i++) { $mod = ($mod*10 + intval($expanded[$i])) % 97; }
+        return $mod === 1;
+    }
     public static function validate(Form $form): array
     {
         $errors = [];
@@ -102,6 +128,31 @@ class FormValidator
                     case 'date_greg':
                         if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])\-(0[1-9]|[12]\d|3[01])$/', $val)) $errors[] = 'تاریخ میلادی نامعتبر است.';
                         break;
+                    case 'national_id_company_ir':
+                        if (!preg_match('/^\d{11}$/', $val)) { $errors[]='شناسه ملی شرکت نامعتبر است.'; break; }
+                        if (preg_match('/^(\d)\1{10}$/', $val)) { $errors[]='شناسه ملی شرکت نامعتبر است.'; break; }
+                        break;
+                    case 'sheba_ir':
+                        $canon = strtoupper(preg_replace('/\s+/', '', $val));
+                        if (!preg_match('/^IR\d{24}$/', $canon)) { $errors[]='شماره شبا نامعتبر است.'; break; }
+                        if (!self::ibanMod97($canon)) { $errors[]='شماره شبا نامعتبر است.'; }
+                        break;
+                    case 'credit_card_ir':
+                        $digits = preg_replace('/[^0-9]/', '', $val);
+                        if (!preg_match('/^\d{16}$/', $digits) || !self::luhnValid($digits)) { $errors[]='شماره کارت نامعتبر است.'; }
+                        break;
+                    case 'captcha_alphanumeric':
+                        if (!preg_match('/^[A-Za-z0-9]{4,12}$/', $val)) $errors[]='کپچا نامعتبر است.';
+                        break;
+                    case 'alphanumeric_no_space':
+                        if (!preg_match('/^[A-Za-z0-9\p{Arabic}]+$/u', $val)) $errors[]='فقط حروف و اعداد بدون فاصله مجاز است.';
+                        break;
+                    case 'alphanumeric_extended':
+                        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_\-]{2,63}$/', $val)) $errors[]='شناسه آلفانامریک توسعه‌یافته نامعتبر است.';
+                        break;
+                    case 'alphanumeric':
+                        if (!preg_match('/^[A-Za-z0-9\p{Arabic}\s]+$/u', $val)) $errors[]='فقط حروف و اعداد مجاز است.';
+                        break;
                     case 'regex':
                         $pattern = (string)($props['regex'] ?? '');
                         if ($pattern === '' || @preg_match($pattern, '') === false) { $errors[] = 'الگوی دلخواه نامعتبر است.'; break; }
@@ -121,6 +172,26 @@ class FormValidator
                 $type = $props['type'] ?? '';
                 if (isset($supported[$type]) && empty($provided[$fid])) {
                     $errors[] = ($props['label'] ?? $props['question'] ?? 'فیلد').' الزامی است.';
+                }
+            }
+        }
+        // confirm_for validation: ensure confirmation matches original for national_id_ir & email
+        // Build value map by fid
+        $valueMap = [];
+        foreach ($values as $entry){ $fid = (int)($entry['field_id'] ?? 0); if($fid>0){ $valueMap[$fid] = isset($entry['value']) ? (string)$entry['value'] : ''; }}
+        foreach ($fields as $f){
+            if (!is_array($f)) continue; $fid = isset($f['id'])?(int)$f['id']:0; if($fid<=0) continue;
+            $props = isset($f['props'])?$f['props']:$f; if (empty($props['confirm_for'])) continue;
+            $refIndex = (int)$props['confirm_for'];
+            // confirm_for stored as index; we need to locate that field's id
+            if (!isset($fields[$refIndex])) continue; $refField = $fields[$refIndex];
+            $refId = isset($refField['id'])?(int)$refField['id']:0; if($refId<=0) continue;
+            $fmt = $props['format'] ?? '';
+            if (in_array($fmt, ['national_id_ir','email'], true)){
+                $v1 = $valueMap[$refId] ?? '';
+                $v2 = $valueMap[$fid] ?? '';
+                if ($v1 !== '' && $v2 !== '' && $v1 !== $v2){
+                    $errors[] = ($props['label'] ?? 'فیلد تایید').' با مقدار اصلی مطابقت ندارد.';
                 }
             }
         }
