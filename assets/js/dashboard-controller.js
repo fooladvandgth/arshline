@@ -333,7 +333,8 @@
               '</details>'+ 
               '<div id="arHooshaNotes" class="hint" style="white-space:pre-wrap;line-height:1.7"></div>'+ 
               '<div id="arHooshaVersions" class="hint" style="display:none;font-size:.7rem;opacity:.8"></div>'+ 
-              '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none;margin-top:.75rem"></div>'+ 
+              // Preview moved logically to end; will append later dynamically if needed
+              '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none;margin-top:1.25rem"></div>'+ 
             '</div>'+ 
           '</div>';
         // Scroll sync (raw -> edited caret proximity)
@@ -503,7 +504,10 @@
                   '.hoosha-badge[data-fmt=captcha_alphanumeric]{background:#f0e6ff;border-color:#c7b3f5}' +
                   '.hoosha-badge[data-fmt=alphanumeric_no_space]{background:#e8f7ff;border-color:#b4e1f5}' +
                   '.hoosha-badge[data-fmt=alphanumeric_extended]{background:#ececec;border-color:#ccc}' +
-                  '.hoosha-badge[data-fmt=file_upload]{background:#f6f6f6;border-color:#bbb}';
+                  '.hoosha-badge[data-fmt=file_upload]{background:#f6f6f6;border-color:#bbb}' +
+                  '.hoosha-field-highlight{animation:hooshaFlash 2.2s ease-in-out 1;position:relative;}' +
+                  '.hoosha-field-highlight:before{content:"";position:absolute;inset:0;border:2px solid #3b82f6;border-radius:10px;box-shadow:0 0 0 4px rgba(59,130,246,0.25);pointer-events:none;}' +
+                  '@keyframes hooshaFlash{0%{background:#dbeafe}55%{background:#eff6ff}100%{background:transparent}}';
                 document.head.appendChild(st);
               }
             } catch(_cssErr){}
@@ -640,6 +644,22 @@
               return line;
             }).join('');
             preview.innerHTML = html; preview.style.display='block';
+            // Highlight & scroll to first changed field (if any deltas)
+            try {
+              if (Array.isArray(deltas) && deltas.length){
+                var first = deltas[0];
+                var idx = null;
+                if (typeof first.field_index==='number') idx = first.field_index; else if (typeof first.index==='number') idx = first.index; else if (typeof first.field==='number') idx = first.field;
+                if (idx!=null){
+                  var el = preview.querySelectorAll('div[style*="margin:"]')[idx]; // crude nth mapping
+                  if (el){
+                    el.classList.add('hoosha-field-highlight');
+                    try { el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_sv){}
+                    setTimeout(function(){ try { el.classList.remove('hoosha-field-highlight'); } catch(_rh){} }, 2600);
+                  }
+                }
+              }
+            } catch(_hl){}
           } catch(_){ preview.style.display='none'; preview.innerHTML=''; }
         }
         function setBusy(el, busy){ if (!el) return; el.disabled = !!busy; el.classList.toggle('is-busy', !!busy); }
