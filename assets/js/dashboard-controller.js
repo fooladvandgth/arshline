@@ -389,7 +389,7 @@
             '<button id="arHooshaCancelPreview" class="ar-btn ar-btn--soft">انصراف</button>'+ 
           '</div>'+ 
         '</div>';
-      shell.style.display='block';
+      // Do NOT show yet; will display after first successful prepare
       // re-bind references after injection
       inpNl = document.getElementById('arHooshaNl');
       interpretStatus = document.getElementById('arHooshaInterpretStatus');
@@ -659,11 +659,14 @@
           fetch(_prepUrl, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(_prepBody) })
             .then(function(r){ cap('info','hoosha.prepare.response','HTTP '+r.status); if (!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('دریافت پاسخ', 60); step('۳) دریافت پاسخ'); return r.clone().text().then(function(t){ try{ dbg('RECV prepare HTTP '+r.status+' :: '+String(t||'').slice(0,2000)); }catch(_){ } return t; }); })
             .then(function(txtRaw){ var j=null; try { j = txtRaw ? JSON.parse(txtRaw) : {}; } catch(e){ dbg('PARSE ERROR prepare :: '+String(e&&e.message||e)); throw e; } try { cap('info','hoosha.prepare.parsed'); schema = j.schema||null; var editedText = (j && typeof j.edited_text==='string')? j.edited_text : (j && typeof j.text==='string')? j.text : (j && typeof j.output==='string')? j.output : ''; if (inpEdited) inpEdited.value = editedText; showNotes(j.notes||[], j.confidence); // backend progress integration
+              // Reveal NL edit card only now (first successful prepare)
+              try { var shell=document.getElementById('arHooshaNlShell'); if (shell){ shell.style.display='block'; } } catch(_sh){}
               if (j && j.form_name && inpFormName && !frmName){ try { inpFormName.value = j.form_name; } catch(_fn){} }
               try { if (Array.isArray(j.events)){ j.events.forEach(function(ev){ try { var kind=(ev.type||'evt'); var msg = (ev.message||ev.step||ev.note||''); console.log('%c[ARSH-EVENT]','color:#3b82f6', '['+kind.toUpperCase()+']', msg); if (typeof cap==='function'){ cap('event','hoosha.prepare.'+kind, msg); } } catch(_l){} }); } } catch(_ev){}
               try { if (Array.isArray(j.progress) && j.progress.length){ stepsBox.textContent=''; var total=j.progress.length; j.progress.forEach(function(p,i){ var pct=Math.round(((i+1)/total)*90); step((i+1)+') '+(p.message||p.step)); setProgress(p.message || p.step, pct); }); } } catch(_pr){}
               showPreview(schema); if (!editedText && (!schema || !Array.isArray(schema.fields) || !schema.fields.length)){ var keys = []; try { keys = Object.keys(j||{}); } catch(_e){} notify('پاسخی از مدل دریافت نشد', 'warn'); step('خروجی متنی از مدل دریافت نشد'); if (keys && keys.length){ step('کلیدهای پاسخ: ' + keys.slice(0,12).join(',')); try { dbg('prepare keys :: '+keys.join(',')); } catch(_){ } } cap('warn','hoosha.prepare.empty', keys.slice(0,12).join(',')); } else { step('پیش‌نمایش به‌روزرسانی شد'); }
               if (autoApply && autoApply.checked && j.confidence && j.confidence >= 0.9){ notify('اعتماد بالا؛ اعمال خودکار انجام شد', 'success'); cap('info','hoosha.prepare.autoApply'); }
+              try { if (inpNl){ inpNl.focus(); } } catch(_fc){}
               setProgress('اعتبارسنجی خروجی', 95); doneProgress(); cap('info','hoosha.prepare.success'); } catch(e){ console.error(e); cap('error','hoosha.prepare.parseError', String(e&&e.message||e)); } })
             .catch(function(e){ console.error('[ARSH] hoosha.prepare failed', e); cap('error','hoosha.prepare.error', String(e&&e.message||e)); notify('تحلیل ناموفق بود', 'error'); setProgress('خطا در تحلیل', 100); })
             .finally(function(){ setBusy(btnPrepare, false); });
