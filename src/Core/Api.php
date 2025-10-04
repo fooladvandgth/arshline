@@ -1,4 +1,4 @@
-<?php
+            try {
 namespace Arshline\Core;
 
 use WP_REST_Request;
@@ -12,6 +12,15 @@ use Arshline\Modules\Forms\Submission;
 use Arshline\Modules\Forms\SubmissionRepository;
 use Arshline\Modules\Forms\SubmissionValueRepository;
 use Arshline\Modules\Forms\FormValidator;
+                // Always perform baseline vs final audit (lightweight) to surface any silent drops or additions.
+                $auditFR = self::hoosha_audit_baseline_preservation($baseline_formal, $schema); // this can restore missing ones late
+                if (!empty($auditFR['missing'])){ $notes[]='audit:late_missing_restored('.count($auditFR['missing']).')'; }
+                if (!empty($auditFR['duplicates'])){ $notes[]='audit:late_duplicates('.count($auditFR['duplicates']).')'; }
+                // Coverage ratio
+                $baseCount = count($baseline_formal['fields'] ?? []); $finalCount = count($schema['fields'] ?? []);
+                if ($baseCount>0){
+                    $notes[]='audit:coverage('.$finalCount.'/'.$baseCount.')';
+                }
 use Arshline\Modules\Forms\FieldRepository;
 use Arshline\Core\Ai\Hoshyar;
 use Arshline\Support\Audit;
@@ -4025,6 +4034,9 @@ class Api
                 $ord=0; foreach ($baseline_formal['fields'] as $bf){ if (!is_array($bf)) continue; $lbl = isset($bf['label'])?(string)$bf['label']:''; if ($lbl==='') continue; $baselineOrderMap[self::hoosha_canon_label($lbl)] = $ord++; }
             }
         }
+        // Strict small-form mode: if very few baseline fields (<=5) assume user wants exact set => suppress expansive recoveries later
+        $strictSmallForm = (count($baseline_formal['fields'] ?? []) > 0 && count($baseline_formal['fields']) <= 5);
+        if ($strictSmallForm){ $notes[]='heur:strict_small_form_mode'; $GLOBALS['__hoosha_strict_small_form']=true; }
 
         // Build standards and capabilities to pass to model
         $standards = [
@@ -4373,7 +4385,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     if ($confirms>0) $notes[] = 'heur:confirms_found('.$confirms.')';
                 }
                 // Coverage enforcement: if after refinement field count << baseline, inject missing baseline fields
-                if (!empty($baseline_formal['fields']) && !empty($schema['fields'])){
+                if (!empty($baseline_formal['fields']) && !empty($schema['fields']) && empty($GLOBALS['__hoosha_strict_small_form'])){
                     $finalCount = count($schema['fields']); $baseCount = count($baseline_formal['fields']);
                     if ($baseCount>=8){
                         $ratio = ($finalCount>0)? ($finalCount / $baseCount) : 0.0;
@@ -4448,6 +4460,23 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     } else { $notes[]='heur:file_injection_skipped(no_keyword)'; }
                 } elseif ($disableFileFallback){
                     $notes[]='heur:file_fallback_disabled';
+                }
+                // 4.10) Sanitize hallucinated / unrelated thematic fields & consent duplicates (baseline-safe)
+                $baselinePreservationMap = self::hoosha_build_baseline_canon_map($baseline_formal);
+                self::hoosha_prune_hallucinated_fields($schema, $baseline_formal, $user_text, $notes, $progress, $baselinePreservationMap);
+                // 4.10.b) Baseline preservation audit BEFORE strict collapse
+                $audit = self::hoosha_audit_baseline_preservation($baseline_formal, $schema);
+                if (!empty($audit['missing'])){ $notes[]='audit:baseline_missing('.count($audit['missing']).')'; }
+                if (!empty($audit['restored'])){ $notes[]='audit:baseline_restored('.count($audit['restored']).')'; }
+                if (!empty($audit['duplicates'])){ $notes[]='audit:baseline_dups_tagged('.count($audit['duplicates']).')'; }
+                // 4.11) Semantic duplicate collapse for small forms (prefer structured types)
+                if (!empty($GLOBALS['__hoosha_strict_small_form'])){
+                    self::hoosha_semantic_collapse_small_form($schema, $notes, $progress);
+                    // Rebuild edited text numbering after collapse
+                    $edited = self::hoosha_local_edit_text($user_text, $schema);
+                    // 4.11.b) Hard trim: keep only baseline canonical set (physically remove extras) while preserving first richer duplicate
+                    self::hoosha_enforce_exact_small_form($schema, $baseline_formal, $notes, $progress);
+                    $edited = self::hoosha_local_edit_text($user_text, $schema);
                 }
             }
             // Optional AI final review
@@ -4551,17 +4580,19 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             if (!is_array($bf)) continue; $bl = isset($bf['label'])? trim((string)$bf['label']):''; if ($bl==='') continue;
             $sig = self::hoosha_canon_label($bl);
             if (!isset($existing[$sig])){
-                // crude similarity guard: avoid adding if another label shares 85% of characters
-                $skip = false; $blNoSpace = preg_replace('/\s+/u','',$sig);
-                foreach (array_keys($existing) as $ek){
-                    $ekNo = preg_replace('/\s+/u','',$ek);
-                    if ($ekNo === '' || $blNoSpace === '') continue;
-                    $len = min(mb_strlen($ekNo,'UTF-8'), mb_strlen($blNoSpace,'UTF-8'));
-                    $common = 0;
-                    for ($i=0;$i<$len;$i++){ if (mb_substr($ekNo,$i,1,'UTF-8') === mb_substr($blNoSpace,$i,1,'UTF-8')) $common++; }
-                    if ($len>0 && ($common/$len) >= 0.85){ $skip = true; break; }
+                // Improved semantic similarity guard: compute token overlap with every existing label
+                $skip=false; $baseTokens = self::hoosha_tokenize_for_similarity($bl);
+                if ($baseTokens){
+                    foreach (array_keys($existing) as $ek){
+                        $ekTokens = self::hoosha_tokenize_for_similarity($ek);
+                        if (!$ekTokens) continue;
+                        $inter = array_intersect($baseTokens,$ekTokens);
+                        $union = array_unique(array_merge($baseTokens,$ekTokens));
+                        $j = (count($union)>0)? (count($inter)/count($union)) : 0.0;
+                        if ($j >= 0.6){ $skip=true; break; }
+                    }
                 }
-                if ($skip) continue;
+                if ($skip) continue; // do not append near-duplicate
                 $clone = $bf; // baseline already formalized
                 if (!isset($clone['props']) || !is_array($clone['props'])) $clone['props'] = [];
                 $clone['props']['source'] = 'reconciled_from_baseline';
@@ -4675,6 +4706,85 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         unset($f); if ($count>0) $notes[]='heur:file_props_inferred('.$count.')';
     }
 
+    /**
+     * Prune or tag hallucinated / unrelated fields and collapse repeated consent/acceptance style fields.
+     * Strategy:
+     *  - Build token signature of user_text & baseline labels.
+     *  - Fields whose canonical label tokens have <30% overlap with union signature AND are not enriched/file injected -> drop (soft prune limit 3).
+     *  - Detect multiple consent/accept fields (containing terms like موافقت, پذیرش, شرایط) and keep the first; others get duplicate_of pointer.
+     *  - Correct obvious mis-typed long_text that looks like file/image request (contains تصویر/آپلود) by converting to file.
+     */
+    protected static function hoosha_prune_hallucinated_fields(array &$schema, array $baseline_formal, string $user_text, array &$notes, array &$progress, array $baselineCanonMap = []): void
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return;
+        $raw = mb_strtolower($user_text,'UTF-8');
+        // Build baseline token bag
+        $baselineTokens=[]; if (!empty($baseline_formal['fields'])){
+            foreach ($baseline_formal['fields'] as $bf){ if(!is_array($bf)) continue; $l=$bf['label']??''; $baselineTokens=array_merge($baselineTokens, self::hoosha_tokenize_for_similarity($l)); }
+        }
+        $userTokens = self::hoosha_tokenize_for_similarity($raw);
+        $sig = array_unique(array_merge($baselineTokens,$userTokens));
+        $sigMap = array_fill_keys($sig,true);
+        $kept=[]; $dropped=0; $consentIndex=null; $dupConsent=0; $fixedTypes=0;
+        foreach ($schema['fields'] as $idx=>$f){
+            if(!is_array($f)){ continue; }
+            $lbl = (string)($f['label']??''); $canonTokens = self::hoosha_tokenize_for_similarity($lbl);
+            $canonLabel = self::hoosha_canon_label($lbl);
+            // Consent detection
+            $low = mb_strtolower($lbl,'UTF-8');
+            $isConsent = (mb_strpos($low,'موافقت')!==false || mb_strpos($low,'شرایط')!==false || mb_strpos($low,'قوانین')!==false || mb_strpos($low,'privacy')!==false || mb_strpos($low,'پذیرش')!==false);
+            if ($isConsent){
+                if ($consentIndex===null){ $consentIndex = count($kept); }
+                else {
+                    // Mark as duplicate_of first consent
+                    if (!isset($f['props'])||!is_array($f['props'])) $f['props']=[]; $f['props']['duplicate_of']=$consentIndex; $dupConsent++;
+                }
+            }
+            // Mis-typed image/file heuristics: long_text with keywords
+            if (($f['type']??'')==='long_text' && preg_match('/تصویر|عکس|آپلود|بارگذاری/u',$low)){
+                $f['type']='file'; if (!isset($f['props'])||!is_array($f['props'])) $f['props']=[]; $f['props']['format']='file_upload'; $fixedTypes++;
+            }
+            // Skip pruning sources we injected heuristically (coverage/file/recovered)
+            $src = $f['props']['source'] ?? '';
+            if (in_array($src,['coverage_injected','coverage_injected_refined','file_injected','recovered_scan','reconciled_from_baseline','heuristic_or_unchanged','refined_split'],true)){
+                $kept[]=$f; continue; }
+            // Similarity score = overlap tokens / label tokens
+            $overlap=0; foreach($canonTokens as $tk){ if(isset($sigMap[$tk])) $overlap++; }
+            $score = (count($canonTokens)>0)? ($overlap / count($canonTokens)) : 0.0;
+            // Baseline-preservation: If this label (canon) exists in baseline, NEVER drop here. Rationale: baseline fields only removable
+            // under strict_small_form_enforce phase where duplicates are resolved with semantic similarity >=0.95.
+            if (isset($baselineCanonMap[$canonLabel])){ $kept[]=$f; continue; }
+            if ($score < 0.3 && $dropped < 3){ $dropped++; $notes[]='heur:pruned_hallucinated(label='.mb_substr($lbl,0,24,'UTF-8').')'; continue; }
+            $kept[] = $f;
+        }
+        if ($dropped>0){ $schema['fields']=$kept; $notes[]='heur:hallucination_prune_count('.$dropped.')'; $progress[]=['step'=>'hallucination_pruned','message'=>'حذف فیلدهای بی‌ربط ('.$dropped.')']; }
+        if ($dupConsent>0){ $notes[]='heur:duplicate_consent_tagged('.$dupConsent.')'; }
+        if ($fixedTypes>0){ $notes[]='heur:mis_typed_file_corrected('.$fixedTypes.')'; }
+    }
+
+    /** Build map of canonical baseline labels for quick preservation checks */
+    protected static function hoosha_build_baseline_canon_map(array $baseline_formal): array
+    {
+        $map = [];
+        if (!empty($baseline_formal['fields'])){
+            foreach ($baseline_formal['fields'] as $bf){ if(!is_array($bf)) continue; $lbl=$bf['label']??''; if($lbl==='') continue; $map[self::hoosha_canon_label($lbl)]=true; }
+        }
+        return $map;
+    }
+
+    /** Audit baseline preservation; restore silently missing baseline fields (tag as restored_baseline) */
+    protected static function hoosha_audit_baseline_preservation(array $baseline_formal, array &$schema): array
+    {
+        $res = ['missing'=>[], 'restored'=>[], 'duplicates'=>[]];
+        if (empty($baseline_formal['fields'])) return $res;
+        $canonFinal = [];
+        foreach (($schema['fields']??[]) as $idx=>$f){ if(!is_array($f)) continue; $lbl=$f['label']??''; if($lbl==='') continue; $c=self::hoosha_canon_label($lbl); if(isset($canonFinal[$c])){ $res['duplicates'][]=$c; } else { $canonFinal[$c]=$idx; } }
+        foreach ($baseline_formal['fields'] as $bf){ if(!is_array($bf)) continue; $lbl=$bf['label']??''; if($lbl==='') continue; $c=self::hoosha_canon_label($lbl); if(!isset($canonFinal[$c])){ $res['missing'][]=$c; // restore
+                $clone=$bf; if(!isset($clone['props'])||!is_array($clone['props'])) $clone['props']=[]; $clone['props']['source']='restored_baseline'; $schema['fields'][]=$clone; $res['restored'][]=$c; }
+        }
+        return $res;
+    }
+
     /** Normalize notes to new prefix convention */
     protected static function hoosha_normalize_note_prefixes(array $notes): array
     {
@@ -4711,7 +4821,9 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         if (empty($schema['fields']) || !is_array($schema['fields'])) return ['count'=>0];
         $count = 0;
         foreach ($schema['fields'] as &$f){
-            if (!is_array($f)) continue; $lbl = isset($f['label'])? (string)$f['label']:''; if ($lbl==='') continue;
+            if (!is_array($f)) continue;
+            $lbl = isset($f['label'])? (string)$f['label']:'';
+            if ($lbl==='') continue;
             if (!isset($f['props']) || !is_array($f['props'])) $f['props'] = [];
             $pl = mb_strtolower($lbl, 'UTF-8');
             $hasFormat = isset($f['props']['format']) && $f['props']['format'] !== '';
@@ -4720,10 +4832,102 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                 if (mb_strpos($pl,'تاریخ') !== false) { $f['props']['format'] = 'date_greg'; $count++; continue; }
                 if (mb_strpos($pl,'شماره') !== false && (mb_strpos($pl,'موبایل') !== false || mb_strpos($pl,'تلفن') !== false)) { $f['props']['format'] = 'mobile_ir'; $count++; continue; }
             }
-            // Enforce required if original instruction implied mandatory (post-hoc pass will set required flags globally)
         }
         unset($f);
         return ['count'=>$count];
+    }
+
+    /** Lightweight tokenizer for similarity scoring. */
+    protected static function hoosha_tokenize_for_similarity(string $s): array
+    {
+        $s = mb_strtolower((string)$s,'UTF-8');
+        $s = preg_replace('/[\p{P}\p{S}]+/u',' ',$s);
+        $parts = preg_split('/\s+/u', trim($s)) ?: [];
+        if (!$parts) return [];
+        $stop = ['از','در','به','و','یا','را','با','برای','که','این','یک','آن','تا','های','می','یا','چه','رو'];
+        $out=[];
+        foreach ($parts as $p){
+            if ($p===''|| mb_strlen($p,'UTF-8')<2) continue;
+            if (in_array($p,$stop,true)) continue;
+            $out[]=$p;
+        }
+        return $out ? array_values(array_unique($out)) : [];
+    }
+
+    /** Collapse semantically duplicate fields in small form mode; keep richer structured variant. */
+    protected static function hoosha_semantic_collapse_small_form(array &$schema, array &$notes, array &$progress): void
+    {
+        if (empty($schema['fields']) || !is_array($schema['fields'])) return;
+        $fields = $schema['fields'];
+        $n = count($fields); if ($n<=1) return;
+        $removed = 0; $mapKeep = [];
+        for ($i=0;$i<$n;$i++){
+            if (!is_array($fields[$i])) continue; $li = (string)($fields[$i]['label']??''); if ($li==='') continue;
+            $ti = $fields[$i]['type'] ?? '';
+            $tokI = self::hoosha_tokenize_for_similarity($li); if (!$tokI) continue;
+            for ($j=$i+1;$j<$n;$j++){
+                if (!is_array($fields[$j])) continue; $lj = (string)($fields[$j]['label']??''); if ($lj==='') continue;
+                $tokJ = self::hoosha_tokenize_for_similarity($lj); if (!$tokJ) continue;
+                $inter = array_intersect($tokI,$tokJ); $union = array_unique(array_merge($tokI,$tokJ));
+                $sim = (count($union)>0)? (count($inter)/count($union)) : 0.0;
+                if ($sim >= 0.65){
+                    // Choose keeper: priority multiple_choice > dropdown > file > rating > long_text > short_text
+                    $tj = $fields[$j]['type'] ?? '';
+                    $priority = ['multiple_choice'=>6,'dropdown'=>5,'file'=>4,'rating'=>3,'long_text'=>2,'short_text'=>1];
+                    $keepI = $priority[$ti] ?? 0; $keepJ = $priority[$tj] ?? 0;
+                    if ($keepJ > $keepI){
+                        // mark i duplicate of j
+                        if (!isset($fields[$i]['props'])||!is_array($fields[$i]['props'])) $fields[$i]['props']=[];
+                        $fields[$i]['props']['duplicate_of']=$j; $removed++;
+                    } else {
+                        if (!isset($fields[$j]['props'])||!is_array($fields[$j]['props'])) $fields[$j]['props']=[];
+                        $fields[$j]['props']['duplicate_of']=$i; $removed++;
+                    }
+                }
+            }
+        }
+        if ($removed>0){
+            // Soft collapse: we don't physically remove, we tag duplicates; optionally remove physically if >1 dup per cluster
+            $notes[]='heur:semantic_duplicates_tagged('.$removed.')';
+            $progress[]=['step'=>'semantic_collapse','message'=>'برچسب‌گذاری تکرار معنایی ('.$removed.')'];
+        }
+        $schema['fields']=$fields;
+    }
+
+    /** Enforce exact small-form: restrict final schema to baseline canonical labels only, choose best duplicate. */
+    protected static function hoosha_enforce_exact_small_form(array &$schema, array $baseline_formal, array &$notes, array &$progress): void
+    {
+        if (empty($GLOBALS['__hoosha_strict_small_form'])) return; // safety
+        if (empty($baseline_formal['fields']) || empty($schema['fields'])) return;
+        $baseCanonOrder=[]; $i=0;
+        foreach ($baseline_formal['fields'] as $bf){ if (!is_array($bf)) continue; $lbl=$bf['label']??''; if($lbl==='') continue; $baseCanon = self::hoosha_canon_label($lbl); if(!isset($baseCanonOrder[$baseCanon])) $baseCanonOrder[$baseCanon]=$i++; }
+        if (!$baseCanonOrder) return;
+        // Group current fields by canonical label
+        $groups=[]; foreach ($schema['fields'] as $idx=>$f){ if(!is_array($f)) continue; $lbl=$f['label']??''; if($lbl==='') continue; $c=self::hoosha_canon_label($lbl); $groups[$c][] = ['i'=>$idx,'f'=>$f]; }
+        $priority = ['multiple_choice'=>6,'dropdown'=>5,'file'=>4,'rating'=>3,'long_text'=>2,'short_text'=>1];
+        $final=[]; $removed=0; $restored=0; $extraneousDropped=0;
+        foreach ($baseCanonOrder as $canon=>$ord){
+            if (isset($groups[$canon])){
+                // Pick best existing
+                $best=null; $bestScore=-1; foreach ($groups[$canon] as $ent){ $t=$ent['f']['type']??''; $score=$priority[$t]??0; if($score>$bestScore){ $best=$ent['f']; $bestScore=$score; } }
+                if ($best && isset($best['props']['duplicate_of'])) unset($best['props']['duplicate_of']);
+                if ($best){ $final[]=$best; }
+            } else {
+                // baseline field was pruned earlier; restore it verbatim
+                foreach ($baseline_formal['fields'] as $bf){
+                    if (!is_array($bf)) continue; $lbl=$bf['label']??''; if($lbl==='') continue; if (self::hoosha_canon_label($lbl)===$canon){
+                        $clone=$bf; if(!isset($clone['props'])||!is_array($clone['props'])) $clone['props']=[]; $clone['props']['source']='restored_small_form'; $final[]=$clone; $restored++; break; }
+                }
+            }
+            if (isset($groups[$canon]) && count($groups[$canon])>1){ $removed += (count($groups[$canon])-1); }
+        }
+        // Count extraneous (labels not in baseline canon)
+        foreach ($schema['fields'] as $f){ if(!is_array($f)) continue; $lbl=$f['label']??''; if($lbl==='') continue; $c=self::hoosha_canon_label($lbl); if(!isset($baseCanonOrder[$c])) $extraneousDropped++; }
+        $schema['fields']=$final;
+        if ($removed>0) $notes[]='heur:strict_small_form_collapsed_dups('.$removed.')';
+        if ($extraneousDropped>0) $notes[]='heur:strict_small_form_pruned_extras('.$extraneousDropped.')';
+        if ($restored>0) $notes[]='heur:strict_small_form_restored('.$restored.')';
+        $progress[]=['step'=>'small_form_enforced','message'=>'ساده‌سازی فرم کوچک (حذف اضافات / بازگردانی)'];
     }
 
     /** After schema finalized: de-duplicate semantically similar labels and enforce required from user_text */
@@ -4878,34 +5082,29 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         if (is_array($rawParts)){
             foreach ($rawParts as $seg){
                 $seg = trim($seg); if ($seg==='') continue;
-                // Heuristic normalizations
-                $segNorm = mb_strtolower($seg,'UTF-8');
-                // Convert numbers in Persian/Arabic digits to Latin for indexing
-                $segNorm = preg_replace_callback('/[\x{06F0}-\x{06F9}\x{0660}-\x{0669}]+/u', function($m){
-                    $map = ['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9','٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9'];
-                    $out=''; foreach (preg_split('//u',$m[0],-1,PREG_SPLIT_NO_EMPTY) as $ch){ $out .= $map[$ch] ?? $ch; } return $out; }, $segNorm);
-                $candidateCmds[] = $segNorm; // keep raw normalized; model will refine
+                $seg = preg_replace('/^(\d+\s*[\-\.\)]\s*)/u','',$seg);
+                if (preg_match('/گزینه\s+جدید\s+(.+)\s+اضافه/iu',$seg,$m)){ $candidateCmds[]='add_option:'.trim($m[1]); continue; }
+                if (preg_match('/(اجباری|الزامی)/iu',$seg) && preg_match('/(سوال|فیلد)/u',$seg)){ $candidateCmds[]='set_required:all'; continue; }
+                if (preg_match('/(اختیاری|غیر\s*اجباری)/u',$seg) && preg_match('/(سوال|فیلد)/u',$seg)){ $candidateCmds[]='set_optional:all'; continue; }
+                if (preg_match('/نام.*رسمی/u',$seg)){ $candidateCmds[]='formalize_labels'; continue; }
+                if (mb_strpos($seg,'رسمی')!==false){ $candidateCmds[]='formalize_labels'; continue; }
             }
         }
+        // If AI disabled, return heuristic commands only
         $ai = self::get_ai_settings();
         if (empty($ai['enabled']) || empty($ai['api_key']) || empty($ai['base_url'])){
-            // Fallback: return heuristically split commands only
-            $notes[]='ai:interpret_ai_disabled';
+            $notes[]='ai:interpret_disabled';
             return new WP_REST_Response(['ok'=>true,'commands'=>$candidateCmds,'notes'=>$notes,'raw'=>$prompt],200);
         }
         try {
-            $model = self::select_optimal_model($ai, $prompt, 'hoosha_interpret_nl', 4);
-            $system = 'You are Hoosha, an assistant that converts informal Persian form edit requests into a concise array of atomic Persian imperative commands (plain strings). DO NOT return JSON with extra keys—return STRICT JSON: { commands:[string] }. Each command should be actionable (e.g., "سوال اول الزامی شود", "برای سوال دوم ۳ گزینه اضافه کن", "نام سوال سوم کوتاه تر شود"). Avoid ambiguity; expand pronouns ("آن" -> explicit field) when possible.';
-            $user = json_encode([
-                'schema'=> $schema,
-                'natural_prompt'=> $prompt,
-                'candidate_segments'=> $candidateCmds,
-            ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+            $model = self::select_optimal_model($ai, $prompt, 'hoosha_interpret_nl', 2);
+            $system = 'You convert Persian natural language form edit instructions to normalized machine commands. Output JSON { commands:[string] }. Recognize: formalize_labels, set_required:all, set_optional:all, add_option:<text>.';
+            $user = json_encode(['prompt'=>$prompt,'candidate_segments'=>$candidateCmds], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
             $resp = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $system, (string)$user);
             $cmds = isset($resp['commands']) && is_array($resp['commands']) ? array_values(array_filter(array_map('strval',$resp['commands']))) : $candidateCmds;
             $notes[] = 'ai:interpret_success('.count($cmds).')';
             return new WP_REST_Response(['ok'=>true,'commands'=>$cmds,'notes'=>$notes,'raw'=>$prompt],200);
-        } catch(\Throwable $e){
+        } catch (\Throwable $e){
             $notes[] = 'ai:interpret_error';
             return new WP_REST_Response(['ok'=>true,'commands'=>$candidateCmds,'notes'=>$notes,'raw'=>$prompt,'error'=>$e->getMessage()],200);
         }
@@ -5299,8 +5498,8 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             // Treat short lines that are obvious field prompts (شروع با کد ملی، شماره، کد پست، فقط، تاریخ، ساعت)
             $startsLikeField = preg_match('/^(کد|شماره|فقط|تاریخ|ساعت|آی\s*پی|سطح)/u',$low);
             $enumeratedPrefix = false;
-            // Detect enumerated numeric prefixes like "27.", "45)" or "120." at start
-            if (preg_match('/^\d{1,3}[\.)\-\:]/u',$ln)){ $enumeratedPrefix = true; }
+            // Detect enumerated numeric prefixes (Western or Persian digits) like "27.", "۴)" , "12-" , "۳:" at start
+            if (preg_match('/^[\d۰-۹]{1,3}[\.)\-:]/u',$ln)){ $enumeratedPrefix = true; }
             // Lines ending with colon often are prompts: کد محصول:
             $endsWithColon = (mb_substr($ln,-1,1,'UTF-8') === ':' || mb_substr($ln,-1,1,'UTF-8') === '：');
             if ($enumeratedPrefix || ($endsWithColon && mb_strlen($ln,'UTF-8') <= 80 && !preg_match('/\s{2,}/u',$ln))){
@@ -5325,6 +5524,8 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             $c = $classified[$i];
             if ($c['type']!=='q') continue;
             $stem = trim($c['text']);
+            // Strip leading enumeration numbering (Western or Persian digits) once we decided it's a question
+            $stem = preg_replace('/^[\s]*[\d۰-۹]{1,3}[\.)\-:]+\s*/u','',$stem);            
             $options = [];
             // Inline options extraction (avoid stem contamination and cross-contamination)
             $stemWork = $stem;
@@ -5465,7 +5666,8 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             if ($isLong) { $type='long_text'; $props['rows']=4; $props['maxLength']=5000; }
             // Dynamic rating (از 1 تا N) detection before generic options
             $ratingRange = null;
-            if (preg_match('/از\s*(1|۱)\s*تا\s*(\d+|\d+|۱۰|۵|۷|۸|۹)/u',$lowStem,$rm)){
+            // Rating patterns (broaden: allow optional 'از', allow Persian digits, allow embedded parens like (1 تا 10) )
+            if (preg_match('/(?:از\s*)?(1|۱)\s*تا\s*(10|۱۰|[2-9]|[۲-۹])/u',$lowStem,$rm)){
                 $maxNumRaw = $rm[2];
                 $maxNorm = strtr($maxNumRaw,['۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9','۰'=>'0']);
                 $maxInt = intval($maxNorm);
@@ -5490,6 +5692,13 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             if (!empty($options) && $type!=='rating'){
                 $type = (count($options)>=6)?'dropdown':'multiple_choice';
                 $props['options']=$options; $props['multiple']=false;
+            }
+            // Automatic yes/no inference for questions starting with 'آیا' lacking explicit options & not already typed
+            if ($type==='short_text' && empty($options) && preg_match('/^آیا\s+/u',$stem)){
+                $type='multiple_choice';
+                $props['options']=['بله','خیر'];
+                $props['multiple']=false;
+                $props['source']='yesno_infer';
             }
             // Formats (refined + advanced Todo 37)
             if (preg_match('/کد\s*ملی/u',$lowStem)) { $props['format']='national_id_ir'; }
@@ -5696,8 +5905,11 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         }
         // Contact preference recovery
         if (preg_match('/ترجیحت.*تماس|تماس؟.*ایمیل|تلفن|موبایل/u',$fullLower)){
-            $exists=false; foreach($out as $ff){ if(mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'ترجیح')!==false){ $exists=true; break; } }
-            if(!$exists){ $out[] = [ 'type'=>'multiple_choice','label'=>'ترجیح شما برای شیوه تماس؟','required'=>false,'props'=>['options'=>['ایمیل','تلفن','موبایل'],'source'=>'recovered_scan'] ]; }
+            // Suppress contact preference recovery if strict small form mode enabled
+            if (empty($GLOBALS['__hoosha_strict_small_form'])){
+                $exists=false; foreach($out as $ff){ if(mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'ترجیح')!==false){ $exists=true; break; } }
+                if(!$exists){ $out[] = [ 'type'=>'multiple_choice','label'=>'ترجیح شما برای شیوه تماس؟','required'=>false,'props'=>['options'=>['ایمیل','تلفن','موبایل'],'source'=>'recovered_scan'] ]; }
+            }
         }
         // Invoice email recovery
         $hasInvoiceEmail=false; foreach($out as $ff){ if(isset($ff['props']['format']) && $ff['props']['format']==='email' && mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'فاکتور')!==false){ $hasInvoiceEmail=true; break; } }

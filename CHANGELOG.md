@@ -1,5 +1,38 @@
 # Changelog
 
+## 7.3.0 - Enforcement & Test Hardening (Unreleased)
+
+Highlights:
+- Strict small-form enforcement: حداکثر ۵ فیلد اولیه بدون تزریق پوشش اضافی؛ حذف فیزیکی فیلدهای زائد و جلوگیری از «ترجیح روش تماس» در فرم کوچک.
+- Semantic duplicate collapse (Jaccard) برای فرم‌های کوچک؛ نگه‌داشتن نسخه ساختاریافته و تگ‌گذاری duplicate_of / confirm_for.
+- Hallucination pruning: حذف فیلدهای بی‌ربط با هم‌پوشانی توکنی <30% با ورودی.
+- File inference & fallback تقویت‌شده (رسید، رزومه، تصویر، گزارش).
+- Rebuild edited_text پس از هر مرحله پاکسازی برای شماره‌گذاری پایدار.
+
+New Tests:
+- HooshaPrepareSmallFormTest: تضمین عدم حضور فیلد ترجیح تماس در فرم کوچک و الزامی بودن فرمت‌های ملی/موبایل.
+- HooshaPrepareLargeFormTest: اجازه حضور ترجیح تماس در فرم بزرگ و بررسی نوع انتخابی.
+- HooshaPrepareFileInferenceTest: تبدیل «آپلود تصویر/رسید» به فیلد فایل با accept صحیح.
+- HooshaPrepareConfirmEmailTest: لینک confirm_for برای ایمیل دوم.
+- HooshaPrepareNationalIdDuplicateTest: تگ‌گذاری confirm_for یا duplicate_of برای کد ملی تکراری.
+- HooshaPreparePerformanceTest: بودجه زمانی (محلی) < 8s و حداقل تعداد فیلد.
+- HooshaPrepareChunkModeTest: فعال‌سازی مسیر chunk برای ورودی بلند، ادغام چند چانک و یادداشت‌های pipe:chunk_progress و pipe:chunks_merged.
+- HooshaPrepareEmptyInputTest: بازگشت خطای 400 برای ورودی خالی یا فقط فاصله.
+- HooshaPrepareModelFailureFallbackTest: شبیه‌سازی شکست مدل و بازگشت به baseline با یادداشت‌های pipe:model_call_failed و pipe:fallback_from_model_failure.
+
+CI:
+- افزوده شدن GitHub Actions workflow (phpunit.yml) برای اجرای خودکار تست‌ها روی PHP 8.1 و 8.2.
+
+Telemetry Notes:
+- افزودن رویدادهای progress + notes در خروجی prepare برای مانیتورینگ مرحله‌ای (start, model_request, chunk_X, post_finalize, complete).
+
+Pending / Next:
+- Chunk-mode stress test with extremely large paragraphs & timeout path.
+- Negative path for malformed JSON body.
+- Expanded multi-file inference & size/extension policy enforcement.
+
+---
+
 ## 7.2.0 - هوشا / هوشیار / هوشنگ Unified Upgrade
 
 ویژگی‌های شاخص (Highlights):

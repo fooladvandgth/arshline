@@ -402,21 +402,62 @@
     }
     // Move preview panel to very bottom (after outer card) if not already moved
     try {
+      // Provide a stable anchor outside the main initial card so CSS grid inside card doesn't constrain width/flow.
+      // 1. Ensure anchor container exists (once per Hoosha render)
+      var anchorId = 'arHooshaPreviewAnchor';
+      var existingAnchor = document.getElementById(anchorId);
+      if (!existingAnchor){
+        var mainRoot = document.getElementById('arshlineDashboardContent');
+        if (mainRoot){
+          existingAnchor = document.createElement('div');
+          existingAnchor.id = anchorId;
+          existingAnchor.style.marginTop = '1.75rem';
+          // Append at very end so it's always below everything else the user sees
+          mainRoot.appendChild(existingAnchor);
+        }
+      }
+      // 2. Relocate preview element right after anchor (anchor stays persistent so re-renders/hot updates won't duplicate)
       var previewEl = document.getElementById('arHooshaPreview');
-      if (previewEl){
-        var wrapperCard = previewEl.closest('.card');
-        // The first big card we injected has inline style padding:1.2rem; find it
-        var allCards = document.querySelectorAll('.card');
-        if (allCards && allCards.length){
-          var mainCard = allCards[0];
-          if (mainCard && mainCard!==previewEl && mainCard.parentNode){
-            if (previewEl.parentNode === mainCard){
-              // detach and append after main card
-              mainCard.parentNode.insertBefore(previewEl, mainCard.nextSibling);
-              previewEl.style.marginTop = '1.5rem';
-            }
+      if (previewEl && existingAnchor && previewEl.parentNode !== existingAnchor){
+        existingAnchor.appendChild(previewEl);
+        previewEl.style.marginTop = '0';
+        previewEl.style.width = '100%';
+      }
+      // 2.5 Move NL edit card just AFTER preview (user request: "arHooshaNlCard زیر arHooshaPreview")
+      try {
+        var nlCard = document.getElementById('arHooshaNlCard');
+        if (nlCard && previewEl && previewEl.parentNode) {
+          // Insert only if not already immediately after preview
+          var needMove = (nlCard.parentNode !== previewEl.parentNode) || (previewEl.nextSibling !== nlCard);
+          if (needMove) {
+            previewEl.parentNode.insertBefore(nlCard, previewEl.nextSibling);
+            nlCard.style.marginTop = '1rem';
           }
         }
+      } catch(_nlmv){}
+      // 3. As a safety net, watch for late DOM mutations that might re-insert the preview into original card and move it back.
+      if (!window.__AR_HOOSHA_PREVIEW_OBSERVER__){
+        try {
+          var obsTarget = document.getElementById('arshlineDashboardContent');
+          if (obsTarget){
+            window.__AR_HOOSHA_PREVIEW_OBSERVER__ = new MutationObserver(function(muts){
+              try {
+                var pv = document.getElementById('arHooshaPreview');
+                var anc = document.getElementById('arHooshaPreviewAnchor');
+                if (pv && anc && pv.parentNode !== anc){ anc.appendChild(pv); }
+                // Keep NL card under preview if present
+                try {
+                  var nl = document.getElementById('arHooshaNlCard');
+                  if (nl && pv && pv.parentNode) {
+                    var needMove2 = (nl.parentNode !== pv.parentNode) || (pv.nextSibling !== nl);
+                    if (needMove2) { pv.parentNode.insertBefore(nl, pv.nextSibling); }
+                  }
+                } catch(_reord){}
+              } catch(_o){}
+            });
+            window.__AR_HOOSHA_PREVIEW_OBSERVER__.observe(obsTarget, { childList:true, subtree:true });
+          }
+        } catch(_obs){}
       }
     } catch(_mv){}
   })();
@@ -426,6 +467,7 @@
     btnPreviewEdit.onclick = function(){
       if (!schema){ notify('ابتدا تحلیل اولیه فرم را انجام دهید', 'warn'); return; }
       var txt = (inpNl && inpNl.value || '').trim(); if (!txt){ notify('متن طبیعی ویرایش را وارد کنید', 'warn'); return; }
+      try { dbg('NL-PREVIEW STEP 1) شروع پردازش ورودی'); } catch(_d1){}
       interpretStatus.textContent='در حال تولید پیش‌نمایش...'; interpretStatus.style.color='#2563eb';
       if (diffBox){ diffBox.style.display='none'; }
       if (nlActions){ nlActions.style.display='none'; }
@@ -433,8 +475,10 @@
       var url = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/preview_edit';
       var body = { schema: schema, natural_prompt: txt };
       try { dbg('SEND preview_edit '+url+' :: '+JSON.stringify(body)); } catch(_){ }
+      try { dbg('NL-PREVIEW STEP 2) استخراج اولیه مبتنی بر قواعد محلی (در صورت نیاز)'); } catch(_d2){}
       var aborted=false; var controller=null; try { controller=new AbortController(); } catch(_ab){}
       var timeoutMs=17000; var tRef=setTimeout(function(){ aborted=true; try { if(controller) controller.abort(); } catch(_a){} interpretStatus.textContent='مهلت پیش‌نمایش تمام شد (fallback محلی)'; interpretStatus.style.color='#dc2626'; try { dbg('preview_edit TIMEOUT'); } catch(_d){} localPreviewFallback(txt); }, timeoutMs);
+      try { dbg('NL-PREVIEW STEP 3) ارسال درخواست به مدل'); } catch(_d3){}
       fetch(url, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(body), signal: controller?controller.signal:undefined })
         .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
         .then(function(j){ if(aborted) return; try { clearTimeout(tRef); } catch(_ct){}
@@ -444,6 +488,7 @@
           var cmds = j.commands || [];
           if (inpCmd){ inpCmd.value = cmds.join('، '); }
           var deltas = Array.isArray(j.deltas)? j.deltas : [];
+          try { dbg('NL-PREVIEW STEP 4) اِعمال موقت deltas روی پیش‌نمایش'); } catch(_d4){}
           if (diffBox){
             var html=[]; if (!deltas.length){ html.push('<div class="hint">تغییری شناسایی نشد.</div>'); }
             var colorForOp = function(op){ if(op.indexOf('add_')===0) return '#065f46'; if(op.indexOf('remove_')===0) return '#991b1b'; if(op.indexOf('update_')===0) return '#1e3a8a'; return '#374151'; };
@@ -451,22 +496,70 @@
             diffBox.innerHTML = html.join(''); diffBox.style.display='block';
           }
           var confidence = typeof j.confidence==='number'? j.confidence : 0;
+          try { dbg('NL-PREVIEW STEP 5) محاسبه اعتماد و تصمیم اعمال خودکار'); } catch(_d5){}
           interpretStatus.textContent='پیش‌نمایش آماده است (اعتماد '+(confidence?confidence.toFixed(2):'0')+')'; interpretStatus.style.color='#16a34a';
           var autoApplyEl=document.getElementById('arHooshaAutoApply'); var shouldAuto=autoApplyEl&&autoApplyEl.checked&&confidence>=0.9;
             if (shouldAuto){
               try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); if(btnUndo) btnUndo.style.display='inline-block'; } catch(_vs){}
               schema = pendingSchema; pendingSchema=null; showPreview(schema, deltas); if(diffBox) diffBox.style.display='none'; notify('تغییرات (اعتماد بالا) خودکار اعمال شد','success'); interpretStatus.textContent='اعمال خودکار انجام شد (اعتماد '+confidence.toFixed(2)+')'; interpretStatus.style.color='#0d9488';
+              try { dbg('NL-PREVIEW STEP 6) اعمال نهایی (auto-apply)'); } catch(_d6){}
             } else {
               showPreview(pendingSchema, deltas); if (nlActions){ nlActions.style.display='flex'; }
+              try { dbg('NL-PREVIEW STEP 6) آماده برای تایید/انصراف'); } catch(_d6b){}
             }
+          try { dbg('NL-PREVIEW STEP 7) پایان پردازش preview_edit'); } catch(_d7){}
         })
         .catch(function(e){ if(aborted) return; console.error(e); interpretStatus.textContent='خطا در پیش‌نمایش'; interpretStatus.style.color='#dc2626'; try { dbg('preview_edit ERROR '+(e&&e.message||e)); } catch(_d){} localPreviewFallback(txt); })
         .finally(function(){ setTimeout(function(){ if(interpretStatus.textContent.indexOf('پیش‌نمایش')!==-1 || interpretStatus.textContent.indexOf('اعمال خودکار')!==-1){ /* keep */ } else { interpretStatus.textContent=''; } }, 8000); });
     };
   }
-  if (btnConfirmPreview){ btnConfirmPreview.onclick = function(){ if (!pendingSchema){ notify('پیش‌نمایشی برای اعمال نیست','warn'); return; } try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); } catch(_vs){} refreshVersions(); if (btnUndo) btnUndo.style.display='inline-block'; schema = pendingSchema; pendingSchema=null; showPreview(schema); if (diffBox) diffBox.style.display='none'; if (nlActions) nlActions.style.display='none'; notify('تغییرات اعمال شد','success'); interpretStatus.textContent='اعمال شد'; interpretStatus.style.color='#16a34a'; setTimeout(function(){ interpretStatus.textContent=''; },4000); } }
+  if (btnConfirmPreview){ btnConfirmPreview.onclick = function(){
+    if (!pendingSchema){ notify('پیش‌نمایشی برای اعمال نیست','warn'); return; }
+    try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); } catch(_vs){}
+    refreshVersions(); if (btnUndo) btnUndo.style.display='inline-block';
+    schema = pendingSchema; pendingSchema=null;
+    showPreview(schema);
+    if (diffBox) diffBox.style.display='none';
+    if (nlActions){
+      // Fade out actions container gracefully
+      try {
+        nlActions.style.transition='opacity .35s ease';
+        nlActions.style.opacity='0';
+        setTimeout(function(){
+          try {
+            var nlCard = document.getElementById('arHooshaNlCard');
+            if (nlCard){ nlCard.appendChild(nlActions); }
+            nlActions.style.display='none';
+            nlActions.style.opacity='';
+            nlActions.style.transition='';
+          } catch(_rv){}
+        },380);
+      } catch(_fout){ nlActions.style.display='none'; }
+    }
+    notify('تغییرات اعمال شد','success');
+    interpretStatus.textContent='اعمال شد'; interpretStatus.style.color='#16a34a';
+    setTimeout(function(){ interpretStatus.textContent=''; },4000);
+  } }
   if (btnUndo){ btnUndo.onclick = function(){ if (!versionStack.length){ notify('نسخه قبلی موجود نیست','warn'); return; } schema = versionStack.pop(); refreshVersions(); showPreview(schema); notify('بازگشت انجام شد','info'); if (!versionStack.length){ btnUndo.style.display='none'; } } }
-  if (btnCancelPreview){ btnCancelPreview.onclick = function(){ pendingSchema=null; if (diffBox) diffBox.style.display='none'; if (nlActions) nlActions.style.display='none'; interpretStatus.textContent='لغو شد'; interpretStatus.style.color='#dc2626'; setTimeout(function(){ interpretStatus.textContent=''; },3000); } }
+  if (btnCancelPreview){ btnCancelPreview.onclick = function(){
+    pendingSchema=null;
+    if (diffBox) diffBox.style.display='none';
+    if (nlActions){
+      // Move actions back inside NL card (original host)
+      try {
+        var nlCard = document.getElementById('arHooshaNlCard');
+        if (nlCard){ nlCard.appendChild(nlActions); }
+      } catch(_bk){}
+      nlActions.style.display='none';
+    }
+    interpretStatus.textContent='لغو شد'; interpretStatus.style.color='#dc2626';
+    // Scroll back to NL textarea for user to re-edit
+    try {
+      var txt = document.getElementById('arHooshaNl');
+      if (txt){ txt.scrollIntoView({behavior:'smooth', block:'center'}); }
+    } catch(_scr){}
+    setTimeout(function(){ interpretStatus.textContent=''; },3000);
+  } }
 
         function cap(type, message, data){
           try {
@@ -503,6 +596,30 @@
         function showPreview(s, deltas){
           try {
             if (!s || !Array.isArray(s.fields)) { preview.style.display='none'; preview.innerHTML=''; return; }
+              function ensureNlActionsPosition(firstIdx){
+                try {
+                  if (!nlActions || nlActions.style.display==='none') return;
+                  var targetIdx = (typeof firstIdx==='number')? firstIdx : null;
+                  if (targetIdx==null && Array.isArray(deltas) && deltas.length){
+                    var f0 = deltas[0];
+                    if (typeof f0.field_index==='number') targetIdx=f0.field_index; else if (typeof f0.index==='number') targetIdx=f0.index; else if (typeof f0.field==='number') targetIdx=f0.field;
+                  }
+                  var el = (targetIdx!=null) ? preview.querySelector('[data-field-idx="'+targetIdx+'"]') : null;
+                  if (!el) return;
+                  var wrapId = 'arHooshaFieldActionWrap';
+                  var existingWrap = document.getElementById(wrapId);
+                  if (!existingWrap){
+                    existingWrap = document.createElement('div');
+                    existingWrap.id = wrapId;
+                    existingWrap.style.margin = '.5rem 0 0';
+                    existingWrap.style.display='flex';
+                    existingWrap.style.gap='.5rem';
+                    existingWrap.style.flexWrap='wrap';
+                  }
+                  if (el.nextSibling){ el.parentNode.insertBefore(existingWrap, el.nextSibling); } else { el.parentNode.appendChild(existingWrap); }
+                  existingWrap.appendChild(nlActions);
+                } catch(_pos){}
+              }
             // Inject lightweight styles for format badges if not present
             try {
               if (!document.getElementById('hooshaFormatStyles')){
@@ -664,24 +781,52 @@
               return line;
             }).join('');
             preview.innerHTML = html; preview.style.display='block';
-            // Highlight & scroll to first changed field (if any deltas)
+            // Highlight & scroll to first changed field (if any deltas) + move action buttons near it
             try {
               if (Array.isArray(deltas) && deltas.length){
                 var first = deltas[0];
                 var idx = null;
                 if (typeof first.field_index==='number') idx = first.field_index; else if (typeof first.index==='number') idx = first.index; else if (typeof first.field==='number') idx = first.field;
                 if (idx!=null){
-                  var el = preview.querySelector('[data-field-idx="'+idx+'"]');
-                  if (el){
+                  // Defer to next frame to ensure layout complete before scroll/focus
+                  requestAnimationFrame(function(){
+                    var el = preview.querySelector('[data-field-idx="'+idx+'"]');
+                    if (!el){ return; }
                     el.classList.add('hoosha-field-highlight');
-                    var focusable = el.querySelector('input,textarea,select,button');
-                    if (focusable){ try { focusable.focus({preventScroll:true}); } catch(_f){} }
+                    // Secondary timeout to re-apply class if rapid re-render removed it
+                    setTimeout(function(){ if (el && !el.classList.contains('hoosha-field-highlight')){ try { el.classList.add('hoosha-field-highlight'); } catch(_r2){} } }, 120);
+                    // Scroll only (no focus per new requirement)
                     try { el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_sv){}
-                    setTimeout(function(){ try { el.classList.remove('hoosha-field-highlight'); } catch(_rh){} }, 2600);
-                  }
+                    // Move NL action buttons (nlActions) directly under changed field for better UX
+                    try {
+                      var actionsHost = document.getElementById('arHooshaNlActions');
+                      if (actionsHost && actionsHost.style.display !== 'none'){ // only when visible
+                        // Create or reuse a wrapper just after field
+                        var wrapId = 'arHooshaFieldActionWrap';
+                        var existingWrap = document.getElementById(wrapId);
+                        if (!existingWrap){
+                          existingWrap = document.createElement('div');
+                          existingWrap.id = wrapId;
+                          existingWrap.style.margin = '.5rem 0 0';
+                          existingWrap.style.display = 'flex';
+                          existingWrap.style.gap = '.5rem';
+                          existingWrap.style.flexWrap = 'wrap';
+                        }
+                        // Insert after the field element
+                        if (el.nextSibling){ el.parentNode.insertBefore(existingWrap, el.nextSibling); } else { el.parentNode.appendChild(existingWrap); }
+                        existingWrap.appendChild(actionsHost);
+                        actionsHost.classList.add('hoosha-actions-floating');
+                      }
+                    } catch(_moveAct){}
+                    setTimeout(function(){ try { el.classList.remove('hoosha-field-highlight'); } catch(_rh){} }, 3000);
+                  });
                 }
               }
             } catch(_hl){}
+            // If deltas exist but highlight branch didn't run yet (or actions hidden earlier), late ensure after paint
+            if (Array.isArray(deltas) && deltas.length){
+              setTimeout(function(){ ensureNlActionsPosition(); }, 320);
+            }
           } catch(_){ preview.style.display='none'; preview.innerHTML=''; }
         }
         function setBusy(el, busy){ if (!el) return; el.disabled = !!busy; el.classList.toggle('is-busy', !!busy); }
@@ -753,30 +898,83 @@
           });
           return out;
         }
-        // Local fallback when preview_edit fails or times out to upgrade a question to long_text if requested
+        // Local fallback when preview_edit fails or times out: supports
+        // 1) Upgrade to long_text ("پاسخ بلند" / "پاسخ طولانی" / long text)
+        // 2) Toggle required ("سوال X الزامی باشد" / "سوال X اختیاری باشد")
+        // Can apply both if both intents appear in same natural instruction.
         function localPreviewFallback(nl){
           try {
             if (!schema || !Array.isArray(schema.fields)) return;
-            var text = String(nl||'');
-            var re = /سوال\s+([0-9۰-۹]+).*?(پاسخ\s*(?:بلند|طولانی)|long\s*text)/i;
-            var m = re.exec(text);
-            if (!m) return;
-            var numRaw = m[1];
-            var mapDigits = {'۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'};
-            numRaw = numRaw.replace(/[۰-۹]/g,function(ch){ return mapDigits[ch]||ch; });
-            var idx = parseInt(numRaw,10); if (isNaN(idx) || idx<1) return;
-            var fieldIndex = idx-1; if (!schema.fields[fieldIndex]) return;
-            var originalClone = JSON.parse(JSON.stringify(schema));
+            var text = String(nl||'').trim(); if(!text) return;
+            var digitsMap = {'۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'};
+            function normalizeDigits(s){ return String(s||'').replace(/[۰-۹]/g,function(ch){ return digitsMap[ch]||ch; }); }
             var previewClone = JSON.parse(JSON.stringify(schema));
-            var f = previewClone.fields[fieldIndex];
-            if (f.type==='long_text') return; // already
-            f.type='long_text'; if(!f.props) f.props={}; f.props.rows=f.props.rows||4;
+            var deltas = [];
+            var applied = false;
+            try { dbg('FALLBACK STEP 1) شروع تحلیل محلی'); } catch(_fb1){}
+            // Pattern 1: long text upgrade
+            var reLong = /سوال\s+([0-9۰-۹]+)[^\n]*?(پاسخ\s*(?:بلند|طولانی)|long\s*text)/gi;
+            var mLong;
+            while((mLong = reLong.exec(text))){
+              var numRaw = normalizeDigits(mLong[1]);
+              var idx = parseInt(numRaw,10); if (isNaN(idx) || idx<1) continue;
+              var fi = idx-1; if (!previewClone.fields[fi]) continue;
+              var fld = previewClone.fields[fi];
+              if (fld.type !== 'long_text'){
+                fld.type = 'long_text'; if(!fld.props) fld.props={}; fld.props.rows = fld.props.rows||4;
+                deltas.push({ op:'update_type', field_index: fi, detail:'(fallback)->long_text' });
+                applied = true;
+              }
+            }
+            // Pattern 2: required toggle (الزامی / اختیاری)
+            // Examples: "سوال 1 الزامی باشد", "سوال ۲ اختیاری بشه", "سوال 3 غیر الزامی کن"
+            var reReq = /سوال\s+([0-9۰-۹]+)[^\n]*?(الزامی|اجباری|ضروری|ضرورى|اختیاری|غير\s*الزامی|غیر\s*الزامی|غیرالزامی|غیر الزامى|غیرالزامى)/gi;
+            var mReq;
+            while((mReq = reReq.exec(text))){
+              var numRaw2 = normalizeDigits(mReq[1]);
+              var idx2 = parseInt(numRaw2,10); if (isNaN(idx2) || idx2<1) continue;
+              var fi2 = idx2-1; if(!previewClone.fields[fi2]) continue;
+              var token = mReq[2];
+              var makeRequired = /(الزامی|اجباری|ضروری|ضرورى)/.test(token);
+              var fld2 = previewClone.fields[fi2];
+              if (!!fld2.required !== makeRequired){
+                fld2.required = makeRequired;
+                deltas.push({ op: makeRequired ? 'update_required_on' : 'update_required_off', field_index: fi2, detail: '(fallback)->'+(makeRequired?'required=true':'required=false') });
+                applied = true;
+              }
+            }
+            // Pattern 3: add option "سایر" (other)
+            // Example: "سوال 3 گزینه ی سایر هم داشته باشد" / "سوال سه گزینه سایر"
+            var reOther = /سوال\s+([0-9۰-۹]+)[^\n]*?گزینه(?:\s*ی)?\s*(سایر|ديگر|دیگر|other)/gi;
+            var mOther;
+            while((mOther = reOther.exec(text))){
+              var numRaw3 = normalizeDigits(mOther[1]);
+              var idx3 = parseInt(numRaw3,10); if (isNaN(idx3) || idx3<1) continue;
+              var fi3 = idx3-1; if(!previewClone.fields[fi3]) continue;
+              var fld3 = previewClone.fields[fi3];
+              if (fld3.type==='multiple_choice' || fld3.type==='dropdown'){
+                var opts = (fld3.props && Array.isArray(fld3.props.options)) ? fld3.props.options : (fld3.props.options = []);
+                // Avoid duplicate if already exists (case-insensitive Persian/English)
+                var exists = opts.some(function(o){ return String(o||'').trim().replace(/\s+/g,'') === 'سایر'; });
+                if (!exists){
+                  opts.push('سایر');
+                  deltas.push({ op:'add_option', field_index: fi3, detail:'(fallback)->option=سایر' });
+                  applied = true;
+                }
+              }
+            }
+            if (!applied) return; // nothing recognized
+            try { dbg('FALLBACK STEP 2) تولید پیش‌نمایش محلی با '+deltas.length+' تغییر'); } catch(_fb2){}
             pendingSchema = previewClone;
-            var deltas=[{ op:'update_type', field_index:fieldIndex, detail:'(fallback)->long_text' }];
             showPreview(previewClone, deltas);
-            if (diffBox){ diffBox.innerHTML='<div style="direction:rtl">(Fallback محلی) سوال '+idx+' به پاسخ بلند تبدیل می‌شود. تایید کن؟</div>'; diffBox.style.display='block'; }
+            if (diffBox){
+              var html = '<div style="direction:rtl">(Fallback محلی) تغییرات زیر شناسایی شد:</div><ul style="direction:rtl;line-height:1.6;margin:.4rem 1rem">'+
+                deltas.map(function(d){ return '<li>#'+(d.field_index+1)+': '+d.op+' '+(d.detail||''); }).join('') + '</ul><div style="direction:rtl">تایید می‌کنی؟</div>';
+              diffBox.innerHTML = html; diffBox.style.display='block';
+            }
             if (nlActions){ nlActions.style.display='flex'; }
             interpretStatus.textContent='پیش‌نمایش محلی (در انتظار تایید)'; interpretStatus.style.color='#f59e0b';
+            try { dbg('FALLBACK STEP 3) انتظار تایید/انصراف کاربر'); } catch(_fb3){}
           } catch(_lf){}
         }
         function createDraftFromSchema(){
