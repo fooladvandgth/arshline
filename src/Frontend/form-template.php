@@ -407,7 +407,7 @@ html, body, .arsh-public-wrap{font-family:'Vazir', system-ui, -apple-system, Seg
         icon: p.icon,
       }; });
       // Filter to supported question types and skip non-questions like welcome/thank_you
-      var supported = { short_text:1, long_text:1, multiple_choice:1, dropdown:1, rating:1 };
+  var supported = { short_text:1, long_text:1, multiple_choice:1, dropdown:1, rating:1, file:1 };
       // Defensive deduplication by id: keep first occurrence
       var seen = {};
       var dedup = [];

@@ -4293,10 +4293,9 @@ Return strict JSON. No markdown.';
                 // Preserve original
                 $f['props']['_orig_format'] = $fmt;
                 if ($fmt === 'file_upload'){
-                    // Downgrade to free_text for now (future: real file field type)
-                    $f['props']['format'] = 'free_text';
-                    if ($f['type']==='file') $f['type']='short_text';
-                    $notes[]='degraded(file_upload->free_text)';
+                    // Keep file_upload; ensure type is file
+                    if ($f['type']!=='file') $f['type']='file';
+                    $notes[]='extended_format(file_upload)';
                 } elseif (in_array($fmt,['alphanumeric','alphanumeric_no_space','alphanumeric_extended'],true)){
                     // Map to regex to keep validation potential minimal (optional: keep as free_text)
                     if (!isset($f['props']['regex'])){

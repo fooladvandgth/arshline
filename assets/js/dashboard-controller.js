@@ -406,7 +406,14 @@
                   '.hoosha-badge[data-fmt=fa_letters]{background:#f9f2ff}' +
                   '.hoosha-badge[data-fmt=en_letters]{background:#f2fff5}' +
                   '.hoosha-badge[data-fmt=postal_code_ir]{background:#fff7f2}' +
-                  '.hoosha-badge[data-fmt=mobile_intl]{background:#e9f9ff}';
+                  '.hoosha-badge[data-fmt=mobile_intl]{background:#e9f9ff}' +
+                  '.hoosha-badge[data-fmt=credit_card_ir]{background:#fffbe6;border-color:#f5e08a}' +
+                  '.hoosha-badge[data-fmt=sheba_ir]{background:#e6fff2;border-color:#99e6c2}' +
+                  '.hoosha-badge[data-fmt=national_id_company_ir]{background:#e6f0ff;border-color:#aac4ff}' +
+                  '.hoosha-badge[data-fmt=captcha_alphanumeric]{background:#f0e6ff;border-color:#c7b3f5}' +
+                  '.hoosha-badge[data-fmt=alphanumeric_no_space]{background:#e8f7ff;border-color:#b4e1f5}' +
+                  '.hoosha-badge[data-fmt=alphanumeric_extended]{background:#ececec;border-color:#ccc}' +
+                  '.hoosha-badge[data-fmt=file_upload]{background:#f6f6f6;border-color:#bbb}';
                 document.head.appendChild(st);
               }
             } catch(_cssErr){}
@@ -414,7 +421,7 @@
             function formatBadge(fmt){
               if (!fmt) return '';
               var map = {
-                'national_id_ir':'کدملی','mobile_ir':'موبایل','mobile_intl':'موبایل بین‌الملل','postal_code_ir':'کدپستی','fa_letters':'حروف‌فارسی','en_letters':'حروف‌انگلیسی','ip':'IP','date_greg':'تاریخ','date_jalali':'تاریخ جلالی','time':'زمان','numeric':'عدد'
+                'national_id_ir':'کدملی','national_id_company_ir':'شناسه‌ملی‌شركت','mobile_ir':'موبایل','mobile_intl':'موبایل بین‌الملل','postal_code_ir':'کدپستی','fa_letters':'حروف‌فارسی','en_letters':'حروف‌انگلیسی','ip':'IP','date_greg':'تاریخ','date_jalali':'تاریخ جلالی','time':'زمان','numeric':'عدد','sheba_ir':'شبا','credit_card_ir':'کارت','captcha_alphanumeric':'کپچا','alphanumeric':'آلفا','alphanumeric_no_space':'آلفا-بی‌فاصله','alphanumeric_extended':'آلفا+','file_upload':'فایل'
               };
               var txt = map[fmt] || fmt;
               return '<span class="hoosha-badge" data-fmt="'+fmt+'">'+escapeHtml(txt)+'</span>';
@@ -496,6 +503,7 @@
               else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
               else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
               else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
+              else if (type==='file'){ var accept=''; if(fmt==='file_upload'){ /* could derive from pattern later */ } line='<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/><input type="file" class="ar-input" '+(accept?(' accept="'+escapeAttr(accept)+'"'):'')+' /></div>'; }
               return line;
             }).join('');
             preview.innerHTML = html; preview.style.display='block';
