@@ -4796,11 +4796,18 @@ Return strict JSON. No markdown.';
             $fields[] = [ 'type'=>$type, 'label'=>$stem, 'required'=>$required, 'props'=>$props ];
         }
         if (empty($fields)) return ['fields'=>[]];
-        // Dedup semantic (simple canonical key)
-        $out=[]; $seen=[]; $duplicates=0;
-        foreach($fields as $f){
+        // Dedup semantic (simple canonical key) + required aggregation
+        $out=[]; $seen=[]; $duplicates=0; $requiredAgg=[]; $optionsAgg=[];
+        foreach($fields as $idx=>$f){
             $lbl = $f['label'];
             $canon = mb_strtolower(preg_replace('/[\s\d[:punct:]]+/u','', $lbl),'UTF-8');
+            if (!isset($requiredAgg[$canon])) $requiredAgg[$canon]=false;
+            if ($f['required']) $requiredAgg[$canon]=true;
+            if (!isset($optionsAgg[$canon])) $optionsAgg[$canon]=[];
+            if (!empty($f['props']['options'])){
+                // track for potential later merging in case canonical appears again with options
+                $optionsAgg[$canon] = array_values(array_unique(array_merge($optionsAgg[$canon], $f['props']['options'])));
+            }
             if (isset($seen[$canon])){
                 $duplicates++;
                 // Merge: upgrade to rating if new is rating
@@ -4809,10 +4816,33 @@ Return strict JSON. No markdown.';
                 $o1 = isset($out[$seen[$canon]]['props']['options'])? $out[$seen[$canon]]['props']['options']:[];
                 $o2 = isset($f['props']['options'])? $f['props']['options']:[];
                 if ($o2){ $out[$seen[$canon]]['props']['options']=array_values(array_unique(array_merge($o1,$o2))); }
+                // Required aggregation applied later
                 continue;
             }
             $seen[$canon] = count($out);
             $out[] = $f;
+        }
+        // Apply aggregated required + option union fallback if needed
+        foreach($out as $k=>$of){
+            $c = mb_strtolower(preg_replace('/[\s\d[:punct:]]+/u','', $of['label']),'UTF-8');
+            if (isset($requiredAgg[$c]) && $requiredAgg[$c]) $out[$k]['required']=true;
+            if (empty($of['props']['options']) && !empty($optionsAgg[$c])){
+                // If final field lost options but earlier variant had them, restore (avoid overriding rating/file types)
+                if (!in_array($of['type'],['rating','file'])){
+                    $out[$k]['props']['options']=$optionsAgg[$c];
+                    if (count($optionsAgg[$c])>=2 && $out[$k]['type']==='short_text'){
+                        $out[$k]['type'] = (count($optionsAgg[$c])>=6)?'dropdown':'multiple_choice';
+                        $out[$k]['props']['multiple']=false;
+                    }
+                }
+            }
+        }
+        // Post-dedup required sync from label markers (اگر (الزامی) در متن برچسب باقی مانده)
+        foreach($out as $k=>$of){
+            $ll = mb_strtolower($of['label'],'UTF-8');
+            if (preg_match('/الزامی/u',$ll) && !$of['required']){
+                $out[$k]['required']=true; $out[$k]['props']['_required_source']='label_marker';
+            }
         }
         // Recovery scan: ensure presence of ip / date_jalali / time if patterns exist globally
         $haveFormat = function($fmt) use ($out){ foreach($out as $f){ if(isset($f['props']['format']) && $f['props']['format']===$fmt) return true; } return false; };
