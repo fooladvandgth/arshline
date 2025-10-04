@@ -4075,6 +4075,13 @@ Return strict JSON. No markdown.';
                     $reasons[] = 'fallback_triggered';
                     if ($conf === null){ $conf = 0.2; }
                 }
+            } elseif ((empty($schema) || empty($schema['fields'] ?? [])) && !empty($baseline_formal['fields'])) {
+                // New guard: model produced an edited_text but omitted schema; substitute baseline formal schema so UI is not blank
+                $schema = $baseline_formal;
+                // Ensure edited_text not blank; if blank rebuild
+                if ($edited === '') { $edited = self::hoosha_local_edit_text($user_text, $schema); }
+                $notes[] = 'baseline_schema_substitution';
+                if ($conf === null) { $conf = 0.15; }
             }
             // 5) Tag field sources (model vs heuristic)
             if (!empty($schema['fields']) && is_array($schema['fields'])){
