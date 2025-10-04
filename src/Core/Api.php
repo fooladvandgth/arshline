@@ -4751,14 +4751,47 @@ Return strict JSON. No markdown.';
             elseif (preg_match('/تاریخ.*جلالی|تقویم\s+جلالی/u',$lowStem)) { $props['format']='date_jalali'; }
             elseif (preg_match('/تولد/u',$lowStem) && mb_strpos($lowStem,'میلادی')!==false) { $props['format']='date_greg'; }
             elseif (preg_match('/تاریخ/u',$lowStem)) { $props['format']='date_greg'; }
-            elseif (preg_match('/ساعت|زمان.*شیفت|ورود|خروج/u',$lowStem)) { $props['format']='time'; }
+                        elseif (
+                                // Refined time detection: require explicit time keyword + either ':' pattern or contextual verbs
+                                (
+                                    preg_match('/ساعت|زمان/u',$lowStem) && (
+                                            preg_match('/\d{1,2}\s*[:٫\.]\s*\d{1,2}/u',$lowStem) ||
+                                            preg_match('/ورود|خروج|شروع|پایان|تماس/u',$lowStem)
+                                    )
+                                ) || preg_match('/مثال\s*[:：]?\s*\d{1,2}[:٫\.]\d{1,2}/u',$lowStem)
+                        ) { $props['format']='time'; }
             elseif (preg_match('/فایل|بارگذاری|آپلود|ارسال\s*فایل/u',$lowStem)) { $props['format']='file_upload'; $type='file'; }
-            elseif (preg_match('/عدد|تعداد|قد|سن|مقدار|شماره\s+پرسنلی|فاکتور/u',$lowStem)) { if (!isset($props['format'])) $props['format']='numeric'; }
+            // Alphanumeric precedence: if flagged already as alphanumeric[_no_space], do NOT downgrade to numeric
+            elseif (preg_match('/عدد|تعداد|قد|سن|مقدار|شماره\s+پرسنلی|فاکتور/u',$lowStem)) {
+                if (!isset($props['format']) || !preg_match('/^alphanumeric/', $props['format'])) {
+                    $props['format']='numeric';
+                }
+            }
             // Required inline marker
             if (preg_match('/الزامی/u',$lowStem)) $required = true;
             // Multi-select hint (plural days / newsletter)
             if (!empty($props['options'])){
                 if (preg_match('/روزهای|روزهایی|خبرنامه|هفته/u',$lowStem)) { $props['multiple']=true; }
+            }
+            // Post-option fallback mapping for common binary / small sets if options extraction failed
+            if (empty($options)){
+                // Yes/No detection (بله / خیر)
+                if (preg_match('/\b(بله)\b.*\b(خیر)\b|\b(خیر)\b.*\b(بله)\b/u',$lowStem)){
+                    $type='multiple_choice'; $props['options']=['بله','خیر']; $props['multiple']=false;
+                }
+                // Color triple common (قرمز، آبی، سبز)
+                elseif (preg_match('/قرمز.*آبی.*سبز|آبی.*قرمز.*سبز|سبز.*قرمز.*آبی/u',$lowStem)){
+                    $type='multiple_choice'; $props['options']=['قرمز','آبی','سبز']; $props['multiple']=false;
+                }
+                // Social networks common set
+                elseif (preg_match('/اینستاگرام|تلگرام|واتساپ|ایتا/u',$lowStem)){
+                    // Only if not already long_text intent
+                    if ($type!=='long_text'){
+                        $type = (preg_match_all('/اینستاگرام|تلگرام|واتساپ|ایتا/u',$lowStem,$mm)>=6)?'dropdown':'multiple_choice';
+                        $opts=[]; foreach(['اینستاگرام','تلگرام','واتساپ','ایتا'] as $sx){ if (mb_strpos($lowStem, mb_strtolower($sx,'UTF-8'))!==false) $opts[]=$sx; }
+                        if (count($opts)>=2){ $props['options']=$opts; $props['multiple']=false; }
+                    }
+                }
             }
             $fields[] = [ 'type'=>$type, 'label'=>$stem, 'required'=>$required, 'props'=>$props ];
         }
