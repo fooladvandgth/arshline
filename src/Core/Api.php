@@ -4021,8 +4021,12 @@ class Api
         $progress = [];
         $progress[] = ['step'=>'start','message'=>'شروع پردازش ورودی'];
 
-        // 1) Baseline heuristic extraction (for diff & fallback)
-    $baseline = self::hoosha_local_infer_from_text_v2($user_text);
+        // 1) Baseline heuristic extraction (for diff & fallback) – prefer modular inferer if present
+        if (class_exists('Arshline\\Hoosha\\HooshaBaselineInferer')) {
+            try { $baseline = \Arshline\Hoosha\HooshaBaselineInferer::infer($user_text); } catch (\Throwable $e) { $baseline = self::hoosha_local_infer_from_text_v2($user_text); }
+        } else {
+            $baseline = self::hoosha_local_infer_from_text_v2($user_text);
+        }
         if (empty($baseline['fields'])) { $baseline = self::hoosha_local_infer_from_text($user_text); }
         $baseline_formal = self::hoosha_formalize_labels($baseline);
     $progress[] = ['step'=>'baseline_inferred','message'=>'استخراج اولیه مبتنی بر قواعد محلی'];
