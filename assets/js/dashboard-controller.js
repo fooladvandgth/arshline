@@ -413,27 +413,35 @@
       var url = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/preview_edit';
       var body = { schema: schema, natural_prompt: txt };
       try { dbg('SEND preview_edit '+url+' :: '+JSON.stringify(body)); } catch(_){ }
-      fetch(url, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(body) })
+      var aborted=false; var controller=null; try { controller=new AbortController(); } catch(_ab){}
+      var timeoutMs=17000; var tRef=setTimeout(function(){ aborted=true; try { if(controller) controller.abort(); } catch(_a){} interpretStatus.textContent='مهلت پیش‌نمایش تمام شد (fallback محلی)'; interpretStatus.style.color='#dc2626'; try { dbg('preview_edit TIMEOUT'); } catch(_d){} localPreviewFallback(txt); }, timeoutMs);
+      fetch(url, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(body), signal: controller?controller.signal:undefined })
         .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-        .then(function(j){
+        .then(function(j){ if(aborted) return; try { clearTimeout(tRef); } catch(_ct){}
           try { dbg('RECV preview_edit :: '+JSON.stringify(j).slice(0,1500)); } catch(_){ }
           if (!j || !j.preview_schema){ throw new Error('خروجی نامعتبر'); }
           pendingSchema = j.preview_schema;
           var cmds = j.commands || [];
           if (inpCmd){ inpCmd.value = cmds.join('، '); }
-          // Diff basic
+          var deltas = Array.isArray(j.deltas)? j.deltas : [];
           if (diffBox){
-            var deltas = Array.isArray(j.deltas)? j.deltas : [];
             var html=[]; if (!deltas.length){ html.push('<div class="hint">تغییری شناسایی نشد.</div>'); }
             var colorForOp = function(op){ if(op.indexOf('add_')===0) return '#065f46'; if(op.indexOf('remove_')===0) return '#991b1b'; if(op.indexOf('update_')===0) return '#1e3a8a'; return '#374151'; };
             deltas.forEach(function(d){ var op=d.op||'op'; var fi = (typeof d.field_index==='number')? (' #'+(d.field_index+1)) : ''; var det = d.detail||''; html.push('<div style="margin:.2rem 0;padding:.2rem .35rem;border-radius:4px;background:rgba(0,0,0,0.03);direction:rtl"><span style="color:'+colorForOp(op)+';font-weight:600">'+op+'</span>'+fi+(det?(' — '+escapeHtml(String(det))):'')+'</div>'); });
             diffBox.innerHTML = html.join(''); diffBox.style.display='block';
           }
-          if (nlActions){ nlActions.style.display='flex'; }
-          interpretStatus.textContent='پیش‌نمایش آماده است'; interpretStatus.style.color='#16a34a';
+          var confidence = typeof j.confidence==='number'? j.confidence : 0;
+          interpretStatus.textContent='پیش‌نمایش آماده است (اعتماد '+(confidence?confidence.toFixed(2):'0')+')'; interpretStatus.style.color='#16a34a';
+          var autoApplyEl=document.getElementById('arHooshaAutoApply'); var shouldAuto=autoApplyEl&&autoApplyEl.checked&&confidence>=0.9;
+            if (shouldAuto){
+              try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); if(btnUndo) btnUndo.style.display='inline-block'; } catch(_vs){}
+              schema = pendingSchema; pendingSchema=null; showPreview(schema, deltas); if(diffBox) diffBox.style.display='none'; notify('تغییرات (اعتماد بالا) خودکار اعمال شد','success'); interpretStatus.textContent='اعمال خودکار انجام شد (اعتماد '+confidence.toFixed(2)+')'; interpretStatus.style.color='#0d9488';
+            } else {
+              showPreview(pendingSchema, deltas); if (nlActions){ nlActions.style.display='flex'; }
+            }
         })
-        .catch(function(e){ console.error(e); interpretStatus.textContent='خطا در پیش‌نمایش'; interpretStatus.style.color='#dc2626'; })
-        .finally(function(){ setTimeout(function(){ if(interpretStatus.textContent==='پیش‌نمایش آماده است'){ /* keep */ } else { interpretStatus.textContent=''; } }, 8000); });
+        .catch(function(e){ if(aborted) return; console.error(e); interpretStatus.textContent='خطا در پیش‌نمایش'; interpretStatus.style.color='#dc2626'; try { dbg('preview_edit ERROR '+(e&&e.message||e)); } catch(_d){} localPreviewFallback(txt); })
+        .finally(function(){ setTimeout(function(){ if(interpretStatus.textContent.indexOf('پیش‌نمایش')!==-1 || interpretStatus.textContent.indexOf('اعمال خودکار')!==-1){ /* keep */ } else { interpretStatus.textContent=''; } }, 8000); });
     };
   }
   if (btnConfirmPreview){ btnConfirmPreview.onclick = function(){ if (!pendingSchema){ notify('پیش‌نمایشی برای اعمال نیست','warn'); return; } try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); } catch(_vs){} refreshVersions(); if (btnUndo) btnUndo.style.display='inline-block'; schema = pendingSchema; pendingSchema=null; showPreview(schema); if (diffBox) diffBox.style.display='none'; if (nlActions) nlActions.style.display='none'; notify('تغییرات اعمال شد','success'); interpretStatus.textContent='اعمال شد'; interpretStatus.style.color='#16a34a'; setTimeout(function(){ interpretStatus.textContent=''; },4000); } }
@@ -699,6 +707,31 @@
             }
           });
           return out;
+        }
+        // Local fallback when preview_edit fails or times out to upgrade a question to long_text if requested
+        function localPreviewFallback(nl){
+          try {
+            if (!schema || !Array.isArray(schema.fields)) return;
+            var text = String(nl||'');
+            var re = /سوال\s+([0-9۰-۹]+).*?(پاسخ\s*(?:بلند|طولانی)|long\s*text)/i;
+            var m = re.exec(text);
+            if (!m) return;
+            var numRaw = m[1];
+            var mapDigits = {'۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'};
+            numRaw = numRaw.replace(/[۰-۹]/g,function(ch){ return mapDigits[ch]||ch; });
+            var idx = parseInt(numRaw,10); if (isNaN(idx) || idx<1) return;
+            var fieldIndex = idx-1; if (!schema.fields[fieldIndex]) return;
+            var f = schema.fields[fieldIndex];
+            if (f.type==='long_text') return; // already
+            try { versionStack.push(JSON.parse(JSON.stringify(schema))); if(btnUndo) btnUndo.style.display='inline-block'; refreshVersions(); } catch(_vs){}
+            f.type='long_text'; if(!f.props) f.props={}; f.props.rows=f.props.rows||4;
+            var deltas=[{ op:'update_type', field_index:fieldIndex, detail:'(fallback)->long_text' }];
+            showPreview(schema, deltas);
+            if (diffBox){ diffBox.innerHTML='<div style="direction:rtl">(Fallback محلی) سوال '+idx+' به پاسخ بلند تبدیل شد.</div>'; diffBox.style.display='block'; }
+            if (nlActions){ nlActions.style.display='none'; }
+            interpretStatus.textContent='پیش‌نمایش محلی (بدون مدل)'; interpretStatus.style.color='#f59e0b';
+            notify('اعمال محلی آزمایشی','info');
+          } catch(_lf){}
         }
         function createDraftFromSchema(){
           try {
