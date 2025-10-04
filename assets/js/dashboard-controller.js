@@ -285,6 +285,296 @@
     function getTypeLabel(type){ switch(type){ case 'short_text': return 'پاسخ کوتاه'; case 'long_text': return 'پاسخ طولانی'; case 'multiple_choice': case 'multiple-choice': return 'چندگزینه‌ای'; case 'dropdown': return 'لیست کشویی'; case 'welcome': return 'پیام خوش‌آمد'; case 'thank_you': return 'پیام تشکر'; default: return 'نامشخص'; } }
     function card(title, subtitle, icon){ var ic = icon ? ('<span style="font-size:22px;margin-inline-start:.4rem;opacity:.85">'+icon+'</span>') : ''; return '<div class="card glass" style="display:flex;align-items:center;gap:.6rem;">'+ic+'<div><div class="title">'+title+'</div><div class="hint">'+(subtitle||'')+'</div></div></div>'; }
 
+      // Hoosha: Smart Form Builder tab (two-row editor, LLM prepare/apply)
+      function renderHoosha(){
+        setActive('hoosha');
+        var content = document.getElementById('arshlineDashboardContent');
+        if (!content) return;
+        // Header actions
+        var headerActions = document.getElementById('arHeaderActions');
+        if (headerActions){ headerActions.innerHTML = '<button id="arHooshaCreate" class="ar-btn ar-btn--soft">ساخت فرم پیش‌نویس</button>'; }
+        content.innerHTML = ''+
+          '<div class="card glass" style="padding:1rem">'+
+            '<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">'+
+              '<span class="title">فرم‌ساز هوشا</span>'+ 
+              '<span class="hint">ویرایش دو ستونه: بالا متن اولیه، پایین متن ویرایش‌شده</span>'+ 
+              '<span style="flex:1 1 auto"></span>'+ 
+              '<label class="hint" style="display:inline-flex;align-items:center;gap:.35rem"><input id="arHooshaAutoApply" type="checkbox"/> اعمال خودکار (≥ 0.9)</label>'+ 
+            '</div>'+ 
+            '<div id="arHooshaProgress" style="display:none;align-items:center;gap:.6rem;margin:.25rem 0 1rem">'+
+              '<div class="hint" id="arHooshaProgressText" style="min-width:10ch">در حال آماده‌سازی…</div>'+ 
+              '<div style="flex:1 1 auto;height:8px;background:var(--border,#e5e7eb);border-radius:999px;overflow:hidden">'+
+                '<div id="arHooshaProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#3b82f6);transition:width .25s ease"></div>'+ 
+              '</div>'+ 
+              '<div class="hint" id="arHooshaProgressPct" style="min-width:3ch;text-align:end">0%</div>'+ 
+            '</div>'+ 
+            '<div style="display:grid;grid-template-columns:1fr;gap:.6rem">'+ 
+              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;align-items:stretch">'+
+                '<div>'+ 
+                  '<div class="hint" style="margin-bottom:.25rem">متن اولیه</div>'+ 
+                  '<textarea id="arHooshaRaw" class="ar-input" style="min-height:220px;max-height:380px;height:280px;resize:vertical;line-height:1.8"></textarea>'+ 
+                '</div>'+ 
+                '<div>'+ 
+                  '<div class="hint" style="margin-bottom:.25rem">متن ویرایش‌شده</div>'+ 
+                  '<textarea id="arHooshaEdited" class="ar-input" style="min-height:220px;max-height:380px;height:280px;resize:vertical;line-height:1.8" placeholder="خروجی ویرایشی هوشا اینجا نمایش داده می‌شود..."></textarea>'+ 
+                '</div>'+ 
+              '</div>'+ 
+              '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">'+ 
+                '<button id="arHooshaPrepare" class="ar-btn">تحلیل و پیشنهاد</button>'+ 
+                '<button id="arHooshaApply" class="ar-btn ar-btn--soft">اعمال دستورات</button>'+ 
+                '<input id="arHooshaCmd" class="ar-input" placeholder="مثلاً: سوال اول الزامی شود، ۳ گزینه اضافه کن، متن سوال دوم کوتاه‌تر" style="flex:1 1 340px;min-width:260px"/>'+ 
+              '</div>'+ 
+              '<div id="arHooshaSteps" class="hint" style="white-space:pre-wrap;line-height:1.7;background:var(--surface,#fff);border:1px dashed var(--border,#e5e7eb);border-radius:8px;padding:.5rem;min-height:2.2rem"></div>'+ 
+              '<details id="arHooshaDebug" style="margin-top:.25rem">'+
+                '<summary class="hint">دیباگ درخواست/پاسخ (هوشا)</summary>'+
+                '<div id="arHooshaDebugOut" style="direction:ltr;white-space:pre-wrap;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:.5rem;max-height:260px;overflow:auto"></div>'+
+              '</details>'+ 
+              '<div id="arHooshaNotes" class="hint" style="white-space:pre-wrap;line-height:1.7"></div>'+ 
+              '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none"></div>'+ 
+            '</div>'+ 
+          '</div>';
+        // Scroll sync (raw -> edited caret proximity)
+        (function(){
+          var raw = document.getElementById('arHooshaRaw');
+          var edited = document.getElementById('arHooshaEdited');
+          function sync(from, to){ try { to.scrollTop = (from.scrollTop / Math.max(1, from.scrollHeight - from.clientHeight)) * Math.max(0, to.scrollHeight - to.clientHeight); } catch(_){ } }
+          if (raw && edited){ raw.addEventListener('scroll', function(){ sync(raw, edited); }); edited.addEventListener('scroll', function(){ sync(edited, raw); }); }
+        })();
+        var autoApply = document.getElementById('arHooshaAutoApply');
+        var btnPrepare = document.getElementById('arHooshaPrepare');
+        var btnApply = document.getElementById('arHooshaApply');
+        var inpRaw = document.getElementById('arHooshaRaw');
+        var inpEdited = document.getElementById('arHooshaEdited');
+        var inpCmd = document.getElementById('arHooshaCmd');
+        var notes = document.getElementById('arHooshaNotes');
+        var preview = document.getElementById('arHooshaPreview');
+  var stepsBox = document.getElementById('arHooshaSteps');
+  var progWrap = document.getElementById('arHooshaProgress');
+  var progText = document.getElementById('arHooshaProgressText');
+  var progBar = document.getElementById('arHooshaProgressBar');
+  var progPct = document.getElementById('arHooshaProgressPct');
+  var schema = null;
+  var dbgOut = document.getElementById('arHooshaDebugOut');
+  function dbg(line){ try { if(!dbgOut) return; var now=new Date().toLocaleTimeString(); var s=String(line||''); var div=document.createElement('div'); div.textContent='['+now+'] '+s; dbgOut.appendChild(div); dbgOut.scrollTop = dbgOut.scrollHeight; } catch(_){ } }
+  try { if (window.ARSHCapture && typeof window.ARSHCapture.addListener==='function'){ window.ARSHCapture.addListener(function(ev){ try { if(!ev||ev.type!=='ajax') return; var tgt=String(ev.target||''); if(tgt.indexOf('/hoosha/prepare')===-1 && tgt.indexOf('/hoosha/apply')===-1) return; dbg((ev.message||'')+' :: '+tgt+' :: '+String(ev.data||'')); } catch(_){ } }); } } catch(_){ }
+
+        function cap(type, message, data){
+          try {
+            var payload = { type:type||'info', message:message||'', data: (data==null?'':(typeof data==='string'? data : JSON.stringify(data))).slice(0,240) };
+            // Always print to console for visibility
+            try { console.info('[ARSH]', payload.type, payload.message, payload.data||''); } catch(_e){}
+            // Also push to ARSHCapture queue if available
+            if (window.ARSHCapture && typeof window.ARSHCapture.push==='function'){
+              window.ARSHCapture.push(payload);
+            }
+          } catch(_){ }
+        }
+        function step(msg){ try { if (!stepsBox) return; var s = String(msg||''); var t = stepsBox.textContent||''; stepsBox.textContent = (t? (t+'\n') : '') + '• ' + s; try { console.info('[ARSH] step:', s); } catch(_e){} } catch(_){ } }
+  function setProgress(label, percent){ try { if(!progWrap||!progBar||!progText||!progPct) return; progWrap.style.display='flex'; progText.textContent = String(label||''); var p = Math.max(0, Math.min(100, Math.floor(percent||0))); progBar.style.width = p + '%'; progPct.textContent = p + '%'; } catch(_){ } }
+  function doneProgress(){ try { if(!progWrap) return; setProgress('انجام شد', 100); setTimeout(function(){ progWrap.style.display='none'; }, 600); } catch(_){ } }
+
+        function showNotes(arr, conf){
+          var lines = [];
+          var hasBaselineSub = false;
+            if (typeof conf === 'number') lines.push('اعتماد مدل: ' + conf.toFixed(2));
+            if (Array.isArray(arr) && arr.length) {
+              lines = lines.concat(arr.map(function(s){
+                var str = String(s||'');
+                if (str.indexOf('baseline_schema_substitution')!==-1) { hasBaselineSub = true; }
+                return '- ' + str;
+              }));
+            }
+            if (hasBaselineSub) {
+              lines.push('* هشدار: اسکیمای مدل ناقص بود و اسکیمای پایه جایگزین شد.');
+              try { cap('warn','hoosha.prepare.baseline_substitution'); } catch(_){ }
+            }
+          notes.textContent = lines.join('\n');
+        }
+        function showPreview(s){
+          try {
+            if (!s || !Array.isArray(s.fields)) { preview.style.display='none'; preview.innerHTML=''; return; }
+            // Inject lightweight styles for format badges if not present
+            try {
+              if (!document.getElementById('hooshaFormatStyles')){
+                var st = document.createElement('style');
+                st.id = 'hooshaFormatStyles';
+                st.textContent = '.hoosha-badge{display:inline-block;background:#eef;border:1px solid #bcd;padding:0 4px;margin-inline-start:.4rem;font-size:.63rem;line-height:1.2;border-radius:4px;color:#234;font-weight:500;vertical-align:middle}' +
+                  '.hoosha-badge[data-fmt=rating]{background:#ffe;border-color:#f5c;color:#734}' +
+                  '.hoosha-badge[data-fmt=time]{background:#eef9ff}' +
+                  '.hoosha-badge[data-fmt=date_jalali]{background:#f3f7ff}' +
+                  '.hoosha-badge[data-fmt=ip]{background:#f5f5ff}' +
+                  '.hoosha-badge[data-fmt=fa_letters]{background:#f9f2ff}' +
+                  '.hoosha-badge[data-fmt=en_letters]{background:#f2fff5}' +
+                  '.hoosha-badge[data-fmt=postal_code_ir]{background:#fff7f2}' +
+                  '.hoosha-badge[data-fmt=mobile_intl]{background:#e9f9ff}';
+                document.head.appendChild(st);
+              }
+            } catch(_cssErr){}
+
+            function formatBadge(fmt){
+              if (!fmt) return '';
+              var map = {
+                'national_id_ir':'کدملی','mobile_ir':'موبایل','mobile_intl':'موبایل بین‌الملل','postal_code_ir':'کدپستی','fa_letters':'حروف‌فارسی','en_letters':'حروف‌انگلیسی','ip':'IP','date_greg':'تاریخ','date_jalali':'تاریخ جلالی','time':'زمان','numeric':'عدد'
+              };
+              var txt = map[fmt] || fmt;
+              return '<span class="hoosha-badge" data-fmt="'+fmt+'">'+escapeHtml(txt)+'</span>';
+            }
+
+            function buildInputMeta(fmt, f){
+              var attr = { extra:'', placeholder:'' };
+              switch(fmt){
+                case 'national_id_ir':
+                  attr.extra = ' inputmode="numeric" maxlength="10" pattern="^\\d{10}$"';
+                  attr.placeholder = '0012345678';
+                  break;
+                case 'mobile_ir':
+                  attr.extra = ' inputmode="tel" maxlength="11" pattern="^09\\d{9}$"';
+                  attr.placeholder = '09121234567';
+                  break;
+                case 'mobile_intl':
+                  attr.extra = ' inputmode="tel" pattern="^\\+\\d{6,15}$"';
+                  attr.placeholder = '+98912XXXXXXX';
+                  break;
+                case 'postal_code_ir':
+                  attr.extra = ' inputmode="numeric" maxlength="10" pattern="^\\d{10}$"';
+                  attr.placeholder = '1234567890';
+                  break;
+                case 'fa_letters':
+                  attr.extra = ' pattern="^[\\u0600-\\u06FF\\s]+$"';
+                  attr.placeholder = 'نمونه';
+                  break;
+                case 'en_letters':
+                  attr.extra = ' pattern="^[A-Za-z\\s]+$"';
+                  attr.placeholder = 'Sample';
+                  break;
+                case 'ip':
+                  attr.extra = ' inputmode="decimal" pattern="^(?:\\d{1,3}\\.){3}\\d{1,3}$"';
+                  attr.placeholder = '192.168.0.1';
+                  break;
+                case 'date_greg':
+                  attr.extra = ' type="date"';
+                  // placeholder will be overwritten later if blank
+                  break;
+                case 'date_jalali':
+                  attr.extra = ' data-format="jalali" pattern="^(13|14)\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"';
+                  attr.placeholder = '1403-07-15';
+                  break;
+                case 'time':
+                  attr.extra = ' type="time"';
+                  attr.placeholder = '12:30';
+                  break;
+                case 'numeric':
+                  attr.extra = ' inputmode="numeric" pattern="^\\d+$"';
+                  attr.placeholder = '123';
+                  break;
+              }
+              return attr;
+            }
+            var html = s.fields.map(function(f, i){
+              var idx = i + 1;
+              var q = String(f.label || f.question || '');
+              var num = '<span class="hint" style="min-width:2ch;display:inline-block">'+idx+'.</span> ';
+              var req = f.required ? '<span class="hint" style="color:#ef4444">(الزامی)</span>' : '';
+              var line = '';
+              var type = f.type || 'short_text';
+              var ph = f.placeholder || (f.props && f.props.placeholder) || '';
+              var fmt = (f.props && f.props.format) || '';
+              var inputExtra = '';
+              var meta = buildInputMeta(fmt, f);
+              if (!ph && meta.placeholder) ph = meta.placeholder;
+              if (fmt==='date_greg'){ // ISO normalize if placeholder unset or US pattern
+                if (!ph || /^(mm|MM)\/(dd|DD)\/(yyyy|YYYY)$/.test(ph) || /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.test(ph)){
+                  try { var d=new Date(); var y=d.getFullYear(); var m=('0'+(d.getMonth()+1)).slice(-2); var da=('0'+d.getDate()).slice(-2); ph = y+'-'+m+'-'+da; } catch(_d){ ph=''; }
+                }
+              }
+              inputExtra = meta.extra || '';
+              var badge = formatBadge(fmt);
+              if (type==='short_text'){
+                line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
+              }
+              else if (type==='long_text'){ line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
+              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
+              else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
+              else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div style="margin:.35rem 0">'+num+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
+              return line;
+            }).join('');
+            preview.innerHTML = html; preview.style.display='block';
+          } catch(_){ preview.style.display='none'; preview.innerHTML=''; }
+        }
+        function setBusy(el, busy){ if (!el) return; el.disabled = !!busy; el.classList.toggle('is-busy', !!busy); }
+        function headers(){ return { 'Content-Type':'application/json', 'X-WP-Nonce': (window.ARSHLINE_NONCE || (window.ARSHLINE_ADMIN && ARSHLINE_ADMIN.nonce) || '') }; }
+        btnPrepare.onclick = function(){
+          var txt = (inpRaw && inpRaw.value || '').trim(); if (!txt){ notify('متن اولیه را وارد کنید', 'warn'); return; }
+          stepsBox.textContent=''; setProgress('آغاز تحلیل', 10); step('۱) آغاز تحلیل'); cap('info','hoosha.prepare.start', txt.slice(0,120));
+          setBusy(btnPrepare, true);
+          cap('ajax','hoosha.prepare.request',(window.ARSHLINE_REST||ARSHLINE_REST)+'hoosha/prepare'); setProgress('ارسال درخواست به مدل', 30); step('۲) ارسال درخواست به مدل');
+          var _prepUrl = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/prepare';
+          var _prepBody = { user_text: txt };
+          try { dbg('SEND prepare '+_prepUrl+' :: '+JSON.stringify(_prepBody)); } catch(_){ }
+          fetch(_prepUrl, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(_prepBody) })
+            .then(function(r){ cap('info','hoosha.prepare.response','HTTP '+r.status); if (!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('دریافت پاسخ', 60); step('۳) دریافت پاسخ'); return r.clone().text().then(function(t){ try{ dbg('RECV prepare HTTP '+r.status+' :: '+String(t||'').slice(0,2000)); }catch(_){ } return t; }); })
+            .then(function(txtRaw){ var j=null; try { j = txtRaw ? JSON.parse(txtRaw) : {}; } catch(e){ dbg('PARSE ERROR prepare :: '+String(e&&e.message||e)); throw e; } try { cap('info','hoosha.prepare.parsed'); setProgress('اعتبارسنجی خروجی', 80); schema = j.schema||null; var editedText = (j && typeof j.edited_text==='string')? j.edited_text : (j && typeof j.text==='string')? j.text : (j && typeof j.output==='string')? j.output : ''; if (inpEdited) inpEdited.value = editedText; showNotes(j.notes||[], j.confidence); showPreview(schema); if (!editedText && (!schema || !Array.isArray(schema.fields) || !schema.fields.length)){ var keys = []; try { keys = Object.keys(j||{}); } catch(_e){} notify('پاسخی از مدل دریافت نشد', 'warn'); step('۴) خروجی متنی از مدل دریافت نشد'); if (keys && keys.length){ step('کلیدهای پاسخ: ' + keys.slice(0,12).join(',')); try { dbg('prepare keys :: '+keys.join(',')); } catch(_){ } } cap('warn','hoosha.prepare.empty', keys.slice(0,12).join(',')); } else { step('۴) پیش‌نمایش به‌روزرسانی شد'); } if (autoApply && autoApply.checked && j.confidence && j.confidence >= 0.9){ notify('اعتماد بالا؛ اعمال خودکار انجام شد', 'success'); cap('info','hoosha.prepare.autoApply'); } doneProgress(); cap('info','hoosha.prepare.success'); } catch(e){ console.error(e); cap('error','hoosha.prepare.parseError', String(e&&e.message||e)); } })
+            .catch(function(e){ console.error('[ARSH] hoosha.prepare failed', e); cap('error','hoosha.prepare.error', String(e&&e.message||e)); notify('تحلیل ناموفق بود', 'error'); setProgress('خطا در تحلیل', 100); })
+            .finally(function(){ setBusy(btnPrepare, false); });
+        };
+        btnApply.onclick = function(){
+          if (!schema){ notify('ابتدا تحلیل را انجام دهید', 'warn'); return; }
+          var cmd = (inpCmd && inpCmd.value||'').trim(); if (!cmd){ notify('دستور یا ویرایش را وارد کنید', 'warn'); return; }
+          stepsBox.textContent=''; setProgress('آغاز اعمال دستورات', 10); step('۱) آغاز اعمال دستورات'); cap('info','hoosha.apply.start', cmd.slice(0,120));
+          setBusy(btnApply, true);
+          var commands = cmd ? [ cmd ] : [];
+          cap('ajax','hoosha.apply.request',(window.ARSHLINE_REST||ARSHLINE_REST)+'hoosha/apply'); setProgress('ارسال دستورات', 30); step('۲) ارسال دستورات');
+          var _applyUrl = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/apply';
+          var _applyBody = { schema: schema, commands: commands };
+          try { dbg('SEND apply '+_applyUrl+' :: '+JSON.stringify(_applyBody)); } catch(_){ }
+          fetch(_applyUrl, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(_applyBody) })
+            .then(function(r){ cap('info','hoosha.apply.response','HTTP '+r.status); if (!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('دریافت نتیجه', 60); step('۳) دریافت نتیجه'); return r.clone().text().then(function(t){ try{ dbg('RECV apply HTTP '+r.status+' :: '+String(t||'').slice(0,2000)); }catch(_){ } return t; }); })
+            .then(function(txtRaw){ var j=null; try { j = txtRaw ? JSON.parse(txtRaw) : {}; } catch(e){ dbg('PARSE ERROR apply :: '+String(e&&e.message||e)); throw e; } try { schema = j.schema||schema; cap('info','hoosha.apply.parsed'); showPreview(schema); step('۴) پیش‌نمایش به‌روزرسانی شد'); notify('اعمال شد', 'success'); doneProgress(); cap('info','hoosha.apply.success'); } catch(e){ console.error(e); cap('error','hoosha.apply.parseError', String(e&&e.message||e)); } })
+            .catch(function(e){ console.error('[ARSH] hoosha.apply failed', e); cap('error','hoosha.apply.error', String(e&&e.message||e)); notify('اعمال دستورات ناموفق بود', 'error'); setProgress('خطا در اعمال', 100); })
+            .finally(function(){ setBusy(btnApply, false); });
+        };
+        var createBtn = document.getElementById('arHooshaCreate');
+        function mapHooshaToFields(s){
+          var out = [];
+          if (!s || !Array.isArray(s.fields)) return out;
+          s.fields.forEach(function(f){
+            var type = f.type || 'short_text';
+            var label = f.label || f.question || '';
+            var required = !!f.required;
+            var props = f.props || {};
+            if (type==='short_text'){
+              out.push({ type:'short_text', question:label, required:required, format:(props.format||'free_text'), minLength:(props.minLength||0), maxLength:(props.maxLength||0), placeholder:(f.placeholder||'') });
+            } else if (type==='long_text'){
+              out.push({ type:'long_text', question:label, required:required, rows:(props.rows||4), maxLength:(props.maxLength||5000), placeholder:(f.placeholder||'') });
+            } else if (type==='multiple_choice'){
+              out.push({ type:'multiple_choice', question:label, required:required, multiple:!!props.multiple, options:Array.isArray(props.options)?props.options:[] });
+            } else if (type==='dropdown'){
+              out.push({ type:'dropdown', question:label, required:required, options:Array.isArray(props.options)?props.options:[] });
+            } else if (type==='rating'){
+              var r = props.rating || { min:1, max:10, icon:'like' };
+              out.push({ type:'rating', question:label, required:required, min:parseInt(r.min||1), max:parseInt(r.max||10), icon:String(r.icon||'like') });
+            }
+          });
+          return out;
+        }
+        function createDraftFromSchema(){
+          try {
+            if (!schema || !Array.isArray(schema.fields) || !schema.fields.length){ notify('ابتدا پیش‌نمایش فرم را بسازید', 'warn'); return; }
+            var fields = mapHooshaToFields(schema);
+            var title = (schema.title || schema.name || 'فرم جدید (هوشا)');
+            stepsBox.textContent=''; setProgress('ساخت فرم جدید', 15); step('۱) ساخت فرم جدید'); cap('info','hoosha.create.start', title);
+            setBusy(createBtn, true);
+            fetch((window.ARSHLINE_REST||ARSHLINE_REST) + 'forms', { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify({ title: title }) })
+              .then(function(r){ cap('info','hoosha.create.form.response','HTTP '+r.status); if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('فرم ایجاد شد؛ ذخیره سوالات', 45); step('۲) ذخیره سوالات'); return r.json(); })
+              .then(function(obj){ if (!obj || !obj.id){ throw new Error('bad_create'); } var id = parseInt(obj.id); cap('info','hoosha.create.form.id', id); return fetch((window.ARSHLINE_REST||ARSHLINE_REST)+'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers: headers(), body: JSON.stringify({ fields: fields }) }).then(function(r){ cap('info','hoosha.create.fields.response','HTTP '+r.status); if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('سوالات ذخیره شد', 75); step('۳) سوالات ذخیره شد'); return r.json(); }).then(function(){ return id; }); })
+              .then(function(id){ setProgress('باز کردن ویرایشگر', 95); step('۴) باز کردن ویرایشگر'); notify('فرم پیش‌نویس ساخته شد', 'success'); try { if (typeof setHash==='function') setHash('builder/'+id); } catch(_){ } try { if (typeof window.renderFormBuilder==='function') window.renderFormBuilder(id); } catch(_){ } doneProgress(); cap('info','hoosha.create.success', id); })
+              .catch(function(e){ console.error('[ARSH] create draft from schema failed', e); cap('error','hoosha.create.error', String(e&&e.message||e)); notify('ساخت فرم ناموفق بود', 'error'); setProgress('خطا در ساخت فرم', 100); })
+              .finally(function(){ setBusy(createBtn, false); });
+          } catch(e){ console.error(e); }
+        }
+        if (createBtn){ createBtn.onclick = createDraftFromSchema; }
+      }
+
       // Lazy loader for گروه‌های کاربری inside custom panel
       function renderUsersUG(){
         // Treat UG as an independent menu: highlight UG link, not the parent Users
@@ -376,7 +666,7 @@
       if (globalHeaderCreateBtn) {
         globalHeaderCreateBtn.addEventListener('click', function(){ window._arOpenCreateInlineOnce = true; renderTab('forms'); });
       }
-      if (tab === 'dashboard'){
+  if (tab === 'dashboard'){
         content.innerHTML = ''+
           '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
           '<div id="arCardsMount"></div>'+
@@ -445,6 +735,8 @@
           load(30);
           try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart && chart.config && chart.config.data && chart.config.data.labels; var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data; if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v); var a = parseInt((document.getElementById('arKpiFormsActive')||{}).textContent||'0')||0; var d = parseInt((document.getElementById('arKpiFormsDisabled')||{}).textContent||'0')||0; renderDonut(a, d); } catch(_){ } }); } } catch(_){ }
         })();
+      } else if (tab === 'hoosha'){
+        renderHoosha();
       } else if (tab === 'analytics'){
         setActive('analytics');
         content.innerHTML = ''+
