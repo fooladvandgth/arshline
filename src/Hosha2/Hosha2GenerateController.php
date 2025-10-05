@@ -49,12 +49,16 @@ class Hosha2GenerateController
                 'req_id' => $reqId,
             ]);
             if (isset($result['cancelled']) && $result['cancelled']) {
+                // 499: Client Closed Request (non-standard but widely adopted) — semantic fit for user-triggered cancellation.
                 return new WP_REST_Response([
                     'success'=>false,
                     'cancelled'=>true,
-                    'request_id'=>$result['request_id'],
-                    'message'=>$result['message'] ?? 'cancelled'
-                ], 409);
+                    'error'=>[
+                        'code'=>'request_cancelled',
+                        'message'=>$result['message'] ?? 'Request was cancelled by client'
+                    ],
+                    'request_id'=>$result['request_id']
+                ], 499);
             }
             return new WP_REST_Response([
                 'success'=>true,
