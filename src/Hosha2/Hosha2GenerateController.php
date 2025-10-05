@@ -26,15 +26,19 @@ class Hosha2GenerateController
     {
         $formId = (int)$req['form_id'];
         if ($formId <= 0) {
-            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_form_id']], 400);
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_form_id','message'=>'form_id must be positive integer']], 400);
         }
-        $prompt = (string)($req->get_param('prompt') ?? '');
+        $rawPrompt = $req->get_param('prompt');
+        if ($rawPrompt === null) {
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'missing_prompt','message'=>'prompt field required']], 400);
+        }
+        $prompt = (string)$rawPrompt;
         if (trim($prompt) === '') {
-            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'missing_prompt']], 422);
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'empty_prompt','message'=>'prompt cannot be empty']], 400);
         }
         $options = $req->get_param('options');
         if ($options !== null && !is_array($options)) {
-            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_options_type']], 422);
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_options_type','message'=>'options must be JSON object']], 400);
         }
         $reqId = substr(md5(uniqid('', true)),0,10);
         try {
