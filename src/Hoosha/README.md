@@ -39,3 +39,20 @@ Return Shape:
 
 ## Testing
 Add tests under `tests/Unit/Hoosha*` that import only this module (no Brain Monkey when possible).
+
+### Scenario Matrix (Automated)
+`HooshaScenarioTest` exercises multiple questionnaire patterns:
+1. Baseline simple (national id, date, email, name, mobile)
+2. Informal yes/no detection (محاوره‌ای بدون «آیا»)
+3. Enumerated checklist with numeric prefixes (1) 2) ...)
+4. Rating extraction ("از 1 تا 10")
+5. Hallucination / noise pruning (خط جعلی با کاراکترهای غیرمعنادار)
+
+To extend, add another entry to `$scenarios` in `HooshaScenarioTest`:
+```php
+'my_case' => [
+  'input' => "خط۱\nخط۲",
+  'assert' => function($r){ /* custom assertions */ }
+]
+```
+This enables rapid detection of heuristic regressions before API/model calls.

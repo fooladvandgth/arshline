@@ -1,29 +1,23 @@
 <?php
 namespace Arshline\Tests\Unit;
 
-use PHPUnit\Framework\TestCase;
-use Brain\Monkey\Functions;
+use Arshline\Tests\Unit\BaseMonkeyTestCase;
+use function Brain\Monkey\Functions\when;
 use Arshline\Core\Api;
 use WP_REST_Request;
 
-class HooshaPrepareSmallFormTest extends TestCase
+class HooshaPrepareSmallFormTest extends BaseMonkeyTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        \Brain\Monkey\setUp();
         // Minimal WP capability mocks
-        Functions::when('current_user_can')->justReturn(true);
-        Functions::when('get_current_user_id')->justReturn(1);
+    when('current_user_can')->justReturn(true);
+    when('get_current_user_id')->justReturn(1);
         // AI settings disabled to force local / deterministic path
-        Functions::when('get_option')->alias(function($key){ return null; });
+    when('get_option')->alias(function($key){ return null; });
     }
-
-    protected function tearDown(): void
-    {
-        \Brain\Monkey\tearDown();
-        parent::tearDown();
-    }
+    // tearDown inherited
 
     private function callPrepare(string $text)
     {

@@ -8,6 +8,23 @@ use WP_Error;
 use Arshline\Support\Helpers;
 class Api {
     /**
+     * Snapshot of the last upstream AI model HTTP interaction for debugging (admin only exposure).
+     * Structure (array|null): {
+     *   endpoint: string,
+     *   status: int,
+     *   ok: bool,
+     *   model: string,
+     *   response_preview: string (truncated raw body),
+     *   message_content_preview: string (truncated extracted content)
+     * }
+     *
+     * NOTE: This was referenced via self::$last_ai_debug in multiple methods but not previously
+     * declared, causing a fatal error: "Access to undeclared static property" during the
+     * model_request_start -> model_request_end phase. Adding it here restores intended
+     * diagnostic behavior without altering pipeline logic.
+     */
+    public static $last_ai_debug = null;
+    /**
      * Clean final normalization: collapse duplicates, prune Jalali if Gregorian exists, merge groups, trim to <=9.
      */
     protected static function final_guard_normalize(array &$schema, array &$notes, string $userText, array $baseline_formal, ?array $guardBlock): void {
@@ -122,6 +139,25 @@ class Api {
             'temperature' => 0.2,
             'max_tokens' => 1200,
         ];
+        $request_id = null;
+        $t0 = microtime(true);
+        if (class_exists('Arshline\\Hoosha\\HooshaLogger')) {
+            try {
+                $request_id = bin2hex(random_bytes(8));
+            } catch (\Throwable $e) { $request_id = uniqid('rq_', true); }
+            \Arshline\Hoosha\HooshaLogger::log([
+                'phase' => 'model_request_start',
+                'request_id' => $request_id,
+                'endpoint' => $endpoint,
+                'payload_summary' => [
+                    'model' => $payload['model'],
+                    'messages_count' => count($payload['messages']),
+                    'system_preview' => mb_substr($system,0,220,'UTF-8'),
+                    'user_preview' => mb_substr($user,0,600,'UTF-8')
+                ],
+                'human' => 'ارسال درخواست به مدل (قبل از HTTP).',
+            ]);
+        }
         try {
             $res = self::wp_post_with_retries($endpoint, $headers, $payload, 40, 3, [500,1000,2000], 'gpt-4o-mini');
             if (!is_array($res)) return null;
@@ -141,6 +177,17 @@ class Api {
                 'response_preview' => is_string($res['body'] ?? null) ? mb_substr((string)$res['body'], 0, 2000, 'UTF-8') : '',
                 'message_content_preview' => $txt ? mb_substr($txt, 0, 1200, 'UTF-8') : '',
             ];
+            if (class_exists('Arshline\\Hoosha\\HooshaLogger')) {
+                \Arshline\Hoosha\HooshaLogger::log([
+                    'phase' => 'model_request_end',
+                    'request_id' => $request_id,
+                    'status' => (int)($res['status'] ?? 0),
+                    'latency_ms' => (int)round((microtime(true)-$t0)*1000),
+                    'response_preview' => is_string($res['body'] ?? null) ? mb_substr((string)$res['body'],0,1200,'UTF-8') : null,
+                    'human' => 'پاسخ مدل دریافت شد.',
+                    'ok' => (bool)($res['ok'] ?? false)
+                ]);
+            }
             if (!($res['ok'] ?? false)){
                 $status = (int)($res['status'] ?? 0);
                 $bodyPreview = '';
@@ -155,7 +202,27 @@ class Api {
             $txt2 = preg_replace('/```json|```/u', '', (string)$txt);
             $j2 = $txt2 ? json_decode(trim((string)$txt2), true) : null;
             if (is_array($j2)) return $j2;
-        } catch (\Throwable $e) { return null; }
+        } catch (\Throwable $e) {
+            if (class_exists('Arshline\\Hoosha\\HooshaLogger')) {
+                \Arshline\Hoosha\HooshaLogger::log([
+                    'phase' => 'model_request_exception',
+                    'request_id' => $request_id,
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                    'latency_ms' => (int)round((microtime(true)-$t0)*1000),
+                    'human' => 'استثناء در فراخوانی مدل.'
+                ]);
+            }
+            return null;
+        }
+        if (class_exists('Arshline\\Hoosha\\HooshaLogger')) {
+            \Arshline\Hoosha\HooshaLogger::log([
+                'phase' => 'model_request_parse_fail',
+                'request_id' => $request_id,
+                'human' => 'پاسخ مدل JSON معتبر نبود؛ بازگشت null.',
+                'latency_ms' => (int)round((microtime(true)-$t0)*1000)
+            ]);
+        }
         return null;
     }
 
@@ -194,6 +261,14 @@ class Api {
             $sleep = $backoffSeq[$attempt] ?? end($backoffSeq);
             if ($sleep > 0) { if (function_exists('usleep')) { @usleep((int)round($sleep*1000000)); } else { @sleep(max(1,(int)ceil($sleep))); } }
             $attempt++;
+        }
+        if (class_exists('Arshline\\Hoosha\\HooshaLogger')) {
+            \Arshline\Hoosha\HooshaLogger::log([
+                'phase' => 'model_retry_exhausted',
+                'attempts' => $attempt,
+                'markers' => $markers,
+                'human' => 'تمام تلاش‌های مدل بدون پاسخ معتبر پایان یافت.'
+            ]);
         }
         return [null,$markers];
     }
@@ -906,6 +981,28 @@ class Api {
             'methods' => 'POST',
             'callback' => [self::class, 'hoosha_final_review'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
+        ]);
+        // Hosha2 generation endpoint (modular pipeline)
+        register_rest_route('hosha2/v1', '/forms/(?P<form_id>\d+)/generate', [
+            'methods' => 'POST',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'callback' => function(\WP_REST_Request $r){
+                // Lazy build dependencies (would later be centralized in a service container)
+                $logger = $GLOBALS['hosha2_logger'] ?? null; // pre-registered singleton in bootstrap
+                $rateLimiter = $GLOBALS['hosha2_rate_limiter'] ?? null;
+                $versionRepo = $GLOBALS['hosha2_version_repo'] ?? null;
+                $capBuilder = new \Arshline\Hosha2\Hosha2CapabilitiesBuilder();
+                $envFactory = new \Arshline\Hosha2\Hosha2OpenAIEnvelopeFactory();
+                $client = $GLOBALS['hosha2_openai_client'] ?? new \Arshline\Hosha2\Hosha2OpenAIClientStub();
+                $diffValidator = new \Arshline\Hosha2\Hosha2DiffValidator();
+                $service = new \Arshline\Hosha2\Hosha2GenerateService($capBuilder, $envFactory, $client, $diffValidator, $logger, $rateLimiter, $versionRepo);
+                $controller = new \Arshline\Hosha2\Hosha2GenerateController($service);
+                return $controller->handle($r);
+            },
+            'args' => [
+                'prompt' => [ 'type'=>'string', 'required'=>true ],
+                'options' => [ 'required'=>false ],
+            ],
         ]);
         // AI configuration and agent endpoints (admin-only)
         register_rest_route('arshline/v1', '/ai/config', [
@@ -4079,6 +4176,14 @@ class Api {
                             if (is_string($rebFinal) && $rebFinal!==''){ $proc['edited_text']=$rebFinal; $proc['notes'][]='guard:edited_text_rebuilt_final'; }
                         }
                     }
+                    // Optional natural edit commands (e.g., UI passes edit_commands)
+                    $editCommands = isset($body['edit_commands']) ? (string)$body['edit_commands'] : '';
+                    if ($editCommands !== '' && class_exists('Arshline\\Hoosha\\Pipeline\\NaturalEditProcessor')){
+                        \Arshline\Hoosha\Pipeline\NaturalEditProcessor::apply($proc['schema'], $editCommands, $proc['notes']);
+                        // Rebuild edited text after manual edits
+                        $rebEdit = self::hoosha_local_edit_text($user_text, $proc['schema']);
+                        if (is_string($rebEdit) && $rebEdit!==''){ $proc['edited_text']=$rebEdit; $proc['notes'][]='edit:edited_text_rebuilt'; }
+                    }
                     $responsePayload = [
                         'ok'=> empty($guardBlock['approved']) ? true : (bool)$guardBlock['approved'],
                         'edited_text'=>$proc['edited_text'] ?? $user_text,
@@ -4528,7 +4633,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                             // Guess a generic label based on certain option sets
                             $lowerJoin = mb_strtolower(implode(' ', $opts),'UTF-8');
                             if (preg_match('/چای|قهوه|موکا/u',$lowerJoin)) $cf['label']='نوشیدنی ترجیحی شما؟';
-                            elseif (preg_match('/ایمیل|تلفن|موبایل/u',$lowerJoin)) $cf['label']='ترجیح شما برای شیوه تماس؟';
+                            // Removed hardcoded contact preference canonical label; intent now handled by IntentRules
                             else $cf['label']='گزینه مناسب را انتخاب کنید؟';
                         } else {
                             $cf['label']='سؤال را تکمیل کنید؟';
@@ -5153,6 +5258,33 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                 foreach ($res['diagnostics'] as $k=>$v){ if ($v){ $notes[]='guard:diag_'.$k.'('.$v.')'; } }
             }
             $notes[] = $res['approved'] ? 'guard:approved' : 'guard:rejected';
+
+            // --- Parallel Diagnostic: GuardUnit (non-invasive) ---
+            if (class_exists('Arshline\\Guard\\GuardUnit')) {
+                try {
+                    // Determine GuardUnit mode: constant > option > default
+                    $gMode = 'diagnostic';
+                    if (defined('HOOSHA_GUARD_MODE')) {
+                        $cm = strtolower((string)HOOSHA_GUARD_MODE);
+                        if (in_array($cm, ['diagnostic','corrective'], true)) $gMode = $cm;
+                    } elseif (isset($gs['guard_mode']) && in_array($gs['guard_mode'], ['diagnostic','corrective'], true)) {
+                        $gMode = $gs['guard_mode'];
+                    }
+                    $requestId = isset($res['lat_ms']) ? ('gsvc_'.$res['lat_ms']) : null;
+                    $gu = new \Arshline\Guard\GuardUnit([], [], $gMode, $requestId);
+                    $userQuestions = self::extract_user_questions($user_text);
+                    $baselineSchema = ['fields'=>$baseline['fields'] ?? []];
+                    $guRes = $gu->run($userQuestions, ['fields'=>$schema['fields'] ?? [], 'meta'=>$schema['meta'] ?? []], ['baseline_schema'=>$baselineSchema]);
+                    // Compare decision surface
+                    $notes[]='guard_unit:mode('.$gMode.')';
+                    if (!empty($guRes['issues'])) { $notes[]='guard_unit:issues('.count($guRes['issues']).')'; }
+                    if (!empty($guRes['metrics']['hallucinations_removed'])) { $notes[]='guard_unit:hallucinations_would_remove('.$guRes['metrics']['hallucinations_removed'].')'; }
+                    if (!empty($guRes['metrics']['similarity_avg'])) { $notes[]='guard_unit:similarity_avg('.$guRes['metrics']['similarity_avg'].')'; }
+                    if (($guRes['status'] ?? '') !== 'approved') { $notes[]='guard_unit:status('.($guRes['status'] ?? 'unknown').')'; }
+                } catch (\Throwable $e) {
+                    $notes[]='guard_unit:error';
+                }
+            }
             return [ 'approved'=>$res['approved'], 'issues'=>$res['issues'], 'issues_detail'=>$res['issues_detail']??[], 'diagnostics'=>$res['diagnostics']??[], 'lat_ms'=>$res['lat_ms'], 'adopted'=>$res['adopted'] ];
         } catch (\Throwable $e){ $notes[]='guard:error'; }
         return null;
@@ -5326,6 +5458,28 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             }
             if ($counts){ ksort($counts, SORT_NATURAL|SORT_FLAG_CASE); $pairs=[]; foreach ($counts as $k=>$v){ $pairs[]=$k.':'.$v; } $notes[]='formats_summary(' . implode(',', $pairs) . ')'; }
         } catch (\Throwable $e){ /* ignore */ }
+    }
+
+    /** Extract user questions from raw user_text for GuardUnit semantic alignment.
+     * Splits on newlines and question marks (Persian & Latin), trims, filters empties, removes meta-like lines.
+     */
+    protected static function extract_user_questions(string $user_text): array
+    {
+        $normalized = str_replace("\r", "\n", $user_text);
+        $normalized = preg_replace('/([؟?])\s*/u', "$1\n", (string)$normalized);
+        $parts = preg_split('/\n+/u', (string)$normalized, -1, PREG_SPLIT_NO_EMPTY);
+        $out = [];
+        foreach ($parts as $p){
+            $p = trim($p);
+            if ($p==='') continue;
+            if (preg_match('/^(system:|note:|meta:)/i',$p)) continue;
+            $p = preg_replace('/[؟?]+$/u','',$p);
+            if ($p==='') continue;
+            if (mb_strlen($p,'UTF-8')>200) $p = mb_substr($p,0,200,'UTF-8');
+            $out[] = $p;
+        }
+        if (!$out){ $t = trim($user_text); if ($t!=='') $out[] = mb_substr($t,0,200,'UTF-8'); }
+        return $out;
     }
 
     /**
@@ -6226,9 +6380,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         }
         if (count($augmented)>count($out)) { $out=$augmented; }
         // Pending split fields (cross contamination) -> create recovered ones if global flags set
-        if (!empty($GLOBALS['__hoosha_pending_contact_field']) && !self::array_has_label_like($out,'ترجیح شما برای شیوه تماس')){
-            $out[] = [ 'type'=>'multiple_choice','label'=>'ترجیح شما برای شیوه تماس؟','required'=>false,'props'=>['options'=>['ایمیل','تلفن','موبایل'],'source'=>'recovered_split'] ];
-        }
+        // Removed auto-inject of contact preference (was recovered_split); now rule-based & non-injective
         if (!empty($GLOBALS['__hoosha_pending_drink_field']) && !self::array_has_label_like($out,'نوشیدنی ترجیحی شما')){
             $out[] = [ 'type'=>'multiple_choice','label'=>'نوشیدنی ترجیحی شما؟','required'=>false,'props'=>['options'=>['چای','قهوه','موکا'],'source'=>'recovered_split'] ];
         }
@@ -6264,14 +6416,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         if(!$hasSupport && preg_match('/رضایت.*پشتیبانی/u',$fullLower)){
             $out[] = [ 'type'=>'multiple_choice','label'=>'سطح رضایت شما از پشتیبانی؟','required'=>false,'props'=>['options'=>['کم','متوسط','عالی'],'source'=>'recovered_scan'] ];
         }
-        // Contact preference recovery
-        if (preg_match('/ترجیحت.*تماس|تماس؟.*ایمیل|تلفن|موبایل/u',$fullLower)){
-            // Suppress contact preference recovery if strict small form mode enabled
-            if (empty($GLOBALS['__hoosha_strict_small_form'])){
-                $exists=false; foreach($out as $ff){ if(mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'ترجیح')!==false){ $exists=true; break; } }
-                if(!$exists){ $out[] = [ 'type'=>'multiple_choice','label'=>'ترجیح شما برای شیوه تماس؟','required'=>false,'props'=>['options'=>['ایمیل','تلفن','موبایل'],'source'=>'recovered_scan'] ]; }
-            }
-        }
+        // Removed legacy contact preference recovery. IntentRules will surface intent via notes only.
         // Invoice email recovery
         $hasInvoiceEmail=false; foreach($out as $ff){ if(isset($ff['props']['format']) && $ff['props']['format']==='email' && mb_strpos(mb_strtolower($ff['label'],'UTF-8'),'فاکتور')!==false){ $hasInvoiceEmail=true; break; } }
         if(!$hasInvoiceEmail && preg_match('/ایمیل.*فاکتور|آدرس ایمیل.*فاکتور/u',$fullLower)){
@@ -6502,7 +6647,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         if (mb_strpos($ql, 'امتیاز') !== false && mb_strpos($ql, 'حال') !== false){ return 'به حال دل خود از ۱ تا ۱۰ چه امتیازی می‌دهید؟'; }
         if (preg_match('/سطح.*رضایت.*پشتیبانی/u',$ql)) { return 'سطح رضایت شما از پشتیبانی؟'; }
         if (preg_match('/غذای مورد علاقه/u',$ql)) { return 'غذای مورد علاقه شما؟'; }
-        if (preg_match('/ترجیح.+شیوه.+تماس|ترجیحت.*تماس/u',$ql)) { return 'ترجیح شما برای شیوه تماس؟'; }
+    // Removed automatic contact preference formalization to avoid structural hallucination.
         if (preg_match('/ایمیلتو بده|ایمیل.*الزامی|ایمیل.*را وارد/u',$ql)) { return 'لطفاً ایمیل خود را وارد کنید.'; }
         if (preg_match('/شماره موبایل بین/u',$ql)) { return 'شماره موبایل بین‌المللی خود را وارد کنید.'; }
         if (preg_match('/شماره موبایلت رو بده/u',$ql)) { return 'شماره موبایل خود را وارد کنید.'; }

@@ -25,6 +25,13 @@ use Arshline\Core\AccessControl;
 use Arshline\Dashboard\UserGroupsPage;
 
 if (!defined('ABSPATH')) {
+    
+    // Optional: Load Composer autoloader if the plugin was installed with vendor deps.
+    // Must appear after use statements to avoid "use must be first statement" parsing issues.
+    $__arshline_composer_autoload = __DIR__ . '/vendor/autoload.php';
+    if (file_exists($__arshline_composer_autoload)) {
+        require_once $__arshline_composer_autoload;
+    }
     exit;
 }
 
@@ -222,12 +229,13 @@ add_action('wp_enqueue_scripts', static function () {
 spl_autoload_register(function ($class) {
     $prefix = 'Arshline\\';
     $base_dir = __DIR__ . '/src/';
-    $len = strlen($prefix);
-    if (strncmp($prefix, $class, $len) !== 0) {
-        return;
+    if (strncmp($prefix, $class, strlen($prefix)) !== 0) {
+        return; // Not one of ours.
     }
-    $relative_class = substr($class, $len);
-    $file = $base_dir . str_replace('\\\\', '/', $relative_class) . '.php';
+    // Convert namespace separators to directory separators (single backslash is the separator).
+    $relative_class = substr($class, strlen($prefix));
+    $path = str_replace('\\', '/', $relative_class) . '.php';
+    $file = $base_dir . $path;
     if (file_exists($file)) {
         require_once $file;
     }

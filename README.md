@@ -195,6 +195,8 @@ Endpoint `preview_edit` خروجی نمونه:
 در صورت خطا، تقسیم‌بندی اولیه‌ی محلی (Heuristic Splitting) بازگردانده می‌شود.
 ## توسعه و تست
 
+ماتریس سناریوهای Hoosha: `docs/HOOSHA_SCENARIOS.md`
+
 برای اجرای تست‌ها:
 
 ```bash
@@ -207,3 +209,32 @@ composer test
 - مسیرهای GET مربوط به فرم‌ها تنها برای کاربرانی که حداقل توانایی `edit_posts` دارند در دسترس است.
 - هوک‌های دیباگ نیازمند nonce و دسترسی مدیریتی هستند.
 - دارایی‌های رابط کاربری از مسیر `assets/` بارگذاری و از طریق `wp_enqueue_script` و `wp_enqueue_style` در صفحه داشبورد ثبت می‌شوند.
+
+## Hoosha CLI Simulation (Offline Testing)
+برای اجرای سناریوهای فرم‌ساز بدون فراخوانی HTTP و مشاهده خروجی کامل (schema، notes، guard):
+
+مثال اجرای سناریوی از پیش تعریف‌شده:
+```powershell
+php tools/simulate_hoosha.php --file=tools/hoosha_scenarios.json --id=duplicate_explosion
+```
+
+مثال ورودی مستقیم بدون مدل (فقط baseline + guard):
+```powershell
+php tools/simulate_hoosha.php --text="نام و کد ملی و شماره موبایل خود را وارد کنید" --no-model --json-only
+```
+
+سوئیچ‌ها:
+- `--file=PATH` + `--id=ID` انتخاب سناریو.
+- `--text=...` ورودی مستقیم (اولویت بالاتر از id).
+- `--no-model` غیرفعال کردن لایه مدل (مفید برای تست خلوص baseline و Guard).
+- `--guard=0|1` اجبار فعال/غیرفعال بودن Guard (در نبود تنظیم → پیش‌فرض فعال).
+- `--json-only` خروجی فقط JSON خام.
+
+خروجی خلاصه شامل:
+- field_count، duplicates_estimated، guard_approved
+- guard_issues و issues_detail (در صورت وجود)
+- jalali_present و yn_contamination جهت تشخیص آلودگی
+
+فایل سناریو نمونه: `tools/hoosha_scenarios.json` – می‌توانید سناریوهای شخصی را با `{ "id":"...","text":"..." }` اضافه کنید.
+
+نکته: برای تست Guard بدون تماس واقعی با مدل، base_url جعلی و api_key تست ست می‌شود و مسیر مدل معمولاً خطا می‌دهد؛ Guard همچنان اجرا و prune را اعمال می‌کند.

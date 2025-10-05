@@ -8,6 +8,9 @@ Highlights:
 - Hallucination pruning: حذف فیلدهای بی‌ربط با هم‌پوشانی توکنی <30% با ورودی.
 - File inference & fallback تقویت‌شده (رسید، رزومه، تصویر، گزارش).
 - Rebuild edited_text پس از هر مرحله پاکسازی برای شماره‌گذاری پایدار.
+- NEW: Configurable AI base URL via constant `ARSHLINE_AI_BASE_URL` or option `arshline_ai_base_url` (defaults to https://api.openai.com).
+- NEW: Introduced dedicated DuplicateResolver (token Jaccard threshold 0.6 default) integrated after hallucination pruning & before baseline audit. Emits notes: `heur:semantic_duplicate(<dropped>-><kept>)` and summary `heur:semantic_duplicate_collapsed(N)`.
+- NEW: AI refinement merge (preserve baseline order, modify in-place, append new). Emits `ai:modified(label=…)`, `ai:added(label=…)`, `ai:removed(count=N)`.
 
 New Tests:
 - HooshaPrepareSmallFormTest: تضمین عدم حضور فیلد ترجیح تماس در فرم کوچک و الزامی بودن فرمت‌های ملی/موبایل.

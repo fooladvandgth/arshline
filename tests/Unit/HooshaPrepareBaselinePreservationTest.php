@@ -1,7 +1,7 @@
 <?php
 namespace Arshline\Tests\Unit;
 
-use PHPUnit\Framework\TestCase;
+use Arshline\Tests\Unit\BaseMonkeyTestCase;
 use WP_REST_Request;
 use Arshline\Core\Api;
 // TEMP: explicit require to diagnose autoload issue in CI environment
@@ -10,12 +10,11 @@ if (!class_exists(\Arshline\Core\Api::class)) {
 }
 use function Brain\Monkey\Functions\when;
 
-class HooshaPrepareBaselinePreservationTest extends TestCase
+class HooshaPrepareBaselinePreservationTest extends BaseMonkeyTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        if (function_exists('Brain\\Monkey\\setUp')) { \Brain\Monkey\setUp(); }
         when('get_current_user_id')->justReturn(1);
         when('current_user_can')->justReturn(true);
         // AI settings – pretend configured
@@ -29,11 +28,7 @@ class HooshaPrepareBaselinePreservationTest extends TestCase
         when('wp_remote_retrieve_body')->alias(function($r){ return $r['body']??''; });
         when('is_wp_error')->justReturn(false);
     }
-    protected function tearDown(): void
-    {
-        if (function_exists('Brain\\Monkey\\tearDown')) { \Brain\Monkey\tearDown(); }
-        parent::tearDown();
-    }
+    // tearDown inherited
 
     public function testBaselineFieldsNotDropped()
     {

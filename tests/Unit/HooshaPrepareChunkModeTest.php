@@ -1,24 +1,23 @@
 <?php
 namespace Arshline\Tests\Unit;
 
-use PHPUnit\Framework\TestCase;
-use Brain\Monkey\Functions;
+use Arshline\Tests\Unit\BaseMonkeyTestCase;
+use function Brain\Monkey\Functions\when;
 use Arshline\Core\Api;
 use WP_REST_Request;
 
 /**
  * Validates chunk-mode path (large input triggers splitting) and merged schema aggregation.
  */
-class HooshaPrepareChunkModeTest extends TestCase
+class HooshaPrepareChunkModeTest extends BaseMonkeyTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        \Brain\Monkey\setUp();
-        Functions::when('current_user_can')->justReturn(true);
-        Functions::when('get_current_user_id')->justReturn(1);
+    when('current_user_can')->justReturn(true);
+    when('get_current_user_id')->justReturn(1);
         // Provide AI config so model path executes (avoid ai_not_configured WP_Error)
-        Functions::when('get_option')->alias(function($key){
+    when('get_option')->alias(function($key){
             if ($key === 'arshline_settings'){
                 return [
                     'ai_enabled' => true,
@@ -30,7 +29,7 @@ class HooshaPrepareChunkModeTest extends TestCase
         });
         // Stub WP HTTP layer to simulate model JSON output per chunk
         $counter = 0;
-        Functions::when('wp_remote_post')->alias(function($endpoint,$args) use (&$counter){
+    when('wp_remote_post')->alias(function($endpoint,$args) use (&$counter){
             $counter++;
             // Build simple single-field JSON for each chunk
             $fieldLabel = 'فیلد چانک '.$counter;
@@ -44,16 +43,12 @@ class HooshaPrepareChunkModeTest extends TestCase
             ];
             return [ 'response' => ['code'=>200], 'body' => json_encode($modelPayload, JSON_UNESCAPED_UNICODE) ];
         });
-        Functions::when('wp_remote_retrieve_response_code')->alias(fn($r)=> $r['response']['code'] ?? 0);
-        Functions::when('wp_remote_retrieve_body')->alias(fn($r)=> $r['body'] ?? '');
-        Functions::when('is_wp_error')->alias(fn($v)=> false);
+    when('wp_remote_retrieve_response_code')->alias(fn($r)=> $r['response']['code'] ?? 0);
+    when('wp_remote_retrieve_body')->alias(fn($r)=> $r['body'] ?? '');
+    when('is_wp_error')->alias(fn($v)=> false);
     }
 
-    protected function tearDown(): void
-    {
-        \Brain\Monkey\tearDown();
-        parent::tearDown();
-    }
+    // tearDown inherited
 
     private function callPrepare(string $text)
     {

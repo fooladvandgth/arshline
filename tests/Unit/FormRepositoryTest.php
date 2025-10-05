@@ -2,7 +2,7 @@
 namespace Arshline\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use Brain\Monkey\Functions;
+use function Brain\Monkey\Functions\when;
 use Arshline\Modules\Forms\Form;
 use Arshline\Modules\Forms\FormRepository;
 use Arshline\Modules\Forms\FormValidator;

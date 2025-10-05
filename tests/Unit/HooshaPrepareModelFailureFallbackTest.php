@@ -1,43 +1,38 @@
 <?php
 namespace Arshline\Tests\Unit;
 
-use PHPUnit\Framework\TestCase;
-use Brain\Monkey\Functions;
+use Arshline\Tests\Unit\BaseMonkeyTestCase;
+use function Brain\Monkey\Functions\when;
 use Arshline\Core\Api;
 use WP_REST_Request;
 
 /**
  * Ensures graceful fallback path activates when model repeatedly fails (returns invalid JSON / error).
  */
-class HooshaPrepareModelFailureFallbackTest extends TestCase
+class HooshaPrepareModelFailureFallbackTest extends BaseMonkeyTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        \Brain\Monkey\setUp();
-        Functions::when('current_user_can')->justReturn(true);
-        Functions::when('get_current_user_id')->justReturn(1);
+    when('current_user_can')->justReturn(true);
+    when('get_current_user_id')->justReturn(1);
         // Provide AI config so code attempts model call
-        Functions::when('get_option')->alias(function($key){
+    when('get_option')->alias(function($key){
             if ($key==='arshline_settings'){
                 return [ 'ai_enabled'=>true, 'ai_base_url'=>'https://fake.local', 'ai_api_key'=>'x' ];
             }
             return null;
         });
         // Simulate model failure (HTTP 500) for all attempts
-        Functions::when('wp_remote_post')->alias(function($endpoint,$args){
+    when('wp_remote_post')->alias(function($endpoint,$args){
             return [ 'response'=>['code'=>500], 'body'=>'{"error":"upstream"}' ];
         });
-        Functions::when('wp_remote_retrieve_response_code')->alias(fn($r)=> $r['response']['code'] ?? 0);
-        Functions::when('wp_remote_retrieve_body')->alias(fn($r)=> $r['body'] ?? '');
-        Functions::when('is_wp_error')->alias(fn($v)=> false);
+    when('wp_remote_retrieve_response_code')->alias(fn($r)=> $r['response']['code'] ?? 0);
+    when('wp_remote_retrieve_body')->alias(fn($r)=> $r['body'] ?? '');
+    when('is_wp_error')->alias(fn($v)=> false);
     }
 
-    protected function tearDown(): void
-    {
-        \Brain\Monkey\tearDown();
-        parent::tearDown();
-    }
+    // tearDown inherited
 
     private function callPrepare(string $text)
     {
