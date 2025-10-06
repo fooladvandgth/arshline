@@ -324,3 +324,111 @@ Events: `rate_limit_exceeded`, `request_cancelled`, `version_saved`, `versions_l
 ### نمونه خلاصه (فارسی)
 در فاز F4: endpoint تولید فرم، محدودسازی نرخ، لغو با وضعیت 499، محاسبه diff_sha و گزارش پیشرفت مرحله‌ای (progress + progress_percent) پیاده‌سازی شد. خطاهای OpenAI به کدهای پایدار ERR_* نگاشت و در لایه API به کدهای ساده‌تر بازتاب داده شدند.
 
+---
+
+## F5 Documentation Update (Error Codes, Contract Clarifications)
+
+### Expanded Public Error Codes
+| HTTP | code | Meaning | Notes |
+|------|------|---------|-------|
+| 200 | (none) | Success | `version_id` / `diff_sha` nullable on degradation |
+| 400 | invalid_form_id | Path param <=0 | Validation short-circuit |
+| 400 | missing_prompt | prompt key absent |  |
+| 400 | empty_prompt | prompt blank after trim |  |
+| 400 | invalid_options_type | options not an object |  |
+| 404 | form_not_found | Form repository lookup returned null | Happens before OpenAI call |
+| 429 | rate_limited | Rate limit exceeded | Sliding window 10/60s |
+| 499 | request_cancelled | Cancellation flag set | Non-standard; user initiated |
+| 500 | internal_error | Unexpected internal runtime | Generic catch-all |
+| 503 | service_unavailable | OpenAI transport or upstream failure | Transient; retry recommended |
+
+Legacy internal mapping (OpenAI client) remains internal (ERR_*). Controller translates to above stable public codes.
+
+### Graceful Degradation Rules (Version Save Failure)
+If `saveSnapshot()` throws:
+1. Log event `version_save_error` (level=ERROR, includes exception class & message).
+2. Force `version_id = null`.
+3. Force `diff_sha = null` (even if previously computed) to avoid implying persisted integrity.
+4. Still return HTTP 200 success (generation output is valid).
+
+### Response Contract (Clarified)
+```json
+{
+  "success": true,
+  "request_id": "<hex>",
+  "version_id": 1234,          // or null (persistence disabled/failure)
+  "diff_sha": "<40hex>",       // or null (empty diff | invalid diff | version save fail)
+  "data": {
+    "final_form": {"version":"arshline_form@v1","fields":[],"layout":[],"meta":{}},
+    "diff": [],                 // validated; may be []
+    "token_usage": {"prompt":0,"completion":0,"total":0},
+    "progress": ["analyze_input", ... , "render_preview"],
+    "progress_percent": 1.0
+  }
+}
+```
+
+Progress ordering is strict. `progress_percent` is cumulative weighted sum (0–1 float). Partial sequences returned if cancellation or early failure occurs before success.
+
+### Cancellation (HTTP 499)
+Mechanism: transient key `hosha2_cancel_{req_id}` set (truthy) **before** a checkpoint:
+1. before_capabilities
+2. before_openai
+3. after_openai (pre diff validation)
+
+If detected → immediate 499 with payload:
+```json
+{"success":false,"cancelled":true,"error":{"code":"request_cancelled","message":"Request cancelled by user"},"request_id":"..."}
+```
+No further phases executed; `progress` list contains only finished phases.
+
+### Rate Limiting (HTTP 429)
+Sliding window per requester (currently request scope / placeholder): max 10 generate calls per 60s.
+Exceeding window → pre-pipeline exception mapped to 429 `rate_limited`.
+
+### Additional Examples
+Service Unavailable (503):
+```json
+{"success":false,"error":{"code":"service_unavailable","message":"AI service temporarily unavailable"},"request_id":"ab12cd"}
+```
+Form Not Found (404):
+```json
+{"success":false,"error":{"code":"form_not_found","message":"Form not found"},"request_id":"ab12cd"}
+```
+Rate Limited (429):
+```json
+{"success":false,"error":{"code":"rate_limited","message":"Rate limit exceeded"},"request_id":"ab12cd"}
+```
+Internal Error (500):
+```json
+{"success":false,"error":{"code":"internal_error","message":"Unexpected failure in pipeline"},"request_id":"ab12cd"}
+```
+Version Save Degradation Success (200):
+```json
+{
+  "success": true,
+  "request_id": "ab12cd",
+  "version_id": null,
+  "diff_sha": null,
+  "data": {
+    "final_form": {"version":"arshline_form@v1","fields":[{"id":"f1","type":"text"}],"layout":[],"meta":{}},
+    "diff": [{"op":"add","path":"/fields/0","value":{"id":"f1","type":"text"}}],
+    "token_usage": {"prompt": 11, "completion": 19, "total": 30},
+    "progress": ["analyze_input","build_capabilities","openai_send","validate_response","persist_form","render_preview"],
+    "progress_percent": 1.0
+  }
+}
+```
+
+### Logging (Additions Recap)
+| Event | When |
+|-------|------|
+| version_save_error | Persistence layer threw exception; degradation path |
+| service_unavailable (mapped) | Via runtime mapping in controller from OPENAI_FAIL* exceptions |
+| request_cancelled | Cancellation checkpoint hit |
+
+### Future (Planned)
+- Storage adapter abstraction for form & version repositories.
+- Edit/apply diff endpoint with semantic validation.
+- Metrics endpoint exposing counters (success, cancelled, rate_limited).
+
