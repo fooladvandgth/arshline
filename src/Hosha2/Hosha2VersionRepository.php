@@ -78,9 +78,11 @@ class Hosha2VersionRepository
         ];
     }
 
-    public function listVersions(int $formId, int $limit = 10): array
+    public function listVersions(int $formId, int $limit = 10, int $offset = 0): array
     {
-        $list = $this->storage->list($formId, $limit);
+        if ($limit <= 0) $limit = 10;
+        if ($offset < 0) $offset = 0;
+        $list = $this->storage->list($formId, $limit, $offset);
         $out = [];
         foreach ($list as $row) {
             $out[] = [
@@ -89,8 +91,13 @@ class Hosha2VersionRepository
                 'metadata'   => $this->mapMetadataSubset($row['metadata'] ?? []),
             ];
         }
-        if ($this->logger) $this->logger->log('versions_listed', ['form_id'=>$formId,'count'=>count($out),'limit'=>$limit], 'INFO');
+        if ($this->logger) $this->logger->log('versions_listed', ['form_id'=>$formId,'count'=>count($out),'limit'=>$limit,'offset'=>$offset], 'INFO');
         return $out;
+    }
+
+    public function countVersions(int $formId): int
+    {
+        return $this->storage->count($formId);
     }
 
     public function cleanupOldVersions(int $formId, int $keepLast = 5): int

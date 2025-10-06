@@ -29,9 +29,15 @@ interface Hosha2VersionStorageInterface
      * List versions for a form ordered newest→oldest.
      * @param int $formId
      * @param int $limit Max rows (default 10)
+     * @param int $offset Zero-based offset into version sequence
      * @return array Each: [ 'version_id'=>int, 'created_at'=>string, 'metadata'=>array ]
      */
-    public function list(int $formId, int $limit = 10): array;
+    public function list(int $formId, int $limit = 10, int $offset = 0): array;
+
+    /**
+     * Count total versions for a form.
+     */
+    public function count(int $formId): int;
 
     /**
      * Prune old versions keeping the most recent $keepLast entries.

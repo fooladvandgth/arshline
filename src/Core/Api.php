@@ -934,6 +934,20 @@ class Api {
             'callback' => [self::class, 'update_meta'],
             'permission_callback' => [self::class, 'user_can_manage_forms'],
         ]);
+        // Hoosha2: list versions of a form (F6-1)
+        register_rest_route('hosha2/v1', '/forms/(?P<form_id>\d+)/versions', [
+            'methods' => 'GET',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'callback' => function(\WP_REST_Request $request){
+                $repo = new \Arshline\Hosha2\Hosha2VersionRepository();
+                $controller = new \Arshline\Hosha2\Hosha2VersionController($repo, null);
+                return $controller->listFormVersions($request);
+            },
+            'args' => [
+                'limit' => [ 'required'=>false, 'validate_callback'=>function($param){ return is_numeric($param) && (int)$param >=1 && (int)$param <=100; } ],
+                'offset'=> [ 'required'=>false, 'validate_callback'=>function($param){ return is_numeric($param) && (int)$param >=0; } ]
+            ]
+        ]);
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'POST',
             'callback' => [self::class, 'create_form'],

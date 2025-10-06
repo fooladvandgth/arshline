@@ -51,6 +51,28 @@ abstract class Hosha2VersionStorageContractTest extends TestCase
         $this->assertGreaterThan($list[1]['version_id'], $list[0]['version_id']);
     }
 
+    public function testListWithOffset(): void
+    {
+        $s = $this->storage();
+        for($i=0;$i<8;$i++){ $s->save(70, ['i'=>$i]); }
+        $firstPage = $s->list(70, 3, 0);
+        $secondPage = $s->list(70, 3, 3);
+        $this->assertCount(3, $firstPage);
+        $this->assertCount(3, $secondPage);
+        // Ensure no overlap between first and second page ids
+        $ids1 = array_column($firstPage,'version_id');
+        $ids2 = array_column($secondPage,'version_id');
+        $this->assertEmpty(array_intersect($ids1,$ids2));
+    }
+
+    public function testCount(): void
+    {
+        $s = $this->storage();
+        $this->assertSame(0, $s->count(99));
+        for($i=0;$i<5;$i++){ $s->save(99, ['i'=>$i]); }
+        $this->assertSame(5, $s->count(99));
+    }
+
     public function testGetNotFound(): void
     {
         $s = $this->storage();

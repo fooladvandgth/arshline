@@ -45,10 +45,11 @@ class InMemoryVersionStorage implements Hosha2VersionStorageInterface
         ];
     }
 
-    public function list(int $formId, int $limit = 10): array
+    public function list(int $formId, int $limit = 10, int $offset = 0): array
     {
         $ids = $this->index[$formId] ?? [];
-        $slice = array_slice($ids, 0, $limit);
+        if ($offset < 0) $offset = 0;
+        $slice = array_slice($ids, $offset, $limit);
         $out = [];
         foreach ($slice as $id) {
             $snap = $this->store[$id];
@@ -59,6 +60,11 @@ class InMemoryVersionStorage implements Hosha2VersionStorageInterface
             ];
         }
         return $out;
+    }
+
+    public function count(int $formId): int
+    {
+        return isset($this->index[$formId]) ? count($this->index[$formId]) : 0;
     }
 
     public function prune(int $formId, int $keepLast = 5): int

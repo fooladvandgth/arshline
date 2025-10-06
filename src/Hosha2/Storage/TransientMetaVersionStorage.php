@@ -78,16 +78,18 @@ class TransientMetaVersionStorage implements Hosha2VersionStorageInterface
         ];
     }
 
-    public function list(int $formId, int $limit = 10): array
+    public function list(int $formId, int $limit = 10, int $offset = 0): array
     {
-        if ($this->usingFallback()) return $this->fallback->list($formId, $limit);
-        $posts = get_posts([
+        if ($this->usingFallback()) return $this->fallback->list($formId, $limit, $offset);
+        $queryArgs = [
             'post_type'      => 'hosha2_version',
             'post_parent'    => $formId,
             'posts_per_page' => $limit,
+            'offset'         => $offset,
             'orderby'        => 'date',
             'order'          => 'DESC',
-        ]);
+        ];
+        $posts = get_posts($queryArgs);
         $out = [];
         foreach ($posts as $p) {
             $metaJson = get_post_meta($p->ID, '_hosha2_metadata', true);
@@ -100,6 +102,19 @@ class TransientMetaVersionStorage implements Hosha2VersionStorageInterface
             ];
         }
         return $out;
+    }
+
+    public function count(int $formId): int
+    {
+        if ($this->usingFallback()) return $this->fallback->count($formId);
+        // Use a lightweight WP_Query to count posts
+        $q = new \WP_Query([
+            'post_type'      => 'hosha2_version',
+            'post_parent'    => $formId,
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+        ]);
+        return (int)$q->found_posts;
     }
 
     public function prune(int $formId, int $keepLast = 5): int
