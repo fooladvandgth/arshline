@@ -968,6 +968,16 @@ class Api {
                 return $controller->applyDiff($request);
             }
         ]);
+        // Hoosha2: rollback to a previous version (F8)
+        register_rest_route('hosha2/v1', '/forms/(?P<form_id>\d+)/versions/(?P<version_id>\d+)/rollback', [
+            'methods' => 'POST',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'callback' => function(\WP_REST_Request $request){
+                $repo = new \Arshline\Hosha2\Hosha2VersionRepository();
+                $controller = new \Arshline\Hosha2\Hosha2VersionController($repo, null);
+                return $controller->rollback($request);
+            }
+        ]);
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'POST',
             'callback' => [self::class, 'create_form'],

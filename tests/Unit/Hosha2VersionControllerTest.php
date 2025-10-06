@@ -377,4 +377,107 @@ class Hosha2VersionControllerTest extends TestCase
         $snap = $repo->getSnapshot($newVid);
         $this->assertEquals(1, $snap['metadata']['_hosha2_diff_applied']);
     }
+
+    // --- Rollback Tests (F8) ---
+    public function testRollbackSuccessWithoutBackup()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid1] = $this->makeBaseVersion(400, ['fields'=>[['label'=>'Base']]]);
+        // apply diff to create another version
+        $reqDiff = new WP_REST_Request('POST','/hosha2/v1/forms/400/versions/'.$vid1.'/apply-diff');
+        $reqDiff->set_param('form_id',400); $reqDiff->set_param('version_id',$vid1);
+        $reqDiff->set_body(json_encode(['diff'=>[
+            ['op'=>'replace','path'=>'/fields/0/label','value'=>'Changed']
+        ]])); $reqDiff->set_header('Content-Type','application/json');
+        $respDiff = $controller->applyDiff($reqDiff);
+        $this->assertEquals(200,$respDiff->get_status());
+        $vid2 = $respDiff->get_data()['data']['new_version_id'];
+        // rollback to original vid1
+        $reqRb = new WP_REST_Request('POST','/hosha2/v1/forms/400/versions/'.$vid1.'/rollback');
+        $reqRb->set_param('form_id',400); $reqRb->set_param('version_id',$vid1);
+        $respRb = $controller->rollback($reqRb);
+        $this->assertEquals(200,$respRb->get_status());
+        $data = $respRb->get_data()['data'];
+        $this->assertEquals($vid1, $data['target_version_id']);
+        $this->assertTrue($data['rolled_back']);
+        $this->assertNotNull($data['new_version_id']);
+    }
+
+    public function testRollbackWithBackup()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid1] = $this->makeBaseVersion(401, ['fields'=>[['label'=>'Original']]]);
+        // create second version via diff
+        $reqDiff = new WP_REST_Request('POST','/hosha2/v1/forms/401/versions/'.$vid1.'/apply-diff');
+        $reqDiff->set_param('form_id',401); $reqDiff->set_param('version_id',$vid1);
+        $reqDiff->set_body(json_encode(['diff'=>[
+            ['op'=>'replace','path'=>'/fields/0/label','value'=>'Modified']
+        ]])); $reqDiff->set_header('Content-Type','application/json');
+        $vid2 = $controller->applyDiff($reqDiff)->get_data()['data']['new_version_id'];
+        // rollback with backup flag to vid1
+        $reqRb = new WP_REST_Request('POST','/hosha2/v1/forms/401/versions/'.$vid1.'/rollback?create_backup=1');
+        $reqRb->set_param('form_id',401); $reqRb->set_param('version_id',$vid1); $reqRb->set_param('create_backup','1');
+        $respRb = $controller->rollback($reqRb);
+        $this->assertEquals(200,$respRb->get_status());
+        $d = $respRb->get_data()['data'];
+        $this->assertNotNull($d['backup_version_id']);
+        $this->assertTrue($d['rolled_back']);
+    }
+
+    public function testRollbackInvalidFormId()
+    {
+        $this->skipIfNoWP();
+        $logger=$this->loggerStub(); $repo=new Hosha2VersionRepository($logger); $controller=new Hosha2VersionController($repo,$logger);
+        $reqRb = new WP_REST_Request('POST','/hosha2/v1/forms/0/versions/1/rollback');
+        $reqRb->set_param('form_id',0); $reqRb->set_param('version_id',1);
+        $respRb = $controller->rollback($reqRb);
+        $this->assertEquals(400,$respRb->get_status());
+        $this->assertEquals('invalid_form_id',$respRb->get_data()['error']['code']);
+    }
+
+    public function testRollbackInvalidVersionId()
+    {
+        $this->skipIfNoWP();
+        $logger=$this->loggerStub(); $repo=new Hosha2VersionRepository($logger); $controller=new Hosha2VersionController($repo,$logger);
+        $reqRb = new WP_REST_Request('POST','/hosha2/v1/forms/10/versions/0/rollback');
+        $reqRb->set_param('form_id',10); $reqRb->set_param('version_id',0);
+        $respRb = $controller->rollback($reqRb);
+        $this->assertEquals(400,$respRb->get_status());
+        $this->assertEquals('invalid_version_id',$respRb->get_data()['error']['code']);
+    }
+
+    public function testRollbackVersionNotFound()
+    {
+        $this->skipIfNoWP();
+        $logger=$this->loggerStub(); $repo=new Hosha2VersionRepository($logger); $controller=new Hosha2VersionController($repo,$logger);
+        $reqRb = new WP_REST_Request('POST','/hosha2/v1/forms/50/versions/9999/rollback');
+        $reqRb->set_param('form_id',50); $reqRb->set_param('version_id',9999);
+        $respRb = $controller->rollback($reqRb);
+        $this->assertEquals(404,$respRb->get_status());
+        $this->assertEquals('version_not_found',$respRb->get_data()['error']['code']);
+    }
+
+    public function testRollbackOwnershipMismatch()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(420, ['fields'=>[['label'=>'Only']]]);
+        $reqRb = new WP_REST_Request('POST','/hosha2/v1/forms/421/versions/'.$vid.'/rollback');
+        $reqRb->set_param('form_id',421); $reqRb->set_param('version_id',$vid);
+        $respRb = $controller->rollback($reqRb);
+        $this->assertEquals(404,$respRb->get_status());
+        $this->assertEquals('version_not_found',$respRb->get_data()['error']['code']);
+    }
+
+    public function testRollbackMetadataFields()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(430, ['fields'=>[['label'=>'Original']]]);
+        $reqRb = new WP_REST_Request('POST','/hosha2/v1/forms/430/versions/'.$vid.'/rollback');
+        $reqRb->set_param('form_id',430); $reqRb->set_param('version_id',$vid);
+        $respRb = $controller->rollback($reqRb);
+        $this->assertEquals(200,$respRb->get_status());
+        $newVid = $respRb->get_data()['data']['new_version_id'];
+        $snap = $repo->getSnapshot($newVid);
+        $this->assertArrayHasKey('_hosha2_user_prompt',$snap['metadata']); // still legacy keys present
+    }
 }

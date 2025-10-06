@@ -205,4 +205,83 @@ class Hosha2VersionController
             return new WP_REST_Response(['success'=>false,'error'=>['code'=>'internal_error','message'=>$t->getMessage()]], 500);
         }
     }
+
+    /**
+     * Rollback to a target version by cloning its snapshot into a new version (optionally backing up current HEAD version).
+     * Route: POST /hosha2/v1/forms/{form_id}/versions/{version_id}/rollback
+     * Query/body param: create_backup=1 to store a backup of (latest/current) version state (best-effort: we approximate by using latest listed version as previous_version_id).
+     */
+    public function rollback(WP_REST_Request $req): WP_REST_Response
+    {
+        $formId = (int)$req['form_id'];
+        $targetVersionId = (int)$req['version_id'];
+        $createBackup = false;
+        // Accept either query param or JSON body param
+        $createBackup = ($req->get_param('create_backup') === '1') || filter_var($req->get_param('create_backup'), FILTER_VALIDATE_BOOLEAN);
+        $body = $req->get_json_params();
+        if (isset($body['create_backup'])) {
+            $cb = $body['create_backup'];
+            if (is_string($cb)) $createBackup = ($cb === '1' || strtolower($cb) === 'true');
+            elseif (is_bool($cb)) $createBackup = $cb;
+        }
+        if ($formId <= 0) return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_form_id','message'=>'form_id must be positive integer']], 400);
+        if ($targetVersionId <= 0) return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_version_id','message'=>'version_id must be positive integer']], 400);
+        try {
+            $target = $this->repo->getSnapshot($targetVersionId);
+            if ($target === null) return new WP_REST_Response(['success'=>false,'error'=>['code'=>'version_not_found','message'=>'Target version not found']], 404);
+            $tMeta = $target['metadata'] ?? [];
+            $ownerForm = (int)($tMeta['_hosha2_form_id'] ?? 0);
+            if ($ownerForm !== $formId) return new WP_REST_Response(['success'=>false,'error'=>['code'=>'version_not_found','message'=>'Version not found for form']], 404);
+
+            // Determine previous (most recent) version id for metadata (best effort)
+            $previousVersionId = null;
+            try {
+                $latestList = $this->repo->listVersions($formId, 1, 0);
+                if (!empty($latestList)) {
+                    $previousVersionId = $latestList[0]['version_id'];
+                }
+            } catch (\Throwable $ignore) { /* ignore */ }
+
+            $backupVersionId = null;
+            if ($createBackup && $previousVersionId !== null && $previousVersionId !== $targetVersionId) {
+                // Fetch the latest snapshot for backup
+                $latestSnap = $this->repo->getSnapshot($previousVersionId);
+                if ($latestSnap !== null) {
+                    try {
+                        $backupVersionId = $this->repo->saveSnapshot($formId, $latestSnap['config'] ?? [], [
+                            'diff_applied'=>false,
+                            'parent_version_id'=>$previousVersionId,
+                            'backup_of'=>$previousVersionId,
+                            'backup_created_at'=>gmdate('c'),
+                        ], null);
+                    } catch (\Throwable $t) { /* degrade: continue without backup */ }
+                }
+            }
+
+            // Create rollback version snapshot (clone target config)
+            $rollbackMeta = [
+                'rollback'=>true,
+                'target_version_id'=>$targetVersionId,
+                'previous_version_id'=>$previousVersionId,
+                'rolled_back_at'=>gmdate('c'),
+                'rolled_back_by'=>function_exists('get_current_user_id') ? (int) get_current_user_id() : 0,
+                'backup_version_id'=>$backupVersionId,
+            ];
+            $newVersionId = $this->repo->saveSnapshot($formId, $target['config'] ?? [], $rollbackMeta, null);
+            if ($this->logger) $this->logger->log('rollback_success',[ 'form_id'=>$formId,'target_version_id'=>$targetVersionId,'new_version_id'=>$newVersionId,'backup_version_id'=>$backupVersionId ],'INFO');
+            return new WP_REST_Response([
+                'success'=>true,
+                'data'=>[
+                    'target_version_id'=>$targetVersionId,
+                    'new_version_id'=>$newVersionId,
+                    'previous_version_id'=>$previousVersionId,
+                    'backup_version_id'=>$backupVersionId,
+                    'rolled_back'=>true
+                ]
+            ], 200);
+        } catch (\Throwable $t) {
+            if ($this->logger) $this->logger->log('rollback_error',[ 'form_id'=>$formId,'target_version_id'=>$targetVersionId,'error'=>$t->getMessage() ],'ERROR');
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'internal_error','message'=>$t->getMessage()]], 500);
+        }
+    }
 }
