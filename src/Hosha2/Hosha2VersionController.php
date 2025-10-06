@@ -70,4 +70,54 @@ class Hosha2VersionController
             return new WP_REST_Response(['success'=>false,'error'=>['code'=>'internal_error','message'=>$t->getMessage()]], 500);
         }
     }
+
+    public function getVersion(WP_REST_Request $req): WP_REST_Response
+    {
+        $formId = (int)$req['form_id'];
+        $versionIdRaw = $req['version_id'] ?? $req['id'] ?? null;
+        $versionId = is_numeric($versionIdRaw) ? (int)$versionIdRaw : 0;
+        if ($formId <= 0) {
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_form_id','message'=>'form_id must be positive integer']], 400);
+        }
+        if ($versionId <= 0) {
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_version_id','message'=>'version_id must be positive integer']], 400);
+        }
+        try {
+            $snap = $this->repo->getSnapshot($versionId);
+            if ($snap === null) {
+                if ($this->logger) $this->logger->log('version_get_endpoint',[ 'form_id'=>$formId,'version_id'=>$versionId,'found'=>false ],'INFO');
+                return new WP_REST_Response(['success'=>false,'error'=>['code'=>'version_not_found','message'=>'Version not found']], 404);
+            }
+            // Ownership validation: metadata legacy includes _hosha2_form_id; fallback to reject if mismatch
+            $meta = $snap['metadata'] ?? [];
+            $ownerForm = (int)($meta['_hosha2_form_id'] ?? 0);
+            if ($ownerForm !== $formId) {
+                if ($this->logger) $this->logger->log('version_get_endpoint',[ 'form_id'=>$formId,'version_id'=>$versionId,'found'=>false,'mismatch'=>$ownerForm ],'WARN');
+                return new WP_REST_Response(['success'=>false,'error'=>['code'=>'version_not_found','message'=>'Version not found for form']], 404);
+            }
+            $createdAt = $snap['created_at'] ?? '';
+            if ($createdAt) {
+                $ts = strtotime($createdAt);
+                if ($ts !== false) {
+                    $createdAt = gmdate('c', $ts);
+                }
+            }
+            $payload = [
+                'success'=>true,
+                'data'=>[
+                    'version_id'=>$versionId,
+                    'form_id'=>$formId,
+                    'created_at'=>$createdAt,
+                    'metadata'=>$meta,
+                    'snapshot'=>$snap['config'] ?? [],
+                ]
+            ];
+            if ($this->logger) $this->logger->log('version_get_endpoint',[ 'form_id'=>$formId,'version_id'=>$versionId,'found'=>true ],'INFO');
+            return new WP_REST_Response($payload, 200);
+        } catch (RuntimeException $e) {
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'internal_error','message'=>$e->getMessage()]], 500);
+        } catch (\Throwable $t) {
+            return new WP_REST_Response(['success'=>false,'error'=>['code'=>'internal_error','message'=>$t->getMessage()]], 500);
+        }
+    }
 }

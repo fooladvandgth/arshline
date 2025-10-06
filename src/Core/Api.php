@@ -948,6 +948,16 @@ class Api {
                 'offset'=> [ 'required'=>false, 'validate_callback'=>function($param){ return is_numeric($param) && (int)$param >=0; } ]
             ]
         ]);
+        // Hoosha2: get single version (F6-2)
+        register_rest_route('hosha2/v1', '/forms/(?P<form_id>\d+)/versions/(?P<version_id>\d+)', [
+            'methods' => 'GET',
+            'permission_callback' => [self::class, 'user_can_manage_forms'],
+            'callback' => function(\WP_REST_Request $request){
+                $repo = new \Arshline\Hosha2\Hosha2VersionRepository();
+                $controller = new \Arshline\Hosha2\Hosha2VersionController($repo, null);
+                return $controller->getVersion($request);
+            }
+        ]);
         register_rest_route('arshline/v1', '/forms', [
             'methods' => 'POST',
             'callback' => [self::class, 'create_form'],

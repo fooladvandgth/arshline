@@ -110,4 +110,80 @@ class Hosha2VersionControllerTest extends TestCase
         $this->assertEquals(400, $resp->get_status());
         $this->assertEquals('invalid_form_id', $resp->get_data()['error']['code']);
     }
+
+    // --- Single version retrieval tests (F6-2) ---
+    public function testGetVersionSuccess()
+    {
+        $this->skipIfNoWP();
+        $logger = $this->loggerStub();
+        $repo = new Hosha2VersionRepository($logger); // in-memory
+        $vid = $repo->saveSnapshot(123, ['fields'=>[['id'=>'a']]], ['user_prompt'=>'hello'], null);
+        $controller = new Hosha2VersionController($repo, $logger);
+        $req = new WP_REST_Request('GET', '/hosha2/v1/forms/123/versions/'.$vid);
+        $req->set_param('form_id', 123);
+        $req->set_param('version_id', $vid);
+        $resp = $controller->getVersion($req);
+        $this->assertEquals(200, $resp->get_status());
+        $data = $resp->get_data();
+        $this->assertTrue($data['success']);
+        $this->assertEquals($vid, $data['data']['version_id']);
+        $this->assertEquals(123, $data['data']['form_id']);
+        $this->assertArrayHasKey('snapshot', $data['data']);
+        $this->assertNotEmpty($data['data']['created_at']);
+        // Check ISO8601 format basic pattern (YYYY-MM-DDTHH:MM:SSZ)
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $data['data']['created_at']);
+    }
+
+    public function testGetVersionNotFound()
+    {
+        $this->skipIfNoWP();
+        $logger = $this->loggerStub();
+        $repo = new Hosha2VersionRepository($logger);
+        $controller = new Hosha2VersionController($repo, $logger);
+        $req = new WP_REST_Request('GET','/hosha2/v1/forms/50/versions/999');
+        $req->set_param('form_id', 50); $req->set_param('version_id', 999);
+        $resp = $controller->getVersion($req);
+        $this->assertEquals(404, $resp->get_status());
+        $this->assertEquals('version_not_found', $resp->get_data()['error']['code']);
+    }
+
+    public function testGetVersionFormMismatch()
+    {
+        $this->skipIfNoWP();
+        $logger = $this->loggerStub();
+        $repo = new Hosha2VersionRepository($logger);
+        $vid = $repo->saveSnapshot(10, ['x'=>1], ['user_prompt'=>'x'], null);
+        $controller = new Hosha2VersionController($repo, $logger);
+        $req = new WP_REST_Request('GET','/hosha2/v1/forms/11/versions/'.$vid);
+        $req->set_param('form_id', 11); $req->set_param('version_id', $vid);
+        $resp = $controller->getVersion($req);
+        $this->assertEquals(404, $resp->get_status());
+        $this->assertEquals('version_not_found', $resp->get_data()['error']['code']);
+    }
+
+    public function testGetVersionInvalidVersionId()
+    {
+        $this->skipIfNoWP();
+        $logger = $this->loggerStub();
+        $repo = new Hosha2VersionRepository($logger);
+        $controller = new Hosha2VersionController($repo, $logger);
+        $req = new WP_REST_Request('GET','/hosha2/v1/forms/5/versions/0');
+        $req->set_param('form_id', 5); $req->set_param('version_id', 0);
+        $resp = $controller->getVersion($req);
+        $this->assertEquals(400, $resp->get_status());
+        $this->assertEquals('invalid_version_id', $resp->get_data()['error']['code']);
+    }
+
+    public function testGetVersionInvalidFormId()
+    {
+        $this->skipIfNoWP();
+        $logger = $this->loggerStub();
+        $repo = new Hosha2VersionRepository($logger);
+        $controller = new Hosha2VersionController($repo, $logger);
+        $req = new WP_REST_Request('GET','/hosha2/v1/forms/0/versions/1');
+        $req->set_param('form_id', 0); $req->set_param('version_id', 1);
+        $resp = $controller->getVersion($req);
+        $this->assertEquals(400, $resp->get_status());
+        $this->assertEquals('invalid_form_id', $resp->get_data()['error']['code']);
+    }
 }
