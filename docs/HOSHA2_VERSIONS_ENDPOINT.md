@@ -1,0 +1,54 @@
+# Hoosha2 Versions Endpoint (F6-1)
+
+## List Form Versions
+GET /wp-json/hosha2/v1/forms/{form_id}/versions
+
+Returns paginated list of stored generated form versions (newest → oldest).
+
+### Query Parameters
+- `limit` (optional, int, 1–100, default: 10)
+- `offset` (optional, int, >=0, default: 0)
+
+### Success Response (200)
+```
+{
+  "success": true,
+  "data": {
+    "versions": [
+      {
+        "version_id": 123,
+        "form_id": 456,
+        "created_at": "2025-10-06T12:34:56+00:00",
+        "metadata": {
+          "_hosha2_user_prompt": "...",
+            "_hosha2_tokens_used": 150,
+            "_hosha2_diff_applied": 0
+        }
+      }
+    ],
+    "total": 42,
+    "limit": 10,
+    "offset": 0,
+    "returned": 10
+  }
+}
+```
+
+### Error Responses
+| Code | HTTP | Meaning |
+|------|------|---------|
+| invalid_form_id | 400 | `form_id` must be positive integer |
+| invalid_limit | 400 | `limit` must be 1–100 |
+| invalid_offset | 400 | `offset` must be >= 0 |
+| internal_error | 500 | Unexpected server exception |
+
+### Example (curl)
+```bash
+curl -X GET "https://example.com/wp-json/hosha2/v1/forms/123/versions?limit=5&offset=0" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Notes
+- `created_at` is ISO8601 (UTC) for client-friendly parsing.
+- `metadata` keys retain legacy underscore-prefixed structure for backward compatibility.
+- For per-version details (full config), a future endpoint `GET /forms/{form_id}/versions/{version_id}` will be added in F6-2.
