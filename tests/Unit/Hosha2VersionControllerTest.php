@@ -186,4 +186,195 @@ class Hosha2VersionControllerTest extends TestCase
         $this->assertEquals(400, $resp->get_status());
         $this->assertEquals('invalid_form_id', $resp->get_data()['error']['code']);
     }
+
+    // --- Apply Diff Tests (F7) ---
+    private function makeBaseVersion(int $formId, array $config): array
+    {
+        $logger = $this->loggerStub();
+        $repo = new Hosha2VersionRepository($logger);
+        $vid = $repo->saveSnapshot($formId, $config, ['user_prompt'=>'seed'], null);
+        $controller = new Hosha2VersionController($repo, $logger);
+        return [$controller,$repo,$logger,$vid];
+    }
+
+    public function testApplyDiffReplaceFieldLabel()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(300, ['fields'=>[['label'=>'Old','type'=>'short_text']]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/300/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',300); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'replace','path'=>'/fields/0/label','value'=>'New']
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(200, $resp->get_status());
+        $data = $resp->get_data();
+        $this->assertTrue($data['success']);
+        $this->assertEquals('New', $data['data']['snapshot']['fields'][0]['label']);
+        $this->assertNotNull($data['data']['new_version_id']);
+    }
+
+    public function testApplyDiffAddField()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(301, ['fields'=>[]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/301/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',301); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'add','path'=>'/fields/0','value'=>['label'=>'A','type'=>'short_text']]
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(200, $resp->get_status());
+        $this->assertEquals(1, count($resp->get_data()['data']['snapshot']['fields']));
+    }
+
+    public function testApplyDiffRemoveField()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(302, ['fields'=>[['label'=>'X'],['label'=>'Y']]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/302/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',302); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'remove','path'=>'/fields/0']
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(200, $resp->get_status());
+        $fields = $resp->get_data()['data']['snapshot']['fields'];
+        $this->assertEquals('Y', $fields[0]['label']);
+    }
+
+    public function testApplyDiffDryRun()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(303, ['fields'=>[['label'=>'One']]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/303/versions/'.$vid.'/apply-diff?dry_run=1');
+        $req->set_param('form_id',303); $req->set_param('version_id',$vid); $req->set_param('dry_run','1');
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'replace','path'=>'/fields/0/label','value'=>'Preview']
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(200, $resp->get_status());
+        $d = $resp->get_data();
+        $this->assertTrue($d['data']['dry_run']);
+        $this->assertNull($d['data']['new_version_id']);
+        $this->assertEquals('Preview',$d['data']['snapshot']['fields'][0]['label']);
+    }
+
+    public function testApplyDiffUnsupportedOp()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(304, ['fields'=>[['label'=>'A']]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/304/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',304); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'move','path'=>'/fields/0','from'=>'/fields/1']
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(400, $resp->get_status());
+        $this->assertEquals('unsupported_operation', $resp->get_data()['error']['code']);
+    }
+
+    public function testApplyDiffInvalidPath()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(305, ['fields'=>[['label'=>'A']]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/305/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',305); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'replace','path'=>'fields/0/label','value'=>'NoSlash']
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(400, $resp->get_status());
+        $this->assertEquals('invalid_diff',$resp->get_data()['error']['code']);
+    }
+
+    public function testApplyDiffVersionNotFound()
+    {
+        $this->skipIfNoWP();
+        $logger = $this->loggerStub(); $repo = new Hosha2VersionRepository($logger); $controller = new Hosha2VersionController($repo, $logger);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/310/versions/999/apply-diff');
+        $req->set_param('form_id',310); $req->set_param('version_id',999);
+        $req->set_body(json_encode(['diff'=>[['op'=>'replace','path'=>'/fields/0','value'=>[]]]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(404, $resp->get_status());
+        $this->assertEquals('version_not_found', $resp->get_data()['error']['code']);
+    }
+
+    public function testApplyDiffOwnershipMismatch()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(320, ['fields'=>[['label'=>'A']]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/321/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',321); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'replace','path'=>'/fields/0/label','value'=>'X']
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(404, $resp->get_status());
+        $this->assertEquals('version_not_found', $resp->get_data()['error']['code']);
+    }
+
+    public function testApplyDiffInvalidFormId()
+    {
+        $this->skipIfNoWP();
+        $logger=$this->loggerStub(); $repo=new Hosha2VersionRepository($logger); $controller=new Hosha2VersionController($repo,$logger);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/0/versions/1/apply-diff');
+        $req->set_param('form_id',0); $req->set_param('version_id',1);
+        $req->set_body(json_encode(['diff'=>[['op'=>'add','path'=>'/x','value'=>1]]]));
+        $req->set_header('Content-Type','application/json');
+        $resp=$controller->applyDiff($req);
+        $this->assertEquals(400,$resp->get_status());
+        $this->assertEquals('invalid_form_id',$resp->get_data()['error']['code']);
+    }
+
+    public function testApplyDiffInvalidVersionId()
+    {
+        $this->skipIfNoWP();
+        $logger=$this->loggerStub(); $repo=new Hosha2VersionRepository($logger); $controller=new Hosha2VersionController($repo,$logger);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/10/versions/0/apply-diff');
+        $req->set_param('form_id',10); $req->set_param('version_id',0);
+        $req->set_body(json_encode(['diff'=>[['op'=>'add','path'=>'/x','value'=>1]]]));
+        $req->set_header('Content-Type','application/json');
+        $resp=$controller->applyDiff($req);
+        $this->assertEquals(400,$resp->get_status());
+        $this->assertEquals('invalid_version_id',$resp->get_data()['error']['code']);
+    }
+
+    public function testApplyDiffEmptyDiff()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(330, ['fields'=>[]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/330/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',330); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[]]));
+        $req->set_header('Content-Type','application/json');
+        $resp=$controller->applyDiff($req);
+        $this->assertEquals(400,$resp->get_status());
+        $this->assertEquals('empty_diff',$resp->get_data()['error']['code']);
+    }
+
+    public function testApplyDiffMetadataPersisted()
+    {
+        $this->skipIfNoWP();
+        [$controller,$repo,$logger,$vid] = $this->makeBaseVersion(340, ['fields'=>[['label'=>'A']]]);
+        $req = new WP_REST_Request('POST','/hosha2/v1/forms/340/versions/'.$vid.'/apply-diff');
+        $req->set_param('form_id',340); $req->set_param('version_id',$vid);
+        $req->set_body(json_encode(['diff'=>[
+            ['op'=>'replace','path'=>'/fields/0/label','value'=>'B']
+        ]]));
+        $req->set_header('Content-Type','application/json');
+        $resp = $controller->applyDiff($req);
+        $this->assertEquals(200,$resp->get_status());
+        $newVid = $resp->get_data()['data']['new_version_id'];
+        $snap = $repo->getSnapshot($newVid);
+        $this->assertEquals(1, $snap['metadata']['_hosha2_diff_applied']);
+    }
 }
