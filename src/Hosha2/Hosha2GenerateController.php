@@ -81,22 +81,36 @@ class Hosha2GenerateController
             ], 200);
         } catch (RuntimeException $e) {
             $msg = $e->getMessage();
-            $status = 500;
-            if (stripos($msg, 'Rate limit exceeded') !== false) $status = 429;
+            if ($msg === 'FORM_NOT_FOUND') {
+                return new WP_REST_Response([
+                    'success'=>false,
+                    'error'=>['code'=>'form_not_found','message'=>'Form not found'],
+                    'request_id'=>$reqId
+                ], 404);
+            }
+            if (stripos($msg, 'Rate limit exceeded') !== false) {
+                return new WP_REST_Response([
+                    'success'=>false,
+                    'error'=>['code'=>'rate_limited','message'=>'Rate limit exceeded'],
+                    'request_id'=>$reqId
+                ], 429);
+            }
+            if (stripos($msg,'OPENAI_FAIL') !== false || stripos($msg,'OPENAI_ERROR') !== false) {
+                return new WP_REST_Response([
+                    'success'=>false,
+                    'error'=>['code'=>'service_unavailable','message'=>'AI service temporarily unavailable'],
+                    'request_id'=>$reqId
+                ], 503);
+            }
             return new WP_REST_Response([
                 'success'=>false,
-                'error'=>[
-                    'code'=> $status===429? 'rate_limited' : 'runtime_error',
-                    'message'=>$msg
-                ],
+                'error'=>['code'=>'internal_error','message'=>$msg],
                 'request_id'=>$reqId
-            ], $status);
+            ], 500);
         } catch (\Throwable $t) {
             return new WP_REST_Response([
                 'success'=>false,
-                'error'=>[
-                    'code'=>'fatal','message'=>$t->getMessage()
-                ],
+                'error'=>['code'=>'internal_error','message'=>$t->getMessage()],
                 'request_id'=>$reqId
             ], 500);
         }

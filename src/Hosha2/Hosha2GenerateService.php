@@ -12,6 +12,7 @@ class Hosha2GenerateService
     protected ?Hosha2LoggerInterface $logger;
     protected ?Hosha2RateLimiter $rateLimiter;
     protected ?Hosha2VersionRepository $versionRepo;
+    protected ?Hosha2FormRepositoryInterface $formRepository = null;
 
     public function __construct(
         Hosha2CapabilitiesBuilder $capBuilder,
@@ -20,7 +21,8 @@ class Hosha2GenerateService
         Hosha2DiffValidator $diffValidator,
         ?Hosha2LoggerInterface $logger = null,
         ?Hosha2RateLimiter $rateLimiter = null,
-        ?Hosha2VersionRepository $versionRepo = null
+        ?Hosha2VersionRepository $versionRepo = null,
+        ?Hosha2FormRepositoryInterface $formRepository = null
     ) {
         $this->capBuilder = $capBuilder;
         $this->envFactory = $envFactory;
@@ -29,6 +31,7 @@ class Hosha2GenerateService
         $this->logger = $logger;
         $this->rateLimiter = $rateLimiter;
         $this->versionRepo = $versionRepo;
+        $this->formRepository = $formRepository;
     }
 
     public function generate(array $userInput): array
@@ -57,13 +60,22 @@ class Hosha2GenerateService
             $cap = $this->capBuilder->build();
             $progress->mark('build_capabilities');
 
+            // Optional existing form lookup BEFORE OpenAI call (Phase 4)
+            $existingForm = null;
+            if ($this->formRepository) {
+                $existingForm = $this->formRepository->findById((int)($userInput['form_id'] ?? 0));
+                if ($existingForm === null) {
+                    throw new RuntimeException('FORM_NOT_FOUND');
+                }
+            }
+
             // Checkpoint 2: before OpenAI call
             if ($this->isCancelled($reqId)) {
                 if ($this->logger) $this->logger->log('request_cancelled', ['req_id'=>$reqId,'checkpoint'=>'before_openai'], 'WARN');
                 throw new RuntimeException('Request cancelled by user');
             }
 
-            $envelope = $this->envFactory->createGenerate($userInput, $cap, []);
+            $envelope = $this->envFactory->createGenerate($userInput, $cap, $existingForm ?? []);
             $progress->mark('openai_send');
             $raw = $this->client->sendGenerate($envelope);
 
@@ -93,18 +105,32 @@ class Hosha2GenerateService
             $progress->mark('persist_form');
             $progress->mark('render_preview');
 
-            // Version snapshot (if repository available)
+            // Version snapshot (if repository available) with graceful degradation
             $versionId = null;
             if ($this->versionRepo) {
-                $metadata = [
-                    'user_prompt' => $userInput['prompt'] ?? '',
-                    'tokens_used' => $raw['token_usage']['total'] ?? 0,
-                    'created_by' => function_exists('get_current_user_id') ? (int) get_current_user_id() : 0,
-                    'diff_applied' => false,
-                ];
-                // assume form_id maybe passed else 0 placeholder
-                $formId = (int)($userInput['form_id'] ?? 0);
-                $versionId = $this->versionRepo->saveSnapshot($formId, $raw['final_form'], $metadata, $diffSha);
+                try {
+                    $metadata = [
+                        'user_prompt' => $userInput['prompt'] ?? '',
+                        'tokens_used' => $raw['token_usage']['total'] ?? 0,
+                        'created_by' => function_exists('get_current_user_id') ? (int) get_current_user_id() : 0,
+                        'diff_applied' => false,
+                    ];
+                    $formId = (int)($userInput['form_id'] ?? 0);
+                    $versionId = $this->versionRepo->saveSnapshot($formId, $raw['final_form'], $metadata, $diffSha);
+                } catch (\Throwable $t) {
+                    // degrade: clear diff_sha & version_id
+                    $versionId = null;
+                    $diffSha = null;
+                    if ($this->logger) {
+                        $this->logger->log('version_save_error', [
+                            'req_id'=>$reqId,
+                            'error'=>$t->getMessage(),
+                            'exception'=>get_class($t)
+                        ], 'ERROR');
+                    } else {
+                        error_log('[hosha2] version_save_error: '.$t->getMessage());
+                    }
+                }
             }
 
             if ($this->logger) {
