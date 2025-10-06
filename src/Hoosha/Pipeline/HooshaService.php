@@ -102,13 +102,25 @@ class HooshaService
             if ($addedSynthetic>0){ $notes[]='pipe:chunks_merged(total='.$parts.',added='.$addedSynthetic.')'; }
         }
     $audit = $this->auditor->baselineAudit($baseline, $schema, $this->suppressedCanons);
-        // If downstream Guard will run (ai_guard_enabled), skip automatic restore to avoid re-expanding after pruning/collapse
-        $guardEnabled = false;
+        // If downstream Guard (legacy) or GuardUnit corrective will run, skip automatic restore to avoid re-expanding after pruning/collapse.
+        $guardEnabled = false;       // legacy guard enable flag
+        $guardUnitCorrective = false; // new suppressor when GuardUnit operates in corrective mode
         if (function_exists('get_option')){
             $gs = get_option('arshline_settings', []);
-            if (is_array($gs) && !empty($gs['ai_guard_enabled'])) $guardEnabled = true;
+            if (is_array($gs)){
+                if (!empty($gs['ai_guard_enabled'])) $guardEnabled = true;
+                // Determine GuardUnit mode from option unless constant overrides
+                $gMode = null;
+                if (defined('HOOSHA_GUARD_MODE')){
+                    $cm = strtolower((string)HOOSHA_GUARD_MODE);
+                    if (in_array($cm, ['diagnostic','corrective'], true)) $gMode = $cm;
+                } elseif (!empty($gs['guard_mode']) && in_array($gs['guard_mode'], ['diagnostic','corrective'], true)) {
+                    $gMode = $gs['guard_mode'];
+                }
+                if ($gMode === 'corrective') $guardUnitCorrective = true;
+            }
         }
-        if (!$guardEnabled){
+        if (!$guardEnabled && !$guardUnitCorrective){
             if (!empty($audit['missing'])) $notes[]='audit:restored('.count($audit['missing']).')';
         } else {
             if (!empty($audit['missing'])){ $notes[]='audit:restore_skipped_guard('.count($audit['missing']).')'; }
@@ -283,10 +295,20 @@ class HooshaService
                 $final[]=$currByCanon[$canon] ?? ['label'=>$canon,'type'=>'short_text','props'=>[]];
             }
         }
-        // Added new (those in refined but not baseline)
+        // Added new (those in refined but not baseline). Re-classify as modified if strongly similar to an original user line.
+        $userLines = preg_split('/\r?\n/u', (string)($current['__user_text_raw'] ?? ''), -1, PREG_SPLIT_NO_EMPTY);
+        $userCanonSet = [];
+        foreach ($userLines as $ul){ $uc=Normalizer::canonLabel($ul); if($uc!=='') $userCanonSet[$uc]=true; }
         foreach ($refByCanon as $canon=>$rf){
             if (!isset($baseCanonOrder[$canon])){
-                $final[]=$rf; $notes[]='ai:added(label='.mb_substr((string)($rf['label']??''),0,24,'UTF-8').')'; $addedFull[]=(string)($rf['label']??'');
+                $labelShort = mb_substr((string)($rf['label']??''),0,24,'UTF-8');
+                if (isset($userCanonSet[$canon])){
+                    // Treat as modified because it maps to an original user question canon
+                    $notes[]='ai:modified(label='.$labelShort.')';
+                    $modifiedFull[]=(string)($rf['label']??'');
+                } else {
+                    $final[]=$rf; $notes[]='ai:added(label='.$labelShort.')'; $addedFull[]=(string)($rf['label']??''); continue; }
+                $final[]=$rf;
             }
         }
         if ($removedCount>0) $notes[]='ai:removed(count='.$removedCount.')';

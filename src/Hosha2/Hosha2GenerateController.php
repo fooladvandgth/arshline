@@ -40,7 +40,13 @@ class Hosha2GenerateController
         if ($options !== null && !is_array($options)) {
             return new WP_REST_Response(['success'=>false,'error'=>['code'=>'invalid_options_type','message'=>'options must be JSON object']], 400);
         }
-        $reqId = substr(md5(uniqid('', true)),0,10);
+        // Allow external (test/diagnostic) injection of request id if provided & safe format
+        $providedReqId = $req->get_param('req_id');
+        if (is_string($providedReqId) && preg_match('/^[a-f0-9]{6,32}$/i', $providedReqId)) {
+            $reqId = substr(strtolower($providedReqId),0,32);
+        } else {
+            $reqId = substr(md5(uniqid('', true)),0,10);
+        }
         try {
             $result = $this->service->generate([
                 'form_id' => $formId,
@@ -70,13 +76,13 @@ class Hosha2GenerateController
                     'diff'=>$result['diff'],
                     'token_usage'=>$result['token_usage'],
                     'progress'=>$result['progress'],
+                    'progress_percent'=>$result['progress_percent'] ?? null,
                 ]
             ], 200);
         } catch (RuntimeException $e) {
             $msg = $e->getMessage();
             $status = 500;
             if (stripos($msg, 'Rate limit exceeded') !== false) $status = 429;
-            if (stripos($msg, 'Request cancelled') !== false) $status = 409;
             return new WP_REST_Response([
                 'success'=>false,
                 'error'=>[

@@ -11,7 +11,13 @@ namespace Arshline\Hoosha\Pipeline;
  */
 class DuplicateResolver
 {
-    public function collapse(array &$schema, array $baselineCanonMap, array &$notes, float $threshold = 0.6): void
+    /** Tokens that, if present in only one side, should prevent duplicate collapsing (context-distinct) */
+    protected array $distinctContextTokens = [
+        'ایران','ایرانت','داخل','داخلی','ملی','بین','بین
+المللی','بینالمللی','بین‌المللی','بین-المللی','خارج','خارجت','بین‌الملل','بین الملل','international','intl','+98'
+    ];
+
+    public function collapse(array &$schema, array $baselineCanonMap, array &$notes, float $threshold = 0.75): void
     {
         if (empty($schema['fields']) || !is_array($schema['fields'])) return;
         $fields = $schema['fields'];
@@ -39,6 +45,14 @@ class DuplicateResolver
                 if (empty($union)) continue;
                 $jaccard = count($inter)/count($union);
                 if ($jaccard >= $threshold){
+                    // Distinct-context guard: if a context token appears uniquely in one set, skip collapsing.
+                    $diffA = array_diff($a,$b); $diffB = array_diff($b,$a);
+                    $hasDistinctA = (bool)array_intersect($diffA, $this->distinctContextTokens);
+                    $hasDistinctB = (bool)array_intersect($diffB, $this->distinctContextTokens);
+                    // If exactly one side has a distinct context token, treat them as different semantic domains (e.g., ایران vs خارج)
+                    if ($hasDistinctA xor $hasDistinctB){
+                        continue;
+                    }
                     $keep = $i; $drop = $j; // default: keep earlier
                     $inBaselineI = isset($baselineCanonMap[$canon[$i]]);
                     $inBaselineJ = isset($baselineCanonMap[$canon[$j]]);

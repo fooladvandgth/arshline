@@ -39,6 +39,36 @@ if (!defined('ARSHLINE_DEBUG_NONCE_KEY')) {
     define('ARSHLINE_DEBUG_NONCE_KEY', '_arshline_nonce');
 }
 
+// --- Hoosha Logger bootstrap (enable & maintenance) ---
+if (!defined('ARSHLINE_HOOSHA_LOG_ENABLED')) {
+    // Forced enable (user request) – can be overridden by redefining before plugin load.
+    define('ARSHLINE_HOOSHA_LOG_ENABLED', true);
+}
+
+// Register daily event for log retention (if not already)
+add_action('init', static function(){
+    if (ARSHLINE_HOOSHA_LOG_ENABLED && function_exists('wp_next_scheduled') && !wp_next_scheduled('arshline_hoosha_log_retention')){
+        wp_schedule_event(time()+3600, 'daily', 'arshline_hoosha_log_retention');
+    }
+});
+
+add_action('arshline_hoosha_log_retention', static function(){
+    // Remove rotated hoosha.log.* files older than 30 days or keep max 10 recent.
+    if (!ARSHLINE_HOOSHA_LOG_ENABLED) return;
+    $base = defined('WP_CONTENT_DIR') ? WP_CONTENT_DIR . '/uploads' : null;
+    if (!$base || !is_dir($base)) return;
+    $pattern = $base . '/hoosha.log.*';
+    $files = glob($pattern); if (!$files) return;
+    // Sort by mtime desc
+    usort($files, function($a,$b){ return filemtime($b) <=> filemtime($a); });
+    $now = time(); $keep = 0;
+    foreach ($files as $f){
+        $keep++;
+        $ageDays = ($now - filemtime($f)) / 86400;
+        if ($ageDays > 30 || $keep > 10){ @unlink($f); }
+    }
+});
+
 add_filter('template_include', static function ($template) {
     // Printable submission view: ?arshline_submission=ID (admins/editors only)
     if (isset($_GET['arshline_submission']) && (int) $_GET['arshline_submission'] > 0) {
@@ -82,6 +112,8 @@ add_filter('template_include', static function ($template) {
 register_activation_hook(__FILE__, static function () {
     update_option('arshline_do_page_install', 1);
     update_option('arshline_allow_frontpage_install', 1);
+    // Ensure Hoosha logger option is enabled on activation
+    update_option('arshline_hoosha_log_enabled', 1);
     FormsModule::migrate();
 });
 

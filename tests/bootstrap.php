@@ -18,6 +18,29 @@ if (!class_exists('WP_REST_Server')) { class WP_REST_Server { const READABLE='GE
 if (!class_exists('WP_Error')) { class WP_Error { protected $c; protected $m; protected $data; public function __construct($c='',$m='',$data=[]) { $this->c=$c;$this->m=$m;$this->data=$data; } public function get_error_code(){return $this->c;} public function get_error_message(){return $this->m;} public function get_error_data(){return $this->data;} } }
 // Network helpers purposely omitted for patching; if real behavior needed, tests should stub them.
 
+// Minimal transient emulation for tests (in-memory only, no TTL enforcement except naive expiration check on read)
+if (!function_exists('set_transient')) {
+    function set_transient($key, $value, $expiration = 0) {
+        static $store = [];
+        $store[$key] = ['value'=>$value,'expires'=> $expiration>0 ? (time()+$expiration) : 0];
+        $GLOBALS['__hosha2_transients'] = $store;
+        return true;
+    }
+}
+if (!function_exists('get_transient')) {
+    function get_transient($key) {
+        static $store = [];
+        if (isset($GLOBALS['__hosha2_transients'])) $store = $GLOBALS['__hosha2_transients'];
+        if (!isset($store[$key])) return false;
+        $entry = $store[$key];
+        if ($entry['expires'] && $entry['expires'] < time()) { unset($store[$key]); $GLOBALS['__hosha2_transients']=$store; return false; }
+        return $entry['value'];
+    }
+}
+if (!function_exists('delete_transient')) {
+    function delete_transient($key) { static $store=[]; if (isset($GLOBALS['__hosha2_transients'])) $store=$GLOBALS['__hosha2_transients']; unset($store[$key]); $GLOBALS['__hosha2_transients']=$store; return true; }
+}
+
 // $wpdb very small mock
 global $wpdb; if (!$wpdb) { $wpdb = new class { public $prefix='wp_'; public $insert_id=1; public function get_results($q,$o=OBJECT){ return []; } public function prepare($q,...$a){ return $q; } public function insert($t,$d){ $this->insert_id=1; return true; } public function update($t,$d,$w){ return true; } }; }
 

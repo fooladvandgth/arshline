@@ -70,18 +70,70 @@ class GuardService
             if (!is_array($bf)) continue; $lbl = $bf['label'] ?? ''; if ($lbl==='') continue;
             $c = self::canon($lbl); $baseCanon[$c] = $i; $baseLabels[$i]=$lbl;
         }
-        // Link each field to origin or mark AI-added. Collect hallucinations for pruning if disallowed.
+        // Link each field to origin or attempt semantic merge before marking AI-added
+        // Enhancement: also match against user_text lines (not only baseline) to avoid false hallucination flags
         $hallucinatedIdx = [];
+        $baseNormMap = []; $userNormMap = [];
+        if (class_exists('Arshline\\Guard\\SemanticTools')){
+            foreach ($baseline['fields'] ?? [] as $bi=>$bf){ if(is_array($bf)&&!empty($bf['label'])){ $baseNormMap[$bi] = \Arshline\Guard\SemanticTools::normalize_label($bf['label']); } }
+            // Build user_text normalized lines
+            $userLines = preg_split('/\r?\n/u',(string)$userText,-1,PREG_SPLIT_NO_EMPTY);
+            $uIdx=0; foreach ($userLines as $ul){ $trim=trim($ul); if($trim==='') continue; $userNormMap[$uIdx] = [ 'raw'=>$trim, 'norm'=>\Arshline\Guard\SemanticTools::normalize_label($trim) ]; $uIdx++; }
+        }
+        $simThreshold = 0.8; // similarity threshold (baseline)
+        if (function_exists('get_option')){
+            $gsThr = get_option('arshline_settings', []);
+            if (is_array($gsThr) && isset($gsThr['guard_semantic_similarity_min']) && is_numeric($gsThr['guard_semantic_similarity_min'])){
+                $val = (float)$gsThr['guard_semantic_similarity_min']; if ($val>=0.5 && $val<=0.95) $simThreshold=$val;
+            }
+        }
+        // Secondary relaxed rule thresholds
+        $relaxedMinIntersect = 2; // at least 2 overlapping tokens
         foreach (($schema['fields'] ?? []) as $i=>$f){
-            if (!is_array($f)) continue; $lbl = $f['label'] ?? ''; $c = self::canon($lbl);
-            if (isset($baseCanon[$c])){ $schema['fields'][$i]['props']['guard_origin_index'] = $baseCanon[$c]; }
-            else {
+            if (!is_array($f)) continue; $lbl = $f['label'] ?? ''; $c = self::canon($lbl); if($lbl===''){ continue; }
+            $matchedOrigin = null; $matchedVia = null;
+            if (isset($baseCanon[$c])){ $matchedOrigin = $baseCanon[$c]; $matchedVia='canon'; }
+            else if (class_exists('Arshline\\Guard\\SemanticTools')){
+                $normOut = \Arshline\Guard\SemanticTools::normalize_label($lbl);
+                // 1) Strict semantic score against baseline
+                $bestScore = 0.0; $bestIdx = null;
+                foreach ($baseNormMap as $bi=>$bn){ $score = \Arshline\Guard\SemanticTools::similarity($normOut, $bn); if ($score > $bestScore){ $bestScore=$score; $bestIdx=$bi; } }
+                if ($bestIdx !== null && $bestScore >= $simThreshold){
+                    $matchedOrigin = $bestIdx; $matchedVia='semantic'; $notes[]='guard:semantic_merge(label_out='.($lbl).',origin='.($baseline['fields'][$bestIdx]['label']??'').',score='.round($bestScore,3).')';
+                }
+                // 2) Relaxed token-overlap vs user_text lines (if still not matched)
+                if ($matchedOrigin === null && $userNormMap){
+                    $outTokens = \Arshline\Guard\SemanticTools::token_set($lbl);
+                    foreach ($userNormMap as $ux=>$ud){
+                        $uTokens = \Arshline\Guard\SemanticTools::token_set($ud['raw']); if(!$uTokens) continue;
+                        $inter = array_intersect($outTokens,$uTokens);
+                        if (count($inter) >= $relaxedMinIntersect){
+                            // Accept as originating from user_text even if not baseline
+                            $matchedOrigin = $baseCanon[$c] ?? -1; // -1 denotes user_text only
+                            $matchedVia='user_text_relaxed';
+                            $notes[]='guard:user_text_link(label='.($lbl).',user_line='.($ud['raw']).',overlap='.count($inter).')';
+                            break;
+                        }
+                    }
+                }
+                // 3) Very small labels (<=3 tokens) allow lower similarity (adaptive)
+                if ($matchedOrigin === null){
+                    $tok = \Arshline\Guard\SemanticTools::token_set($lbl);
+                    if (count($tok) <= 3){
+                        $lowThr = max(0.5, $simThreshold - 0.2); // drop threshold up to 0.2
+                        $bestScore = 0.0; $bestIdx=null;
+                        foreach ($baseNormMap as $bi=>$bn){ $score = \Arshline\Guard\SemanticTools::similarity($lbl, $bn); if ($score > $bestScore){ $bestScore=$score; $bestIdx=$bi; } }
+                        if ($bestIdx !== null && $bestScore >= $lowThr){ $matchedOrigin=$bestIdx; $matchedVia='adaptive_small'; $notes[]='guard:adaptive_small_match(label='.$lbl.',score='.round($bestScore,3).',thr='.$lowThr.')'; }
+                    }
+                }
+            }
+            if ($matchedOrigin !== null){
+                $schema['fields'][$i]['props']['guard_origin_index'] = ($matchedOrigin>=0)? $matchedOrigin : null;
+                if ($matchedVia){ $schema['fields'][$i]['props']['guard_origin_via'] = $matchedVia; }
+            } else {
                 $schema['fields'][$i]['props']['guard_origin_index'] = null; // AI-added
                 $schema['fields'][$i]['props']['guard_ai_added'] = true; $diagnostics['ai_added']++;
-                if (!$allowAdd){
-                    // If whitelist defined and matches canon -> allow despite global block
-                    if (!isset($whitelist[$c])){ $hallucinatedIdx[] = $i; } else { $notes[]='guard:ai_allowed_whitelist('.$lbl.')'; }
-                }
+                if (!$allowAdd){ $whC = isset($whitelist[$c]); if (!$whC){ $hallucinatedIdx[] = $i; } else { $notes[]='guard:ai_allowed_whitelist('.$lbl.')'; } }
             }
         }
         // Hallucination pruning (strict)
@@ -96,6 +148,34 @@ class GuardService
             if (!is_array($f)) continue; $lbl = $f['label'] ?? ''; if ($lbl==='') continue;
             $low = mb_strtolower($lbl,'UTF-8');
             $origType = $f['type'] ?? '';
+            // Root-cause generic heuristics (examples are symptomatic only, not targets):
+            // Binary intent detection (yes/no) – if starts with 'آیا' or ends with ؟ and no options yet
+            if ((mb_strpos($low,'آیا')===0 || preg_match('/\?$/u',$low)) && empty($f['props']['options'])){
+                $f['type']='multiple_choice';
+                $f['props']['options']=['بله','خیر'];
+                $diagnostics['options_corrected']++; $issues[]='type_corrected(binary_intent)'; $notes[]='guard:type_correct(binary_intent)';
+            }
+            // Age / numeric intent (contain keywords سن / چند سال)
+            if (preg_match('/سن|چند\s*سال/u',$low) && $origType!=='number' && $origType!=='rating'){
+                $f['type']='number'; $diagnostics['type_fixed']++; $issues[]='type_corrected(age_numeric)'; $notes[]='guard:type_correct(age)';
+            }
+            // National ID
+            if (preg_match('/کد\s*ملی|شماره\s*ملی/u',$low)){
+                if (($f['props']['format'] ?? '')!=='national_id_ir'){ $f['props']['format']='national_id_ir'; $diagnostics['type_fixed']++; $issues[]='format_corrected(national_id_ir)'; $notes[]='guard:type_correct(national_id_ir)'; }
+                if ($f['type']!=='short_text'){ $f['type']='short_text'; }
+            }
+            // Date (prefer gregorian unless explicit جلالی)
+            if (preg_match('/تاریخ\s*تولد|روز\s*تولد/u',$low)){
+                if (!isset($f['props']['format']) || !preg_match('/date_/',$f['props']['format'])){
+                    $f['props']['format']='date_greg'; $diagnostics['type_fixed']++; $issues[]='format_corrected(date_greg)'; $notes[]='guard:type_correct(date_greg)';
+                }
+                if ($f['type']!=='short_text'){ $f['type']='short_text'; }
+            }
+            // Mobile / phone
+            if (preg_match('/شماره\s*(تلفن|همراه|موبایل)/u',$low)){
+                if (($f['props']['format'] ?? '')!=='mobile_ir'){ $f['props']['format']='mobile_ir'; $diagnostics['type_fixed']++; $issues[]='format_corrected(mobile_ir)'; $notes[]='guard:type_correct(mobile_ir)'; }
+                if ($f['type']!=='short_text'){ $f['type']='short_text'; }
+            }
             // Year / birth detection
             if (preg_match('/سال\s+تولد/u',$low) && $origType!=='short_text' && $origType!=='date_greg'){
                 $f['type']='short_text'; $f['props']['format']='numeric'; $diagnostics['type_fixed']++; $issues[]='type_corrected(year_of_birth)';
@@ -148,6 +228,28 @@ class GuardService
             $keep[]=$fi;
         }
     if ($removedDup>0){ $schema['fields']=$keep; $diagnostics['duplicates_collapsed']=$removedDup; $issues[]='duplicates_collapsed('.$removedDup.')'; $notes[]='guard:duplicate_collapsed('.$removedDup.')'; }
+        // New semantic clustering (root-cause generalization) using SemanticTools with configurable threshold
+        $labels=[]; foreach (($schema['fields']??[]) as $f){ if (is_array($f) && !empty($f['label'])) $labels[]=$f['label']; }
+        if (count($labels)>1 && class_exists('Arshline\\Guard\\SemanticTools')){
+            $simThreshold = 0.8;
+            if (function_exists('get_option')){
+                $gsThr = get_option('arshline_settings', []);
+                if (is_array($gsThr) && isset($gsThr['guard_semantic_similarity_min']) && is_numeric($gsThr['guard_semantic_similarity_min'])){
+                    $val = (float)$gsThr['guard_semantic_similarity_min'];
+                    if ($val >= 0.5 && $val <= 0.95) { $simThreshold = $val; }
+                }
+            }
+            $clusters = \Arshline\Guard\SemanticTools::cluster_labels($labels, $simThreshold);
+            $clusterCount=0; $mergedWithin=0; $mapIdx=[];
+            foreach ($clusters as $cl){ if (count($cl)<=1) continue; $clusterCount++; // keep first as canonical
+                $first = $cl[0]; foreach (array_slice($cl,1) as $dupIdx){ $mergedWithin++; $mapIdx[$dupIdx]=$first; }
+            }
+            if ($mergedWithin>0){
+                // Rebuild preserving canonical members only
+                $newFields=[]; $idx=0; foreach (($schema['fields']??[]) as $f){ if(!is_array($f)||empty($f['label'])) continue; if(isset($mapIdx[$idx])){ /* skip duplicate */ } else { $newFields[]=$f; } $idx++; }
+                $schema['fields']=$newFields; $diagnostics['duplicates_collapsed']+=$mergedWithin; $issues[]='semantic_clusters('.$clusterCount.',merged='.$mergedWithin.')'; $notes[]='guard:semantic_cluster(count='.$clusterCount.',merged='.$mergedWithin.',thr='.$simThreshold.')';
+            }
+        }
         // Unify type per origin: choose strongest encountered type across fields sharing same canon label
         $priority = ['multiple_choice'=>6,'dropdown'=>5,'file'=>4,'rating'=>3,'long_text'=>2,'short_text'=>1,'text'=>1,'numeric'=>1];
         $bestType = [];

@@ -159,6 +159,135 @@ Soft prune mode retains duplicates and marks them with `props.duplicate_of` refe
 5. دکمه «تایید و اعمال» → جایگزینی اسکیمای جاری با پیش‌نمایش؛ بدون درخواست دوم به مدل.
 6. «انصراف» → رد تغییرات.
 
+### Root-Cause AI Refinement & Guard Redesign (Constraint-Based)
+
+Examples are symptomatic only, not the targets of the fix. This release introduces a systemic redesign of the refinement + guard pipeline focused on eliminating root causes of hallucinated fields, semantic duplication, and weak type inference.
+
+Key Principles:
+- Constraint-driven generation: output_count == input_count (no silent additions).
+- Semantic clustering (Persian-aware) using token normalization + similarity.
+- Guard shifts from reporter to corrective: merges semantic duplicates, enforces types, prunes unauthorized additions.
+- Deterministic type/format inference (age → number, national id → national_id_ir, date of birth → date_greg, binary intent → multiple_choice with بله/خیر, phone → mobile_ir).
+- Notes now may include: `guard:semantic_cluster`, `guard:type_correct(...)`, `guard:duplicate_collapsed(N)`, `guard:ai_removed(M)`.
+
+Added Components:
+- `SemanticTools.php` (normalize_label, token_set, similarity, cluster_labels).
+- Enhanced `GuardService::evaluate` with semantic clustering & generic heuristics (no hardcoded per-example patches).
+- Constraint-based system prompt for refinement (one field per question, strict JSON, no hallucination).
+
+Benchmark Harness:
+- `tools/run_guard_bench.php` runs multiple generic scenarios (identity, redundancy, binary intent, format focus, noise) and emits NDJSON metrics (field fidelity, hallucination rate, duplicates collapsed, type/option corrections).
+
+Success Criteria (Phase 1 Targets):
+- Field Count Fidelity ≥ 0.99.
+- Hallucination Rate = 0 on benchmark suite.
+- Residual semantic duplicates = 0 (post-guard) for standard cases.
+- Latency overhead < 15% vs prior implementation.
+
+Extension Points:
+- Extend stopword list & similarity threshold in `SemanticTools` for domain tuning.
+- Add new format heuristics by appending rules in Guard type enforcement block.
+- Introduce embedding-based semantic matching later without refactoring current API.
+
+Reject any optimization that only fits the examples—solution must generalize to unseen input patterns beyond those shown in logs.
+
+### تنظیم آستانه شباهت معنایی (Semantic Similarity Threshold)
+یک گزینه تنظیمی جدید: `guard_semantic_similarity_min` (پیش‌فرض 0.8، محدوده معتبر 0.5 تا 0.95) که در GuardService و GuardUnit برای:
+- لینک کردن فیلد به سؤال ورودی (semantic_link)
+- تشخیص hallucination (اگر similarity < threshold)
+قابل override در محیط تست با متد: `SemanticTools::setOverrideThreshold($val)`.
+
+فعال‌سازی از طریق گزینه تنظیمات (`arshline_settings`) یا فیلتر WordPress آینده (در برنامه). مقدار نامعتبر نادیده گرفته می‌شود.
+
+### Semantic Merge Alignment (ادغام معنایی قبل از پرچم AI-added)
+پیش از علامت‌گذاری فیلد به‌عنوان اضافه‌ی مدل، یک فاز «ادغام معنایی» اجرا می‌شود که:
+1. برچسب‌ها را normalize (حذف فاصله تکراری، ارقام، نشانه‌گذاری، واژه‌های توقف مودبانه)
+2. شباهت جاکارد توکنی محاسبه می‌کند
+3. اگر مشابه فیلد baseline باشد (>= threshold) آن را merged و یادداشت: `guard:semantic_merge(label_out=...,origin=...,score=...)` ثبت می‌شود.
+این کار False Positive های hallucination را (برای تفاوت سبکی برچسب) حذف می‌کند.
+
+### Guard Unit Architecture (نسل جدید لایه صحت‌سنجی)
+لایه جدید `GuardUnit` در کنار `GuardService` به صورت موازی (حالت diagnostic) اجرا می‌شود تا تدریجاً جایگزین شود.
+
+Phases:
+1. Meta Preflight: بررسی سازگاری `meta.input_count == meta.output_count` و `added == 0`.
+2. Normalization & Scaffold: ساخت ساختار داخلی فیلدها (norm_label, working_type, props).
+3. Semantic Matching: جفت‌سازی هر فیلد با بهترین سؤال (similarity, matched_question).
+4. Type/Format Correction (در حالت corrective): age → number، تاریخ → date_greg، کد ملی → national_id_ir، تلفن → mobile_ir، yes/no intent → multiple_choice.
+5. Hallucination Detection: فیلدهای زیر آستانه در حالت corrective حذف، در حالت diagnostic فقط flag (`guard:would_prune`).
+6. Count Enforcement: اگر بعد از اصلاح تعداد با ورودی فرق کند `guard:count_mismatch(...)`.
+7. Metrics & Summary: خروجی شامل similarity_avg، hallucinations_removed، type_corrections.
+
+Mode Switch:
+- Constant: `define('HOOSHA_GUARD_MODE','corrective');` یا `diagnostic` (پیش‌فرض)
+- Option: `guard_mode` در `arshline_settings`
+
+### Dynamic Capability Scan
+کلاس `CapabilityScanner` به‌صورت داینامیک انواع، فرمت‌ها و قوانین را از فایل‌های هسته (`Api.php`, `FormValidator.php`, `form-template.php`, `GuardService.php`, `OpenAIModelClient.php`) استخراج می‌کند:
+- خروجی کش شده (in-process + transient ۱ ساعته)
+- ثبت رویداد `phase=capability_scan` در `guard.log`
+این نقشه برای پیشنهاد اصلاح نوع/فرمت و جلوگیری از وابستگی به لیست‌های ثابت استفاده می‌شود.
+
+### Field-Level Logging (GuardLogger)
+فایل: `guard.log` (۱۰MB rotation)
+رویدادها:
+```
+{"ev":"phase","phase":"start","mode":"diagnostic"}
+{"ev":"field","field_idx":2,"action":"semantic_link","question_idx":1,"score":0.87}
+{"ev":"field","field_idx":3,"action":"flag_hallucination","score":0.41}
+{"ev":"field","field_idx":3,"action":"prune","reason":"low_similarity"} (در حالت corrective)
+{"ev":"summary","metrics":{...},"issues":[...],"notes":[...]}
+```
+فعال‌سازی:
+- Constant: `define('HOOSHA_GUARD_DEBUG', true);`
+- Option: `guard_debug` در تنظیمات
+مسیر سفارشی: گزینه `arshline_guard_log_path`.
+
+### Meta Enforcement (Early)
+در `OpenAIModelClient::refine` پس از parse JSON:
+- محاسبه تعداد سؤالات کاربر (`input_count`) با تقسیم بر اساس نویسه‌های پرسشی و خطوط
+- ست `meta.output_count` و `meta.added`
+- در صورت مغایرت: `meta.violation[]` شامل `count_mismatch` یا `added_positive`
+GuardUnit سپس این موارد را به یادداشت‌های `guard:meta_violation` و `guard:meta_added` بازتاب می‌دهد.
+
+### Type / Format Correction (GuardUnit Corrective Mode)
+هنگام فعال بودن حالت corrective:
+- `سن / چند سال` → `type=number`
+- `تاریخ` → `format=date_greg` (اگر Jalali مشخص نباشد)
+- `کد ملی` → `format=national_id_ir`
+- `موبایل / تلفن` → `format=mobile_ir`
+- جملات yes/no (شروع با «آیا» یا ساختار دودویی) → multiple_choice + options ["بله","خیر"]
+هر تغییر: `guard:type_correct_phase(field_idx=...:type=...|format=...)` + رویداد log با `action=type_format_correct`.
+
+### Benchmark Summary Line (CI Friendly)
+اسکریپت `tools/run_guard_bench.php` اکنون خط استاندارد چاپ می‌کند:
+```
+BENCH_SUMMARY total_scenarios=5 fidelity_ok=1 avg_hallucination_rate=0
+```
+پارسر CI می‌تواند با regex ساده آن را استخراج و روند را ثبت کند.
+
+### Flags & Constants Quick Reference
+| Constant | نقش |
+|----------|-----|
+| HOOSHA_GUARD_DEBUG | فعال کردن لاگ میدان و فاز (guard.log) |
+| HOOSHA_GUARD_MODE  | تغییر حالت GuardUnit بین diagnostic / corrective |
+| ARSHLINE_HOOSHA_LOG_ENABLED | فعال‌سازی مدل لاگ (hoosha.log) |
+
+| Option (settings) | کلید |
+|-------------------|------|
+| guard_semantic_similarity_min | آستانه شباهت (0.5–0.95) |
+| guard_mode | حالت گارد یونیت |
+| guard_debug | لاگ GuardLogger |
+
+### Roadmap (Next Phases)
+- Embedding-based similarity fallback (semantic precision بالا برای برچسب‌های کوتاه)
+- Adaptive threshold per field length
+- Correction suggestion layer (report vs auto-fix diff)
+- CI gate: fail PR اگر `avg_hallucination_rate > 0` یا `fidelity_ok=false`
+- Structured remediation report endpoint (`/hoosha/guard/report`)
+
+Reject any optimization that only fits the examples—همچنان اصل بنیادی معماری باقی می‌ماند.
+
 Endpoint `preview_edit` خروجی نمونه:
 ```
 {
