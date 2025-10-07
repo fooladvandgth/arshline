@@ -522,11 +522,12 @@
           try { if (typeof window.setHash==='function') setHash('reports'); else { location.hash = '#reports'; } if (typeof window.renderTab==='function') window.renderTab('reports'); appendOut('باز شد: گزارشات'); notify('باز شد','success'); saveHist(cmd,'باز شد: گزارشات'); } catch(_){ }
           return;
         }
-        // Form builder (Hoosha) synonyms: فرم ساز هوشا / سازنده فرم هوشا / بیلدر هوشا
-        var reFormBuilderHoosha = /(برو\s*(به)?\s*)?(فرم\s*ساز\s*هوشا|سازنده\s*فرم\s*هوشا|بیلدر\s*هوشا|هوشا\s*فرم\s*ساز)/i;
+        // Hoosha builder / analytics synonyms: route to analytics (هوشا) tab instead of generic forms
+        // NOTE: User requested that phrase "فرم ساز هوشا" open Hoosha (analytics) context.
+        var reFormBuilderHoosha = /(برو\s*(به)?\s*)?(فرم\s*ساز\s*هوشا|سازنده\s*فرم\s*هوشا|بیلدر\s*هوشا|هوشا\s*فرم\s*ساز|هوشنگ|هوشا|تحلیل\s*هوشمند)/i;
         if (reFormBuilderHoosha.test(c)){
-          appendOut('در حال باز کردن فرم‌ها…');
-          try { if (typeof window.setHash==='function') setHash('forms'); else { location.hash='#forms'; } if (typeof window.renderTab==='function') window.renderTab('forms'); appendOut('باز شد: فرم‌ها'); notify('باز شد','success'); saveHist(cmd,'باز شد: فرم‌ها'); } catch(_){ }
+          appendOut('در حال باز کردن تحلیل‌ها…');
+          try { if (typeof window.setHash==='function') setHash('analytics'); else { location.hash='#analytics'; } if (typeof window.renderTab==='function') window.renderTab('analytics'); appendOut('باز شد: تحلیل‌ها'); notify('باز شد','success'); saveHist(cmd,'باز شد: تحلیل‌ها'); } catch(_){ }
           return;
         }
         // Quick add field intents

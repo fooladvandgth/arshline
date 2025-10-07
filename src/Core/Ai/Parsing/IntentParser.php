@@ -110,9 +110,9 @@ class IntentParser
         if (preg_match('/^(?:برو\s*)?(پیام رسانی|پیام‌رسانی|پیامک|sms|اس ام اس)$/u', $s)){
             return ['ok'=>true,'action'=>'open_tab','tab'=>'messages','source'=>'parser'];
         }
-        // hoosha builder (redirect to forms tab for now)
-        if (preg_match('/^(?:برو\s*)?(فرم ساز هوشا|سازنده فرم هوشا|بیلدر هوشا|هوشا فرم ساز)$/u', $s)){
-            return ['ok'=>true,'action'=>'open_tab','tab'=>'forms','source'=>'parser'];
+        // hoosha / analytics builder phrases SHOULD open analytics tab (user request: "فرم ساز هوشا" => Hoosha analytics)
+        if (preg_match('/^(?:برو\s*)?(فرم ساز هوشا|سازنده فرم هوشا|بیلدر هوشا|هوشا فرم ساز|هوشنگ|هوشا|تحلیل هوشمند)$/u', $s)){
+            return ['ok'=>true,'action'=>'open_tab','tab'=>'analytics','source'=>'parser'];
         }
         return null;
     }

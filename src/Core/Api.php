@@ -690,11 +690,31 @@ class Api {
             'timeout' => 20,
         ];
         $resp = wp_remote_post($url, $args);
-        if (is_wp_error($resp)) return false;
+        if (is_wp_error($resp)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[ARSH][SMS] WP_Error send_single: '.$resp->get_error_message());
+            }
+            return false;
+        }
         $code = wp_remote_retrieve_response_code($resp);
         if ($code >= 200 && $code < 300) return true;
-        $json = json_decode(wp_remote_retrieve_body($resp), true);
-        if (is_array($json) && isset($json['status']) && (int)$json['status'] === 1) return true;
+        $rawBody = wp_remote_retrieve_body($resp);
+        // Provider success heuristics
+        if ($code >= 200 && $code < 300) {
+            $json = json_decode($rawBody, true);
+            if (is_array($json) && isset($json['status']) && (int)$json['status'] === 1) return true; // explicit success
+            // Some providers return 2xx even on semantic fail; log body for diagnostics
+            if (defined('WP_DEBUG') && WP_DEBUG) error_log('[ARSH][SMS] Non-explicit success body: '.$rawBody);
+            return true; // treat 2xx as success to avoid false negatives unless explicit fail structure defined
+        }
+        $json = json_decode($rawBody, true);
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $snippet = mb_substr($rawBody, 0, 500);
+            error_log('[ARSH][SMS] HTTP Fail code='.$code.' body='.$snippet);
+        }
+        if (is_array($json) && isset($json['status'])) {
+            // status != 1 considered failure
+        }
         return false;
     }
 
@@ -784,11 +804,12 @@ class Api {
 
         $maxImmediate = 50; // limit to avoid timeouts
         if ($ts === null && count($payload) <= $maxImmediate){
-            $okCount = 0; $failCount = 0;
+            $okCount = 0; $failCount = 0; $failSamples = [];
             global $wpdb; $logTable = \Arshline\Support\Helpers::tableName('sms_log');
             foreach ($payload as $i=>$it){
                 $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $it['phone'], $it['message'], null);
-                if ($ok) $okCount++; else $failCount++;
+                if ($ok) { $okCount++; }
+                else { $failCount++; if (count($failSamples) < 5) $failSamples[] = $it['phone']; }
                 // Log attempt (best effort)
                 try {
                     $wpdb->insert($logTable, [
@@ -800,6 +821,16 @@ class Api {
                         'created_at' => current_time('mysql'),
                     ]);
                 } catch (\Throwable $e) { /* swallow */ }
+            }
+            if ($okCount === 0 && $failCount > 0) {
+                // Surface a clearer error instead of generic ok=true
+                return new \WP_REST_Response([
+                    'ok' => false,
+                    'error' => 'provider_fail',
+                    'message' => 'ارسال همه پیام‌ها ناموفق بود. لطفاً تنظیمات API یا محدودیت سرویس را بررسی کنید.',
+                    'failed' => $failCount,
+                    'sample_failed_phones' => $failSamples,
+                ], 502);
             }
             return new \WP_REST_Response(['ok'=>true, 'sent'=>$okCount, 'failed'=>$failCount], 200);
         }
@@ -5842,7 +5873,30 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                 $seg = trim($seg); if ($seg==='') continue;
                 $seg = preg_replace('/^(\d+\s*[\-\.\)]\s*)/u','',$seg);
                 if (preg_match('/گزینه\s+جدید\s+(.+)\s+اضافه/iu',$seg,$m)){ $candidateCmds[]='add_option:'.trim($m[1]); continue; }
-                if (preg_match('/(اجباری|الزامی)/iu',$seg) && preg_match('/(سوال|فیلد)/u',$seg)){ $candidateCmds[]='set_required:all'; continue; }
+                // Requirement toggle heuristics (refined 2025-10-07):
+                // 1. If explicit numbered references exist (e.g., "سوال 1 الزامی" / "فیلد ۲ و سوال 3 را اجباری کن")
+                //    we emit one command per referenced index: set_required:<n>
+                // 2. We ONLY emit set_required:all for generic global statements WITHOUT explicit numbers (e.g.,
+                //    "همه سوال ها اجباری باشن" or "سوال ها رو الزامی کن"). This prevents over-application when
+                //    user intent is scoped to a single question.
+                // NOTE: Downstream hoosha_apply should interpret set_required:<n> safely; if not implemented yet,
+                //       a backward-compatible shim can translate set_required:<n> into a delta on that field.
+                if (preg_match('/(سوال|فیلد)\s*([0-9۰-۹]{1,3})/u',$seg)){
+                    // Normalize Persian digits then add per-index commands
+                    if (preg_match_all('/(?:سوال|فیلد)\s*([0-9۰-۹]{1,3})/u',$seg,$mNumsReq)){
+                        $digitsMap=['۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9'];
+                        foreach($mNumsReq[1] as $rawNum){
+                            $norm = strtr($rawNum,$digitsMap);
+                            $nInt = (int)$norm; if($nInt>0){ $candidateCmds[]='set_required:'.$nInt; }
+                        }
+                        continue; // handled specific indices
+                    }
+                }
+                if (preg_match('/(اجباری|الزامی)/iu',$seg) && preg_match('/(سوال|فیلد)/u',$seg)){
+                    // Generic (no extracted indices caught earlier) => global requirement
+                    $candidateCmds[]='set_required:all';
+                    continue;
+                }
                 if (preg_match('/(اختیاری|غیر\s*اجباری)/u',$seg) && preg_match('/(سوال|فیلد)/u',$seg)){ $candidateCmds[]='set_optional:all'; continue; }
                 if (preg_match('/نام.*رسمی/u',$seg)){ $candidateCmds[]='formalize_labels'; continue; }
                 if (mb_strpos($seg,'رسمی')!==false){ $candidateCmds[]='formalize_labels'; continue; }
@@ -5857,7 +5911,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
         }
         try {
             $model = self::select_optimal_model($ai, $prompt, 'hoosha_interpret_nl', 2);
-            $system = 'You convert Persian natural language form edit instructions to normalized machine commands. Output JSON { commands:[string] }. Recognize: formalize_labels, set_required:all, set_optional:all, add_option:<text>.';
+            $system = 'You convert Persian natural language form edit instructions to normalized machine commands. Output JSON { commands:[string] }. Recognize: formalize_labels, set_required:all, set_required:<n>, set_optional:all, add_option:<text>. Use set_required:<n> when explicit numbered question(s) mentioned; only use set_required:all for generic global requirement.';
             $user = json_encode(['prompt'=>$prompt,'candidate_segments'=>$candidateCmds], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
             $resp = self::openai_chat_json((string)$ai['base_url'], (string)$ai['api_key'], (string)$model, $system, (string)$user);
             $cmds = isset($resp['commands']) && is_array($resp['commands']) ? array_values(array_filter(array_map('strval',$resp['commands']))) : $candidateCmds;

@@ -417,38 +417,13 @@
               '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none;margin-top:1.25rem"></div>'+ 
             '</div>'+ 
           '</div>'+
-          '<div id="arDashQuickAnalytics" class="card glass" style="padding:1rem; margin-top:1rem;">'+
-            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
-              '<span class="title">تحلیل سریع</span>'+
-              '<span class="hint">پیامک / پاسخ / بازدید / اعضا (۳۰ روز)</span>'+
-              '<span style="flex:1 1 auto"></span>'+
-              '<select id="arMetricsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
-            '</div>'+
-            '<div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap:.8rem;">'+
-              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
-                '<div class="hint" style="font-size:.7rem;">پیامک</div>'+
-                '<div id="arMetricSmsTotal" class="title" style="font-size:1.3rem;">0</div>'+
-                '<canvas id="arMetricSmsChart" height="60"></canvas>'+
-              '</div>'+
-              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
-                '<div class="hint" style="font-size:.7rem;">پاسخ</div>'+
-                '<div id="arMetricSubsTotal" class="title" style="font-size:1.3rem;">0</div>'+
-                '<canvas id="arMetricSubsChart" height="60"></canvas>'+
-              '</div>'+
-              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
-                '<div class="hint" style="font-size:.7rem;">بازدید</div>'+
-                '<div id="arMetricViewsTotal" class="title" style="font-size:1.3rem;">0</div>'+
-                '<canvas id="arMetricViewsChart" height="60"></canvas>'+
-              '</div>'+
-              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
-                '<div class="hint" style="font-size:.7rem;">اعضا</div>'+
-                '<div id="arMetricMembersTotal" class="title" style="font-size:1.3rem;">0</div>'+
-                '<canvas id="arMetricMembersChart" height="60"></canvas>'+
-              '</div>'+
-            '</div>'+
-          '</div>';
-        // Remove quick analytics card if feature flag disabled
-        try { if(!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick)){ var qa=document.getElementById('arDashQuickAnalytics'); if(qa && qa.parentNode) qa.parentNode.removeChild(qa); } } catch(_remQA){}
+          // NOTE (2025-10): Removed duplicate Quick Analytics block from Hoosha builder context to reduce noise
+          // and focus user on form-edit AI tools. The same mini metrics remain on Dashboard/Reports.
+          // To restore, reinsert the previous card markup (id="arDashQuickAnalytics") and optionally
+          // gate with window.__ARSH_FEATURE_FLAGS__.dashboardQuick.
+          '';
+  // Quick Analytics card removed above. Leaving this placeholder intentionally; if future logic
+  // expects #arDashQuickAnalytics, add a null check or recreate conditionally.
         // Scroll sync (raw -> edited caret proximity)
         (function(){
           var raw = document.getElementById('arHooshaRaw');
@@ -1432,7 +1407,21 @@
               // Local caches
               var _smsAllForms=[]; var _smsFormAccessCache=Object.create(null); var _smsFormAccessInFlight=Object.create(null); var _smsGroupFieldsCache=Object.create(null); var _smsGroupFieldsInFlight=Object.create(null);
               function smsGetFormAllowedGroups(fid){ if(_smsFormAccessCache[fid]) return Promise.resolve(_smsFormAccessCache[fid]); if(_smsFormAccessInFlight[fid]) return _smsFormAccessInFlight[fid]; var p=fetch(ARSHLINE_REST+'forms/'+fid+'/groups',{ credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(arr){ var ids=Array.isArray(arr)?arr.map(function(g){ return g.id; }):[]; _smsFormAccessCache[fid]=ids; return ids; }).finally(function(){ delete _smsFormAccessInFlight[fid]; }); _smsFormAccessInFlight[fid]=p; return p; }
-              function updateSmsFormsOptions(){ var el=document.getElementById('smsForm'); if(!el) return; var published=(_smsAllForms||[]).filter(function(f){ return String(f.status)==='published'; }); Promise.all(published.map(function(f){ return smsGetFormAllowedGroups(f.id).then(function(ids){ return { f:f, ids:ids }; }); })).then(function(rows){ var html='<option value="">— بدون لینک —</option>'; rows.forEach(function(r){ html+='<option value="'+r.f.id+'">'+escapeHtml(r.f.title||('فرم #'+r.f.id))+'</option>'; }); el.innerHTML=html; }).catch(function(_){ }); }
+              function updateSmsFormsOptions(){
+                var el=document.getElementById('smsForm'); if(!el) return;
+                var baseHtml='<option value="">— بدون لینک —</option>';
+                var published=(_smsAllForms||[]).filter(function(f){ return String(f.status)==='published'; });
+                if(!published.length){ el.innerHTML=baseHtml; return; }
+                // Previous logic gated by allowed groups; if endpoint fails we still show forms.
+                var safePromises = published.map(function(f){
+                  return smsGetFormAllowedGroups(f.id).then(function(ids){ return { f:f, ids:ids||[] }; }).catch(function(){ return { f:f, ids:[] }; });
+                });
+                Promise.all(safePromises).then(function(rows){
+                  var html=baseHtml;
+                  rows.forEach(function(r){ html+='<option value="'+r.f.id+'">'+escapeHtml(r.f.title||('فرم #'+r.f.id))+'</option>'; });
+                  el.innerHTML=html;
+                }).catch(function(){ el.innerHTML=baseHtml; });
+              }
               function smsGetGroupFields(gid){ // switched to user-groups endpoint
                 if(_smsGroupFieldsCache[gid]) return Promise.resolve(_smsGroupFieldsCache[gid]);
                 if(_smsGroupFieldsInFlight[gid]) return _smsGroupFieldsInFlight[gid];
@@ -1449,10 +1438,19 @@
                 .then(function(gs){ var el=document.getElementById('smsGroups'); if(!el) return; var arr = Array.isArray(gs)? gs : []; if(!arr.length){ el.innerHTML=''; var hint=document.getElementById('smsVarsHint'); if(hint) hint.textContent='هیچ گروهی تعریف نشده است.'; } else { el.innerHTML=arr.map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); } try { el.addEventListener('change', function(){ updateSmsFormsOptions(); updateSmsVariablesHint(); }); } catch(_){ } updateSmsVariablesHint(); })
                 .catch(function(e){ console.warn('[ARSH][SMS] user-groups fetch failed', e); var el=document.getElementById('smsGroups'); if(el) el.innerHTML=''; });
               // Load forms
-              fetch(ARSHLINE_REST + 'forms/list', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
-                .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
-                .then(function(fs){ _smsAllForms=Array.isArray(fs)?fs:[]; updateSmsFormsOptions(); updateSmsVariablesHint(); })
-                .catch(function(e){ console.warn('[ARSH][SMS] forms fetch failed', e); });
+              // Fetch forms: original code used 'forms/list' which does not exist; fallback to 'forms'
+              (function loadSmsForms(){
+                function use(fs){ _smsAllForms=Array.isArray(fs)?fs: (Array.isArray(fs&&fs.items)?fs.items:[]); updateSmsFormsOptions(); updateSmsVariablesHint(); }
+                fetch(ARSHLINE_REST + 'forms/list', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                  .then(function(r){ if(!r.ok) throw new Error('status_'+r.status); return r.json(); })
+                  .then(function(fs){ use(fs); })
+                  .catch(function(){
+                    fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                      .then(function(r2){ if(!r2.ok) throw new Error('status_'+r2.status); return r2.json(); })
+                      .then(function(fs2){ use(fs2); })
+                      .catch(function(e){ console.warn('[ARSH][SMS] forms fetch failed (fallback)', e); use([]); });
+                  });
+              })();
               var btnSave=document.getElementById('smsSave'); if(btnSave) btnSave.addEventListener('click', function(){ var payload={ enabled: !!(document.getElementById('smsEnabled')&&document.getElementById('smsEnabled').checked), api_key: String((document.getElementById('smsApiKey')&&document.getElementById('smsApiKey').value)||''), line_number: String((document.getElementById('smsLine')&&document.getElementById('smsLine').value)||'') }; fetch(ARSHLINE_REST+'sms/settings',{ method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(){ notify('ذخیره شد','success'); }).catch(function(e){ notify('ذخیره ناموفق بود','error'); console.warn(e); }); });
               var btnTest=document.getElementById('smsTest'); if(btnTest) btnTest.addEventListener('click', function(){ var phEl=document.getElementById('smsTestPhone'); var ph=String(phEl&&phEl.value||'').trim(); fetch(ARSHLINE_REST+'sms/test',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':ARSHLINE_NONCE}, body: JSON.stringify({ phone: ph }) }).then(function(r){ return r.json().catch(function(){ return {}; }); }).then(function(j){ if(j && j.success){ notify('تست ارسال شد','success'); } else { notify('تست ناموفق بود','error'); } }).catch(function(){ notify('تست ناموفق بود','error'); }); });
               var btnSend=document.getElementById('smsSend'); if(btnSend) btnSend.addEventListener('click', async function(){ var groupsSel=document.getElementById('smsGroups'); var formSel=document.getElementById('smsForm'); var msgEl=document.getElementById('smsMessage'); var schEl=document.getElementById('smsSchedule'); var gids=[].filter.call((groupsSel&&groupsSel.options)||[], function(o){ return o.selected; }).map(function(o){ return parseInt(o.value)||0; }).filter(Boolean); if(!gids.length){ notify('گروهی انتخاب نشده','warn'); return; } var fid=parseInt(formSel&&formSel.value)||0; var messageRaw=(msgEl&&msgEl.value)||''; var schedule_at=(schEl&&schEl.value)||''; var usesLink=/(#link|#لینک)/i.test(messageRaw); var includeLink=false; if(usesLink && !fid){ notify('برای #link باید فرم انتخاب شود','warn'); return; } includeLink=!!(fid && usesLink); var message=messageRaw + ' لغو11'; if(!message.trim()){ notify('متن پیام خالی است','warn'); return; } var payload={ group_ids:gids, message:message, include_link: includeLink, form_id: includeLink? fid: undefined, schedule_at: schedule_at||undefined }; try { btnSend.disabled=true; btnSend.textContent='ارسال...'; var r=await fetch(ARSHLINE_REST+'sms/send',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':ARSHLINE_NONCE}, body: JSON.stringify(payload) }); var body=null; try { body=await r.json(); } catch(_){ } if(!r.ok || !body || body.success!==true){ var code=body&&body.code; var errMsg=(body&&(body.message||body.error))||'ارسال ناموفق بود'; if(code==='sms_disabled') errMsg='ارسال پیامک غیرفعال است.'; else if(code==='empty_message') errMsg='متن پیام خالی است.'; notify(errMsg,'error'); } else { notify('ارسال شد','success'); } } catch(e){ notify('ارسال ناموفق بود','error'); console.error(e); } finally { btnSend.disabled=false; btnSend.textContent='ارسال'; } });
@@ -1542,7 +1540,8 @@
             '</div>'+
             '<div id="arChatOut" class="card glass" style="padding:1rem;white-space:pre-wrap;line-height:1.7;max-height:420px;overflow:auto"></div>'+
           '</div>'+
-          '<div id="arHoshAdv" style="display:none">'+
+          // Advanced analysis pane (multi-form). Gated by feature flag analyticsAdvanced.
+          '<div id="arHoshAdv" style="display:none" data-feature="analyticsAdvanced">'+
             '<div class="hint" style="margin-bottom:.4rem">تحلیل پیشرفته (نسخهٔ قبلی با گزینه‌ها)</div>'+
             '<div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem">'+
               '<input id="arAnaFormSearch" class="ar-input" placeholder="جستجوی فرم‌ها…" style="min-width:200px;flex:0 0 220px" />'+
@@ -1566,6 +1565,17 @@
           '</div>'+
         '</div>';
         (function initAna(){
+          var _anaFlag = !!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.analyticsAdvanced);
+          // If disabled, hide advanced toggle + force chat mode label style; keep minimal shell.
+          if(!_anaFlag){
+            try {
+              var advRadio = document.getElementById('arHoshModeAdv');
+              if(advRadio){ advRadio.closest('label').style.display='none'; }
+              // ensure chat radio is checked
+              var chatRadio = document.getElementById('arHoshModeChat'); if(chatRadio){ chatRadio.checked = true; }
+              var advPane = document.getElementById('arHoshAdv'); if(advPane){ advPane.parentNode.removeChild(advPane); }
+            } catch(_){ }
+          }
           // Mode toggle
           var modeChat = document.getElementById('arHoshModeChat');
           var modeAdv = document.getElementById('arHoshModeAdv');
@@ -1574,7 +1584,7 @@
           function setMode(which){ var isChat = (which==='chat'); if (paneChat) paneChat.style.display = isChat?'block':'none'; if (paneAdv) paneAdv.style.display = isChat?'none':'block'; try { localStorage.setItem('arshHoshMode', isChat?'chat':'advanced'); } catch(_){ } }
           try { var savedMode = localStorage.getItem('arshHoshMode')||'chat'; if (savedMode!=='chat'){ if (modeAdv) modeAdv.checked = true; setMode('advanced'); } else { if (modeChat) modeChat.checked = true; setMode('chat'); } } catch(_){ }
           if (modeChat) modeChat.addEventListener('change', function(){ if (modeChat.checked) setMode('chat'); });
-          if (modeAdv) modeAdv.addEventListener('change', function(){ if (modeAdv.checked) setMode('advanced'); });
+          if (modeAdv) modeAdv.addEventListener('change', function(){ if (modeAdv.checked){ if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.analyticsAdvanced){ setMode('advanced'); } else { modeChat && (modeChat.checked=true); setMode('chat'); notify('تحلیل پیشرفته غیرفعال است','warn'); } } });
 
           // Simple chat wiring
           (function initSimpleChat(){
@@ -2290,6 +2300,9 @@
             notify('بارگذاری فرم‌ها ناموفق بود', 'error');
           });
       } else if (tab === 'reports'){
+  // Reports tab: gated by feature flag reportsCharts; basic shell always loads, charts only if enabled.
+  // One-time init guard window.__ARSH_REPORTS_INIT__ prevents redundant Chart.js re-renders.
+        var _reportsChartsEnabled = !!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.reportsCharts);
         content.innerHTML = ''+
           '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
           '  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
@@ -2315,7 +2328,7 @@
           '    </div>'+
           '  </div>'+
           '</div>'+
-          '<div class="card glass" style="padding:1rem;">'+
+          (_reportsChartsEnabled ? '<div class="card glass" style="padding:1rem;">' : '<div class="card glass" style="padding:1rem;display:none" aria-hidden="true">')+
           '  <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
           '    <span class="title">روند ارسال‌ها</span>'+
           '    <span class="hint">۳۰ روز اخیر</span>'+
@@ -2327,7 +2340,7 @@
           '    <div style="width:160px; flex:0 0 160px; height:140px;"><canvas id="arFormsDonut"></canvas></div>'+
           '  </div>'+
           '</div>'+
-          '<div class="card glass" style="padding:1rem; margin-top:1rem;">'+
+          (_reportsChartsEnabled ? '<div class="card glass" style="padding:1rem; margin-top:1rem;">' : '<div class="card glass" style="padding:1rem; margin-top:1rem;display:none" aria-hidden="true">')+
           '  <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
           '    <span class="title">تحلیل سریع</span>'+
           '    <span class="hint">پیامک / پاسخ / بازدید / اعضا (۳۰ روز)</span>'+
@@ -2357,6 +2370,10 @@
           '    </div>'+
           '  </div>'+
           '</div>';
+        // Chart initialization (one-time) guarded so re-entering tab doesn't recreate charts
+        if (_reportsChartsEnabled){
+          if (!window.__ARSH_REPORTS_INIT__){ window.__ARSH_REPORTS_INIT__ = true; }
+        }
           + '      <label class="ar-field"><span class="ar-label">فرم (اختیاری برای لینک شخصی)</span><select id="smsForm" class="ar-select"><option value="">— بدون لینک —</option></select></label>'
           + '    </div>'
           + '    <label class="ar-field"><span class="ar-label">متن پیام</span><textarea id="smsMessage" class="ar-input" rows="4" placeholder="مثال: سلام #name، لطفاً فرم زیر را تکمیل کنید: #link"></textarea></label>'
