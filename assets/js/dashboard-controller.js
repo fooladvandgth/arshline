@@ -7,6 +7,25 @@
    Exports: attaches renderFormBuilder/renderFormEditor/renderFormPreview to window
    ========================================================================= */
 (function(){
+  // ---------------------------------------------------------------------------
+  // Feature Flags (lightweight; can be toggled later or overridden before load)
+  // ---------------------------------------------------------------------------
+  // dashboardQuick: show KPI + quick analytics mini charts on main dashboard
+  // reportsCharts: enable charts & quick analytics panel inside Reports tab
+  // analyticsAdvanced: enable advanced (multi-form) analysis pane in Analytics
+  // messagingAdvanced: keep restored advanced messaging UI
+  // aiTerminal: allow AI floating terminal integrations (not modified here)
+  try {
+    if (!window.__ARSH_FEATURE_FLAGS__) {
+      window.__ARSH_FEATURE_FLAGS__ = {
+        dashboardQuick: true,
+        reportsCharts: true,
+        analyticsAdvanced: true,
+        messagingAdvanced: true,
+        aiTerminal: true
+      };
+    }
+  } catch(_ff){ }
   // Signal as early as possible that external controller is present,
   // so inline block (in template) can skip binding duplicate handlers.
   try { window.ARSH_CTRL_EXTERNAL = true; } catch(_){ }
@@ -49,66 +68,45 @@
           window._arLogDump = function(){
             try {
               if (!window._arConsoleLog) return;
-              ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>' + window._arConsoleLog.slice(-200).map(function(r){
-                return '<div style="margin-bottom:4px;color:' + (r.level === 'error' ? '#ff8080' : (r.level === 'warn' ? '#ffd080' : '#d0d0ff')) + '">[' + new Date(r.ts).toLocaleTimeString() + '] <b>' + r.level + '</b> ' + r.args.map(function(a){
-                  try { return (typeof a === 'string') ? a : JSON.stringify(a); } catch(_){ return String(a); }
-                }).join(' ') + '</div>';
-              }).join('');
+              ov.innerHTML = '<div style="font-weight:700;margin-bottom:6px">ARSH Console Capture (click to hide)</div>' +
+                window._arConsoleLog.slice(-200).map(function(r){
+                  try {
+                    return '<div style="margin-bottom:4px;color:' + (r.level === 'error' ? '#ff8080' : (r.level === 'warn' ? '#ffd080' : '#d0d0ff')) + '">[' + new Date(r.ts).toLocaleTimeString() + '] <b>' + r.level + '</b> ' + r.args.map(function(a){
+                      try { return (typeof a === 'string') ? a : JSON.stringify(a); } catch(_){ return String(a); }
+                    }).join(' ') + '</div>';
+                  } catch(_){ return ''; }
+                }).join('');
             } catch(_){ }
           };
+          window._arLogDump();
         })();
       }
     } catch(_){ }
-
-  function clog(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.log.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-  function dlog(){ try { clog.apply(console, arguments); } catch(_){ } }
-    function cwarn(){ if (AR_DEBUG && typeof console !== 'undefined') { try { console.warn.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-    function cerror(){ if (typeof console !== 'undefined') { try { console.error.apply(console, ['[ARSH]'].concat([].slice.call(arguments))); } catch(_){ } } }
-    try { window.arshSetDebug = function(v){ try { localStorage.setItem('arshDebug', v ? '1' : '0'); } catch(_){ } }; } catch(_){ }
-
-    // Console log filter — keep logs focused on AI/OpenAI by default
     try {
-      // arlog query toggles: ?arlog=all | ai | none
-      (function(){
-        var qv = null;
-        try { qv = new URLSearchParams(window.location.search).get('arlog'); } catch(_){ }
-        if (qv === 'all' || qv === 'ai' || qv === 'none') { try { localStorage.setItem('arshLogMode', qv); } catch(_){ } }
-      })();
-      var LOG_MODE = 'ai';
-      try { LOG_MODE = (localStorage.getItem('arshLogMode') || 'ai'); } catch(_){ LOG_MODE = 'ai'; }
-      // Allow-list matcher: treat logs with explicit AI tags or known keywords as AI-related
-      var _AI_RE = /\[(ARSH)\]\[(ANA|CHAT|AI)\]|\bOpenAI\b|analytics\/analyze|hosh(ang|yar)?|هوش|هوشنگ|ai\/(?:simple\-chat|config|test)/i;
-      var _orig = { log: console.log, info: console.info, warn: console.warn, error: console.error, group: console.group, groupCollapsed: console.groupCollapsed, groupEnd: console.groupEnd };
-      function _shouldPrint(args){
-        if (LOG_MODE === 'all') return true;
-        if (LOG_MODE === 'none') return false;
-        // ai-only: check any stringy arg against allow list
-        try {
-          for (var i=0;i<args.length;i++){
-            var a = args[i];
-            if (typeof a === 'string' && _AI_RE.test(a)) return true;
-            // Objects that contain a routing hint to analytics
-            if (a && typeof a === 'object'){
-              try {
-                if ((a.routing && (a.routing.structured || a.routing.mode==='structured')) || a.request_preview || a.analytics_preview) return true;
-              } catch(_){ }
-            }
+          // Filter AI noise while retaining analytics hints
+          var _AI_RE = /\bopenai|azure|gpt|llm|anthropic|vertex|ai\b/i;
+          var _orig = { log:console.log, info:console.info, warn:console.warn, error:console.error, group:console.group, groupCollapsed:console.groupCollapsed };
+          function _shouldPrint(args){
+            try {
+              for (var i=0;i<args.length;i++){
+                var a = args[i];
+                if (typeof a === 'string' && _AI_RE.test(a)) return true;
+                if (a && typeof a === 'object'){
+                  if ((a.routing && (a.routing.structured || a.routing.mode==='structured')) || a.request_preview || a.analytics_preview) return true;
+                }
+              }
+            } catch(_){ }
+            return false;
           }
-        } catch(_){ }
-        return false;
-      }
-      // Wrap basic console methods
-      ['log','info','warn','error','group','groupCollapsed'].forEach(function(m){
-        try {
-          console[m] = function(){
-            var args = Array.prototype.slice.call(arguments);
-            if (_shouldPrint(args)) { try { _orig[m].apply(console, args); } catch(_){ } }
-          };
-        } catch(_){ }
-      });
-      // Always pass through groupEnd to avoid breaking console grouping
-      try { console.groupEnd = function(){ try { _orig.groupEnd && _orig.groupEnd.apply(console, arguments); } catch(_){ } }; } catch(_){ }
-      // Expose a quick toggle helper
+          ['log','info','warn','error','group','groupCollapsed'].forEach(function(m){
+            try {
+              console[m] = function(){
+                var args = Array.prototype.slice.call(arguments);
+                if (_shouldPrint(args)) { try { _orig[m].apply(console, args); } catch(_){ } }
+              };
+            } catch(_){ }
+          });
+          try { console.groupEnd = function(){ try { _orig.groupEnd && _orig.groupEnd.apply(console, arguments); } catch(_){ } }; } catch(_){ }
       try { window.arshSetLogMode = function(mode){ if (!mode) return; try { localStorage.setItem('arshLogMode', String(mode)); } catch(_){ } try { location.reload(); } catch(_){ } }; } catch(_){ }
     } catch(_){ }
 
@@ -150,6 +148,48 @@
                   node.replaceChild(span, child);
                   child = span; tag = 'SPAN';
                 } catch(_){ }
+
+                      // Init metrics & KPIs (dashboard scope)
+                      (function initDashboardStats(){
+                        try { if (window.__ARSH_DASH_INIT__) return; window.__ARSH_DASH_INIT__ = true; } catch(_){ }
+                        // Fetch counts
+                        try {
+                          fetch(ARSHLINE_REST + 'stats', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                            .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+                            .then(function(j){ if(!j) return; try {
+                              var total=j.forms||0, active=j.forms_active||0, disabled=Math.max(total-active,0);
+                              function set(id,v){ var el=document.getElementById(id); if(el) el.textContent=String(v); }
+                              set('arKpiForms', total); set('arKpiFormsActive', active); set('arKpiFormsDisabled', disabled);
+                              set('arKpiSubs', j.submissions||0); set('arKpiUsers', j.users||0);
+                            } catch(_){ } })
+                            .catch(function(e){ try { console.warn('[ARSH][DASH] stats failed', e); } catch(_){ } });
+                        } catch(_){ }
+                        // Mini metrics
+                        function ensureChart(cb){ if(window.Chart) return cb(); var s=document.createElement('script'); s.src=(window.ARSHLINE_PLUGIN_URL||'/wp-content/plugins/arshline')+'/assets/js/vendor/chart.min.js'; s.onload=cb; document.head.appendChild(s); }
+                        function palette(){ return { line:'#06b6d4', alt:'#818cf8', dim:'#94a3b8', text:'#0f172a' }; }
+                        function renderMini(ctx, labels, data, color){ try { new Chart(ctx,{ type:'line', data:{ labels:labels, datasets:[{ data:data, borderColor:color, backgroundColor:color+'22', tension:.3, fill:true, borderWidth:2, pointRadius:0 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{display:false},y:{display:false}} }}); } catch(_){ } }
+                        function fetchDashMetrics(){ var sel=document.getElementById('arMetricsDaysDash'); var d= sel? sel.value : '30'; var url=new URL(ARSHLINE_REST+'analytics/metrics', location.origin); url.searchParams.set('days', d); fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE} })
+                          .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+                          .then(function(json){ if(!json||!json.totals) return; var allZero=(json.totals.sms||0)===0&&(json.totals.submissions||0)===0&&(json.totals.views||0)===0&&(json.totals.group_members||0)===0; if(allZero){ var daysN=parseInt(d)||30; var labels=[]; var sms=[]; var subs=[]; var views=[]; for(var i=daysN-1;i>=0;i--){ var dt=new Date(Date.now()-i*86400000); labels.push(dt.toISOString().slice(0,10)); } labels.forEach(function(_,idx){ sms.push((idx%7)+1); subs.push(Math.round((Math.sin(idx/3)+1)*3+(idx%4))); views.push(subs[idx]*(1+(idx%3))+(idx%5)); }); json.series=json.series||{}; json.series.labels=labels; json.series.sms_per_day=sms; json.series.submissions_per_day=subs; json.series.views_per_day=views; json.totals.sms=sms.reduce((a,b)=>a+b,0); json.totals.submissions=subs.reduce((a,b)=>a+b,0); json.totals.views=views.reduce((a,b)=>a+b,0); json.totals.group_members=25; var badge=document.getElementById('arMetricSmsTotalDash'); if(badge && !badge.dataset.demo){ var demo=document.createElement('span'); demo.textContent='Demo'; demo.style.cssText='font-size:10px;margin-right:4px;color:#f59e0b;'; badge.parentNode.insertBefore(demo,badge); badge.dataset.demo='1'; } }
+                            var pal=palette();
+                            var labels2=(json.series&&json.series.labels)||[];
+                            var smsT=document.getElementById('arMetricSmsTotalDash'); if(smsT) smsT.textContent=json.totals.sms||0;
+                            var subsT=document.getElementById('arMetricSubsTotalDash'); if(subsT) subsT.textContent=json.totals.submissions||0;
+                            var viewsT=document.getElementById('arMetricViewsTotalDash'); if(viewsT) viewsT.textContent=json.totals.views||0;
+                            var memT=document.getElementById('arMetricMembersTotalDash'); if(memT) memT.textContent=json.totals.group_members||0;
+                            ensureChart(function(){
+                              renderMini(document.getElementById('arMetricSmsChartDash').getContext('2d'), labels2, (json.series&&json.series.sms_per_day)||[], pal.line);
+                              renderMini(document.getElementById('arMetricSubsChartDash').getContext('2d'), labels2, (json.series&&json.series.submissions_per_day)||[], pal.alt);
+                              renderMini(document.getElementById('arMetricViewsChartDash').getContext('2d'), labels2, (json.series&&json.series.views_per_day)||[], pal.dim);
+                              var memSeries=labels2.map(function(){ return json.totals.group_members||0; });
+                              renderMini(document.getElementById('arMetricMembersChartDash').getContext('2d'), labels2, memSeries, pal.text);
+                            });
+                          })
+                          .catch(function(e){ console.warn('[ARSH][DASH] metrics failed', e); }); }
+                        try { var sel=document.getElementById('arMetricsDaysDash'); if(sel) sel.addEventListener('change', fetchDashMetrics); } catch(_){ }
+                        fetchDashMetrics();
+                      })();
+
               }
               if (!allowed[tag]){
                 while(child.firstChild){ node.insertBefore(child.firstChild, child); }
@@ -211,6 +251,8 @@
       // Nested route: users/ug => گروه‌های کاربری
   var seg1 = (parts[1]||'').split('?')[0];
   if (parts[0]==='users' && seg1==='ug'){ renderUsersUG(); return; }
+  // Alias legacy hash 'messages' -> 'messaging'
+  if (seg0 === 'messages') { setHash('messaging'); arRenderTab('messaging'); return; }
   if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(seg0)){ arRenderTab(seg0); return; }
   if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { dlog('route:builder', id); renderFormBuilder(id); return; } }
   if (seg0==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); dlog('route:editor', { id:id2, idx:idx, parts:parts }); if (id2) { renderFormEditor(id2, { index: isNaN(idx)?0:idx }); return; } }
@@ -245,6 +287,14 @@
     var themeToggle = document.getElementById('arThemeToggle');
     try { if (localStorage.getItem('arshDark') === '1') document.body.classList.add('dark'); } catch(_){ }
   if (themeToggle && AR_FULL){
+        // Expose explicit setter for external NL commands
+        try { window.ARSH_SET_THEME = function(mode){
+          var wantDark = (mode === 'dark');
+          var isDark = document.body.classList.contains('dark');
+          if (wantDark !== isDark){ try { themeToggle.click(); } catch(_){ document.body.classList.toggle('dark', wantDark); }
+          try { localStorage.setItem('arshDark', wantDark ? '1' : '0'); } catch(_){ }
+          }
+        }; } catch(_){ }
       function applyAria(){ themeToggle.setAttribute('aria-checked', document.body.classList.contains('dark') ? 'true' : 'false'); }
       applyAria();
       var toggle = function(){ document.body.classList.toggle('dark'); applyAria(); try { localStorage.setItem('arshDark', document.body.classList.contains('dark') ? '1' : '0'); } catch(_){ } };
@@ -256,6 +306,37 @@
       sidebarToggle.addEventListener('click', tgl);
       sidebarToggle.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); tgl(); }});
     }
+              // QUICK ANALYTICS (تحلیل سریع) block — added to external controller for parity with inline template
+              '<div class="card glass" style="padding:1rem; margin-top:1rem;">'+
+                '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
+                  '<span class="title">تحلیل سریع</span>'+
+                  '<span class="hint">پیامک / پاسخ / بازدید / اعضا (۳۰ روز)</span>'+
+                  '<span style="flex:1 1 auto"></span>'+
+                  '<select id="arMetricsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+                '</div>'+
+                '<div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap:.8rem;">'+
+                  '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                    '<div class="hint" style="font-size:.7rem;">پیامک</div>'+
+                    '<div id="arMetricSmsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                    '<canvas id="arMetricSmsChart" height="60"></canvas>'+
+                  '</div>'+
+                  '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                    '<div class="hint" style="font-size:.7rem;">پاسخ</div>'+
+                    '<div id="arMetricSubsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                    '<canvas id="arMetricSubsChart" height="60"></canvas>'+
+                  '</div>'+
+                  '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                    '<div class="hint" style="font-size:.7rem;">بازدید</div>'+
+                    '<div id="arMetricViewsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                    '<canvas id="arMetricViewsChart" height="60"></canvas>'+
+                  '</div>'+
+                  '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                    '<div class="hint" style="font-size:.7rem;">اعضا</div>'+
+                    '<div id="arMetricMembersTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                    '<canvas id="arMetricMembersChart" height="60"></canvas>'+
+                  '</div>'+
+                '</div>'+
+              '</div>';
 
     function setActive(tab){
       var hash = (location.hash||'').replace('#','');
@@ -267,23 +348,778 @@
         var dt = a.getAttribute('data-tab');
         var href = a.getAttribute('href') || '';
         var isUG = (seg0==='users' && seg1==='ug');
-        var isActive = (dt ? (dt === tab) : false);
-        // Do NOT activate parent Users when on users/ug; only activate Users on plain users routes
-        if (!isActive && dt === 'users' && !isUG && tab && tab.indexOf('users') === 0) isActive = true;
-        // Explicitly highlight the UG anchor when on users/ug
-        if (!isActive && isUG && href.indexOf('#users/ug') === 0) isActive = true;
-        if (isActive){
-          a.classList.add('active');
-          try { a.setAttribute('aria-current', 'page'); } catch(_){ }
+        var isActive = false;
+        if (isUG){
+          // Only highlight the specific UG link (hash starts with #users/ug)
+          if (href.indexOf('#users/ug') === 0) isActive = true;
         } else {
-          a.classList.remove('active');
-          try { a.removeAttribute('aria-current'); } catch(_){ }
+          // Standard tabs
+            if (dt && dt === tab) { isActive = true; }
+            else if (dt === 'users' && tab && tab.split('/')[0] === 'users' && seg1 !== 'ug') { isActive = true; }
         }
+        if (isActive){ a.classList.add('active'); try { a.setAttribute('aria-current','page'); } catch(_){ } }
+        else { a.classList.remove('active'); try { a.removeAttribute('aria-current'); } catch(_){ } }
       });
     }
     function getTypeIcon(type){ switch(type){ case 'short_text': return 'create-outline'; case 'long_text': return 'newspaper-outline'; case 'multiple_choice': case 'multiple-choice': return 'list-outline'; case 'dropdown': return 'chevron-down-outline'; case 'welcome': return 'happy-outline'; case 'thank_you': return 'checkmark-done-outline'; default: return 'help-circle-outline'; } }
     function getTypeLabel(type){ switch(type){ case 'short_text': return 'پاسخ کوتاه'; case 'long_text': return 'پاسخ طولانی'; case 'multiple_choice': case 'multiple-choice': return 'چندگزینه‌ای'; case 'dropdown': return 'لیست کشویی'; case 'welcome': return 'پیام خوش‌آمد'; case 'thank_you': return 'پیام تشکر'; default: return 'نامشخص'; } }
     function card(title, subtitle, icon){ var ic = icon ? ('<span style="font-size:22px;margin-inline-start:.4rem;opacity:.85">'+icon+'</span>') : ''; return '<div class="card glass" style="display:flex;align-items:center;gap:.6rem;">'+ic+'<div><div class="title">'+title+'</div><div class="hint">'+(subtitle||'')+'</div></div></div>'; }
+
+      // Hoosha: Smart Form Builder tab (two-row editor, LLM prepare/apply)
+      function renderHoosha(){
+        setActive('hoosha');
+        var content = document.getElementById('arshlineDashboardContent');
+        if (!content) return;
+        // Header actions
+        var headerActions = document.getElementById('arHeaderActions');
+        if (headerActions){ headerActions.innerHTML = '<button id="arHooshaCreate" class="ar-btn ar-btn--soft">ساخت فرم پیش‌نویس</button>'; }
+        content.innerHTML = ''+
+          '<div class="card glass" style="padding:1rem">'+
+            '<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">'+
+              '<span class="title">فرم‌ساز هوشا</span>'+ 
+              '<span class="hint">ویرایش دو ستونه: بالا متن اولیه، پایین متن ویرایش‌شده</span>'+ 
+              '<span style="flex:1 1 auto"></span>'+ 
+              '<label class="hint" style="display:inline-flex;align-items:center;gap:.35rem"><input id="arHooshaAutoApply" type="checkbox"/> اعمال خودکار (≥ 0.9)</label>'+ 
+            '</div>'+ 
+            '<div id="arHooshaProgress" style="display:none;align-items:center;gap:.6rem;margin:.25rem 0 1rem">'+
+              '<div class="hint" id="arHooshaProgressText" style="min-width:10ch">در حال آماده‌سازی…</div>'+ 
+              '<div style="flex:1 1 auto;height:8px;background:var(--border,#e5e7eb);border-radius:999px;overflow:hidden">'+
+                '<div id="arHooshaProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#3b82f6);transition:width .25s ease"></div>'+ 
+              '</div>'+ 
+              '<div class="hint" id="arHooshaProgressPct" style="min-width:3ch;text-align:end">0%</div>'+ 
+            '</div>'+ 
+            '<div style="display:grid;grid-template-columns:1fr;gap:.6rem">'+ 
+              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;align-items:stretch">'+
+                '<div>'+ 
+                  '<div class="hint" style="margin-bottom:.25rem">متن اولیه</div>'+ 
+                  '<textarea id="arHooshaRaw" class="ar-input" style="min-height:220px;max-height:380px;height:280px;resize:vertical;line-height:1.8"></textarea>'+ 
+                '</div>'+ 
+                '<div>'+ 
+                  '<div class="hint" style="margin-bottom:.25rem">متن ویرایش‌شده</div>'+ 
+                  '<textarea id="arHooshaEdited" class="ar-input" style="min-height:220px;max-height:380px;height:280px;resize:vertical;line-height:1.8" placeholder="خروجی ویرایشی هوشا اینجا نمایش داده می‌شود..."></textarea>'+ 
+                '</div>'+ 
+              '</div>'+ 
+              '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">'+ 
+                '<button id="arHooshaPrepare" class="ar-btn">تحلیل و پیشنهاد</button>'+ 
+                '<button id="arHooshaApply" class="ar-btn ar-btn--soft">اعمال دستورات</button>'+ 
+                '<button id="arHooshaUndo" class="ar-btn ar-btn--soft" style="display:none">بازگشت</button>'+ 
+                '<input id="arHooshaCmd" class="ar-input" placeholder="مثلاً: سوال اول الزامی شود، ۳ گزینه اضافه کن، متن سوال دوم کوتاه‌تر" style="flex:1 1 340px;min-width:260px"/>'+ 
+              '</div>'+ 
+              '<div id="arHooshaNlShell" style="display:none"></div>'+ 
+              '<div id="arHooshaSteps" class="hint" style="white-space:pre-wrap;line-height:1.7;background:var(--surface,#fff);border:1px dashed var(--border,#e5e7eb);border-radius:8px;padding:.5rem;min-height:2.2rem"></div>'+ 
+              '<details id="arHooshaDebug" style="margin-top:.25rem">'+
+                '<summary class="hint">دیباگ درخواست/پاسخ (هوشا)</summary>'+
+                '<div id="arHooshaDebugOut" style="direction:ltr;white-space:pre-wrap;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:.5rem;max-height:260px;overflow:auto"></div>'+
+              '</details>'+ 
+              '<div id="arHooshaNotes" class="hint" style="white-space:pre-wrap;line-height:1.7"></div>'+ 
+              '<div id="arHooshaVersions" class="hint" style="display:none;font-size:.7rem;opacity:.8"></div>'+ 
+              // Preview moved logically to end; will append later dynamically if needed
+              '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none;margin-top:1.25rem"></div>'+ 
+            '</div>'+ 
+          '</div>'+
+          // NOTE (2025-10): Removed duplicate Quick Analytics block from Hoosha builder context to reduce noise
+          // and focus user on form-edit AI tools. The same mini metrics remain on Dashboard/Reports.
+          // To restore, reinsert the previous card markup (id="arDashQuickAnalytics") and optionally
+          // gate with window.__ARSH_FEATURE_FLAGS__.dashboardQuick.
+          '';
+  // Quick Analytics card removed above. Leaving this placeholder intentionally; if future logic
+  // expects #arDashQuickAnalytics, add a null check or recreate conditionally.
+        // Scroll sync (raw -> edited caret proximity)
+        (function(){
+          var raw = document.getElementById('arHooshaRaw');
+          var edited = document.getElementById('arHooshaEdited');
+          function sync(from, to){ try { to.scrollTop = (from.scrollTop / Math.max(1, from.scrollHeight - from.clientHeight)) * Math.max(0, to.scrollHeight - to.clientHeight); } catch(_){ } }
+          if (raw && edited){ raw.addEventListener('scroll', function(){ sync(raw, edited); }); edited.addEventListener('scroll', function(){ sync(edited, raw); }); }
+        })();
+        var autoApply = document.getElementById('arHooshaAutoApply');
+        var btnPrepare = document.getElementById('arHooshaPrepare');
+        var btnApply = document.getElementById('arHooshaApply');
+        var inpRaw = document.getElementById('arHooshaRaw');
+        var inpEdited = document.getElementById('arHooshaEdited');
+        var inpCmd = document.getElementById('arHooshaCmd');
+  // Natural language preview edit elements (injected later)
+  var inpNl = document.getElementById('arHooshaNl');
+  var btnUndo = document.getElementById('arHooshaUndo');
+  var versionStack = [];
+  var versionsEl = document.getElementById('arHooshaVersions');
+  function refreshVersions(){ if(!versionsEl) return; if(!versionStack.length){ versionsEl.style.display='none'; versionsEl.textContent=''; return; } versionsEl.style.display='block'; versionsEl.textContent='نسخه‌های ذخیره‌شده: '+versionStack.length+' (آخرین: '+(new Date()).toLocaleTimeString()+')'; }
+  var interpretStatus = document.getElementById('arHooshaInterpretStatus');
+  var diffBox = document.getElementById('arHooshaDiff');
+  var btnPreviewEdit = document.getElementById('arHooshaPreviewEdit');
+  var nlActions = document.getElementById('arHooshaNlActions');
+  var btnConfirmPreview = document.getElementById('arHooshaConfirmPreview');
+  var btnCancelPreview = document.getElementById('arHooshaCancelPreview');
+  var pendingSchema = null;
+        var notes = document.getElementById('arHooshaNotes');
+        var preview = document.getElementById('arHooshaPreview');
+  var stepsBox = document.getElementById('arHooshaSteps');
+  var progWrap = document.getElementById('arHooshaProgress');
+  var progText = document.getElementById('arHooshaProgressText');
+  var progBar = document.getElementById('arHooshaProgressBar');
+  var progPct = document.getElementById('arHooshaProgressPct');
+  var schema = null;
+  var dbgOut = document.getElementById('arHooshaDebugOut');
+  // If NL shell exists but components missing, inject card now
+  (function(){
+    var shell = document.getElementById('arHooshaNlShell');
+    if (shell && !document.getElementById('arHooshaPreviewEdit')){
+      shell.innerHTML = ''+
+        '<div class="card" id="arHooshaNlCard" style="padding:.9rem 1rem;border:1px solid var(--border,#e5e7eb);border-radius:12px;background:var(--surface,#fff);margin-top:.35rem">'+
+          '<div class="hint" style="margin-bottom:.45rem;font-weight:600">ویرایش طبیعی فرم</div>'+ 
+          '<textarea id="arHooshaNl" class="ar-input" style="min-height:110px;resize:vertical;line-height:1.7" placeholder="مثلاً: سوال نام رسمی شود، سوال سوم اختیاری، گزینه جدید اضافه کن"></textarea>'+ 
+          '<div style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem;flex-wrap:wrap">'+
+            '<button id="arHooshaPreviewEdit" class="ar-btn ar-btn--soft">پیش‌نمایش تغییرات</button>'+ 
+            '<span class="hint" id="arHooshaInterpretStatus" style="min-height:1.5rem"></span>'+ 
+          '</div>'+ 
+          '<div id="arHooshaDiff" style="margin-top:.75rem;display:none;border:1px dashed var(--border,#e5e7eb);border-radius:8px;padding:.6rem;white-space:pre-wrap;font-size:.8rem;line-height:1.6"></div>'+ 
+          '<div id="arHooshaNlActions" style="display:none;margin-top:.6rem;gap:.5rem;align-items:center;flex-wrap:wrap">'+
+            '<button id="arHooshaConfirmPreview" class="ar-btn">تایید و اعمال</button>'+ 
+            '<button id="arHooshaCancelPreview" class="ar-btn ar-btn--soft">انصراف</button>'+ 
+          '</div>'+ 
+        '</div>';
+      // Do NOT show yet; will display after first successful prepare
+      // re-bind references after injection
+      inpNl = document.getElementById('arHooshaNl');
+      interpretStatus = document.getElementById('arHooshaInterpretStatus');
+      diffBox = document.getElementById('arHooshaDiff');
+      btnPreviewEdit = document.getElementById('arHooshaPreviewEdit');
+      nlActions = document.getElementById('arHooshaNlActions');
+      btnConfirmPreview = document.getElementById('arHooshaConfirmPreview');
+      btnCancelPreview = document.getElementById('arHooshaCancelPreview');
+    }
+    // Move preview panel to very bottom (after outer card) if not already moved
+    try {
+      // Provide a stable anchor outside the main initial card so CSS grid inside card doesn't constrain width/flow.
+      // 1. Ensure anchor container exists (once per Hoosha render)
+      var anchorId = 'arHooshaPreviewAnchor';
+      var existingAnchor = document.getElementById(anchorId);
+      if (!existingAnchor){
+        var mainRoot = document.getElementById('arshlineDashboardContent');
+        if (mainRoot){
+          existingAnchor = document.createElement('div');
+          existingAnchor.id = anchorId;
+          existingAnchor.style.marginTop = '1.75rem';
+          // Append at very end so it's always below everything else the user sees
+          mainRoot.appendChild(existingAnchor);
+        }
+      }
+      // 2. Relocate preview element right after anchor (anchor stays persistent so re-renders/hot updates won't duplicate)
+      var previewEl = document.getElementById('arHooshaPreview');
+      if (previewEl && existingAnchor && previewEl.parentNode !== existingAnchor){
+        existingAnchor.appendChild(previewEl);
+        previewEl.style.marginTop = '0';
+        previewEl.style.width = '100%';
+      }
+      // 2.5 Move NL edit card just AFTER preview (user request: "arHooshaNlCard زیر arHooshaPreview")
+      try {
+        var nlCard = document.getElementById('arHooshaNlCard');
+        if (nlCard && previewEl && previewEl.parentNode) {
+          // Insert only if not already immediately after preview
+          var needMove = (nlCard.parentNode !== previewEl.parentNode) || (previewEl.nextSibling !== nlCard);
+          if (needMove) {
+            previewEl.parentNode.insertBefore(nlCard, previewEl.nextSibling);
+            nlCard.style.marginTop = '1rem';
+          }
+        }
+      } catch(_nlmv){}
+      // 3. As a safety net, watch for late DOM mutations that might re-insert the preview into original card and move it back.
+      if (!window.__AR_HOOSHA_PREVIEW_OBSERVER__){
+        try {
+          var obsTarget = document.getElementById('arshlineDashboardContent');
+          if (obsTarget){
+            window.__AR_HOOSHA_PREVIEW_OBSERVER__ = new MutationObserver(function(muts){
+              try {
+                var pv = document.getElementById('arHooshaPreview');
+                var anc = document.getElementById('arHooshaPreviewAnchor');
+                if (pv && anc && pv.parentNode !== anc){ anc.appendChild(pv); }
+                // Keep NL card under preview if present
+                try {
+                  var nl = document.getElementById('arHooshaNlCard');
+                  if (nl && pv && pv.parentNode) {
+                    var needMove2 = (nl.parentNode !== pv.parentNode) || (pv.nextSibling !== nl);
+                    if (needMove2) { pv.parentNode.insertBefore(nl, pv.nextSibling); }
+                  }
+                } catch(_reord){}
+              } catch(_o){}
+            });
+            window.__AR_HOOSHA_PREVIEW_OBSERVER__.observe(obsTarget, { childList:true, subtree:true });
+          }
+        } catch(_obs){}
+      }
+    } catch(_mv){}
+  })();
+  function dbg(line){ try { if(!dbgOut) return; var now=new Date().toLocaleTimeString(); var s=String(line||''); var div=document.createElement('div'); div.textContent='['+now+'] '+s; dbgOut.appendChild(div); dbgOut.scrollTop = dbgOut.scrollHeight; } catch(_){ } }
+  try { if (window.ARSHCapture && typeof window.ARSHCapture.addListener==='function'){ window.ARSHCapture.addListener(function(ev){ try { if(!ev||ev.type!=='ajax') return; var tgt=String(ev.target||''); if(tgt.indexOf('/hoosha/prepare')===-1 && tgt.indexOf('/hoosha/apply')===-1) return; dbg((ev.message||'')+' :: '+tgt+' :: '+String(ev.data||'')); } catch(_){ } }); } } catch(_){ }
+  if (btnPreviewEdit){
+    btnPreviewEdit.onclick = function(){
+      if (!schema){ notify('ابتدا تحلیل اولیه فرم را انجام دهید', 'warn'); return; }
+      var txt = (inpNl && inpNl.value || '').trim(); if (!txt){ notify('متن طبیعی ویرایش را وارد کنید', 'warn'); return; }
+      try { dbg('NL-PREVIEW STEP 1) شروع پردازش ورودی'); } catch(_d1){}
+      interpretStatus.textContent='در حال تولید پیش‌نمایش...'; interpretStatus.style.color='#2563eb';
+      if (diffBox){ diffBox.style.display='none'; }
+      if (nlActions){ nlActions.style.display='none'; }
+      pendingSchema = null;
+      var url = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/preview_edit';
+      var body = { schema: schema, natural_prompt: txt };
+      try { dbg('SEND preview_edit '+url+' :: '+JSON.stringify(body)); } catch(_){ }
+      try { dbg('NL-PREVIEW STEP 2) استخراج اولیه مبتنی بر قواعد محلی (در صورت نیاز)'); } catch(_d2){}
+      var aborted=false; var controller=null; try { controller=new AbortController(); } catch(_ab){}
+      // Preview timeout improvements: allow override and show countdown
+  var baseTimeout = (typeof window.ARSH_HOOSHA_PREVIEW_TIMEOUT==='number' && window.ARSH_HOOSHA_PREVIEW_TIMEOUT>5000)? window.ARSH_HOOSHA_PREVIEW_TIMEOUT : 70000; // doubled default (was 35000)
+  // Heuristic: extend more aggressively for longer prompts
+  var complexityBoost = txt.length>300 ? 24000 : (txt.length>160 ? 16000 : 0); // additive
+      var timeoutMs = baseTimeout + complexityBoost;
+      var startedAt = Date.now();
+      var countdownInt = null;
+      try {
+        if(interpretStatus){
+          var cdEl = document.createElement('span'); cdEl.id='arNlPreviewCountdown'; cdEl.style.marginInlineStart='.5rem'; cdEl.style.fontSize='11px'; cdEl.style.opacity='.75'; interpretStatus.appendChild(cdEl);
+          countdownInt = setInterval(function(){ if(!cdEl) return; var remain = timeoutMs - (Date.now()-startedAt); if (remain<=0){ cdEl.textContent=''; return; } cdEl.textContent='('+Math.ceil(remain/1000)+'s)'; }, 1000);
+        }
+      } catch(_cdi){}
+      var timedOut=false;
+      var tRef=setTimeout(function(){ timedOut=true; aborted=true; try { if(controller) controller.abort(); } catch(_a){}
+        interpretStatus.textContent='مهلت پیش‌نمایش تمام شد (fallback محلی)'; interpretStatus.style.color='#dc2626';
+        // Offer retry button
+        try {
+          var retryBtn=document.createElement('button'); retryBtn.className='ar-btn ar-btn--soft'; retryBtn.style.marginInlineStart='.5rem'; retryBtn.textContent='تلاش مجدد'; retryBtn.onclick=function(){ try { retryBtn.disabled=true; } catch(_r){} btnPreviewEdit.click(); };
+          interpretStatus.appendChild(retryBtn);
+        } catch(_rb){}
+        try { dbg('preview_edit TIMEOUT after '+timeoutMs+'ms promptLen='+txt.length); } catch(_d){}
+        try { if(countdownInt) clearInterval(countdownInt); } catch(_ci){}
+        localPreviewFallback(txt);
+      }, timeoutMs);
+      try { dbg('NL-PREVIEW STEP 3) ارسال درخواست به مدل'); } catch(_d3){}
+      fetch(url, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(body), signal: controller?controller.signal:undefined })
+        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(function(j){ if(aborted) { try { dbg('RECV after abort (late) ignored'); } catch(_la){} return; } try { clearTimeout(tRef); } catch(_ct){}
+          try { if(countdownInt) clearInterval(countdownInt); } catch(_ci){}
+          try { dbg('RECV preview_edit :: '+JSON.stringify(j).slice(0,1500)); } catch(_){ }
+          if (!j || !j.preview_schema){ throw new Error('خروجی نامعتبر'); }
+          pendingSchema = j.preview_schema;
+          var cmds = j.commands || [];
+          if (inpCmd){ inpCmd.value = cmds.join('، '); }
+          var deltas = Array.isArray(j.deltas)? j.deltas : [];
+          try { dbg('NL-PREVIEW STEP 4) اِعمال موقت deltas روی پیش‌نمایش'); } catch(_d4){}
+          if (diffBox){
+            var html=[]; if (!deltas.length){ html.push('<div class="hint">تغییری شناسایی نشد.</div>'); }
+            var colorForOp = function(op){ if(op.indexOf('add_')===0) return '#065f46'; if(op.indexOf('remove_')===0) return '#991b1b'; if(op.indexOf('update_')===0) return '#1e3a8a'; return '#374151'; };
+            deltas.forEach(function(d){ var op=d.op||'op'; var fi = (typeof d.field_index==='number')? (' #'+(d.field_index+1)) : ''; var det = d.detail||''; html.push('<div style="margin:.2rem 0;padding:.2rem .35rem;border-radius:4px;background:rgba(0,0,0,0.03);direction:rtl"><span style="color:'+colorForOp(op)+';font-weight:600">'+op+'</span>'+fi+(det?(' — '+escapeHtml(String(det))):'')+'</div>'); });
+            diffBox.innerHTML = html.join(''); diffBox.style.display='block';
+          }
+          var confidence = typeof j.confidence==='number'? j.confidence : 0;
+          try { dbg('NL-PREVIEW STEP 5) محاسبه اعتماد و تصمیم اعمال خودکار'); } catch(_d5){}
+          interpretStatus.textContent='پیش‌نمایش آماده است (اعتماد '+(confidence?confidence.toFixed(2):'0')+')'; interpretStatus.style.color='#16a34a';
+          var autoApplyEl=document.getElementById('arHooshaAutoApply'); var shouldAuto=autoApplyEl&&autoApplyEl.checked&&confidence>=0.9;
+            if (shouldAuto){
+              try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); if(btnUndo) btnUndo.style.display='inline-block'; } catch(_vs){}
+              schema = pendingSchema; pendingSchema=null; showPreview(schema, deltas); if(diffBox) diffBox.style.display='none'; notify('تغییرات (اعتماد بالا) خودکار اعمال شد','success'); interpretStatus.textContent='اعمال خودکار انجام شد (اعتماد '+confidence.toFixed(2)+')'; interpretStatus.style.color='#0d9488';
+              try { dbg('NL-PREVIEW STEP 6) اعمال نهایی (auto-apply)'); } catch(_d6){}
+            } else {
+              showPreview(pendingSchema, deltas); if (nlActions){ nlActions.style.display='flex'; }
+              try { dbg('NL-PREVIEW STEP 6) آماده برای تایید/انصراف'); } catch(_d6b){}
+            }
+          try { dbg('NL-PREVIEW STEP 7) پایان پردازش preview_edit'); } catch(_d7){}
+        })
+        .catch(function(e){ if(aborted) { try { dbg('ERROR after abort (ignored) '+(e&&e.message||e)); } catch(_i){} return; } console.error(e); interpretStatus.textContent='خطا در پیش‌نمایش'; interpretStatus.style.color='#dc2626';
+          try {
+            var retryBtn2=document.createElement('button'); retryBtn2.className='ar-btn ar-btn--soft'; retryBtn2.style.marginInlineStart='.5rem'; retryBtn2.textContent='تلاش مجدد'; retryBtn2.onclick=function(){ try { retryBtn2.disabled=true; } catch(_r){} btnPreviewEdit.click(); };
+            interpretStatus.appendChild(retryBtn2);
+          } catch(_rb2){}
+          try { dbg('preview_edit ERROR '+(e&&e.message||e)); } catch(_d){} localPreviewFallback(txt); })
+        .finally(function(){ setTimeout(function(){ if(interpretStatus.textContent.indexOf('پیش‌نمایش')!==-1 || interpretStatus.textContent.indexOf('اعمال خودکار')!==-1){ /* keep */ } else { interpretStatus.textContent=''; } }, 8000); });
+    };
+  }
+  if (btnConfirmPreview){ btnConfirmPreview.onclick = function(){
+    if (!pendingSchema){ notify('پیش‌نمایشی برای اعمال نیست','warn'); return; }
+    try { versionStack.push(JSON.parse(JSON.stringify(schema||{}))); } catch(_vs){}
+    refreshVersions(); if (btnUndo) btnUndo.style.display='inline-block';
+    schema = pendingSchema; pendingSchema=null;
+    showPreview(schema);
+    if (diffBox) diffBox.style.display='none';
+    if (nlActions){
+      // Fade out actions container gracefully
+      try {
+        nlActions.style.transition='opacity .35s ease';
+        nlActions.style.opacity='0';
+        setTimeout(function(){
+          try {
+            var nlCard = document.getElementById('arHooshaNlCard');
+            if (nlCard){ nlCard.appendChild(nlActions); }
+            nlActions.style.display='none';
+            nlActions.style.opacity='';
+            nlActions.style.transition='';
+          } catch(_rv){}
+        },380);
+      } catch(_fout){ nlActions.style.display='none'; }
+    }
+    notify('تغییرات اعمال شد','success');
+    interpretStatus.textContent='اعمال شد'; interpretStatus.style.color='#16a34a';
+    setTimeout(function(){ interpretStatus.textContent=''; },4000);
+  } }
+  if (btnUndo){ btnUndo.onclick = function(){ if (!versionStack.length){ notify('نسخه قبلی موجود نیست','warn'); return; } schema = versionStack.pop(); refreshVersions(); showPreview(schema); notify('بازگشت انجام شد','info'); if (!versionStack.length){ btnUndo.style.display='none'; } } }
+  if (btnCancelPreview){ btnCancelPreview.onclick = function(){
+    pendingSchema=null;
+    if (diffBox) diffBox.style.display='none';
+    if (nlActions){
+      // Move actions back inside NL card (original host)
+      try {
+        var nlCard = document.getElementById('arHooshaNlCard');
+        if (nlCard){ nlCard.appendChild(nlActions); }
+      } catch(_bk){}
+      nlActions.style.display='none';
+    }
+    interpretStatus.textContent='لغو شد'; interpretStatus.style.color='#dc2626';
+    // Scroll back to NL textarea for user to re-edit
+    try {
+      var txt = document.getElementById('arHooshaNl');
+      if (txt){ txt.scrollIntoView({behavior:'smooth', block:'center'}); }
+    } catch(_scr){}
+    setTimeout(function(){ interpretStatus.textContent=''; },3000);
+  } }
+
+        function cap(type, message, data){
+          try {
+            var payload = { type:type||'info', message:message||'', data: (data==null?'':(typeof data==='string'? data : JSON.stringify(data))).slice(0,240) };
+            // Always print to console for visibility
+            try { console.info('[ARSH]', payload.type, payload.message, payload.data||''); } catch(_e){}
+            // Also push to ARSHCapture queue if available
+            if (window.ARSHCapture && typeof window.ARSHCapture.push==='function'){
+              window.ARSHCapture.push(payload);
+            }
+          } catch(_){ }
+        }
+        function step(msg){ try { if (!stepsBox) return; var s = String(msg||''); var t = stepsBox.textContent||''; stepsBox.textContent = (t? (t+'\n') : '') + '• ' + s; try { console.info('[ARSH] step:', s); } catch(_e){} } catch(_){ } }
+  function setProgress(label, percent){ try { if(!progWrap||!progBar||!progText||!progPct) return; progWrap.style.display='flex'; progText.textContent = String(label||''); var p = Math.max(0, Math.min(100, Math.floor(percent||0))); progBar.style.width = p + '%'; progPct.textContent = p + '%'; } catch(_){ } }
+  function doneProgress(){ try { if(!progWrap) return; setProgress('انجام شد', 100); setTimeout(function(){ progWrap.style.display='none'; }, 600); } catch(_){ } }
+
+        function showNotes(arr, conf){
+          var lines = [];
+          var hasBaselineSub = false;
+            if (typeof conf === 'number') lines.push('اعتماد مدل: ' + conf.toFixed(2));
+            if (Array.isArray(arr) && arr.length) {
+              lines = lines.concat(arr.map(function(s){
+                var str = String(s||'');
+                if (str.indexOf('baseline_schema_substitution')!==-1) { hasBaselineSub = true; }
+                return '- ' + str;
+              }));
+            }
+            if (hasBaselineSub) {
+              lines.push('* هشدار: اسکیمای مدل ناقص بود و اسکیمای پایه جایگزین شد.');
+              try { cap('warn','hoosha.prepare.baseline_substitution'); } catch(_){ }
+            }
+          notes.textContent = lines.join('\n');
+        }
+        function showPreview(s, deltas){
+          try {
+            if (!s || !Array.isArray(s.fields)) { preview.style.display='none'; preview.innerHTML=''; return; }
+              function ensureNlActionsPosition(firstIdx){
+                try {
+                  if (!nlActions || nlActions.style.display==='none') return;
+                  var targetIdx = (typeof firstIdx==='number')? firstIdx : null;
+                  if (targetIdx==null && Array.isArray(deltas) && deltas.length){
+                    var f0 = deltas[0];
+                    if (typeof f0.field_index==='number') targetIdx=f0.field_index; else if (typeof f0.index==='number') targetIdx=f0.index; else if (typeof f0.field==='number') targetIdx=f0.field;
+                  }
+                  var el = (targetIdx!=null) ? preview.querySelector('[data-field-idx="'+targetIdx+'"]') : null;
+                  if (!el) return;
+                  var wrapId = 'arHooshaFieldActionWrap';
+                  var existingWrap = document.getElementById(wrapId);
+                  if (!existingWrap){
+                    existingWrap = document.createElement('div');
+                    existingWrap.id = wrapId;
+                    existingWrap.style.margin = '.5rem 0 0';
+                    existingWrap.style.display='flex';
+                    existingWrap.style.gap='.5rem';
+                    existingWrap.style.flexWrap='wrap';
+                  }
+                  if (el.nextSibling){ el.parentNode.insertBefore(existingWrap, el.nextSibling); } else { el.parentNode.appendChild(existingWrap); }
+                  existingWrap.appendChild(nlActions);
+                } catch(_pos){}
+              }
+            // Inject lightweight styles for format badges if not present
+            try {
+              if (!document.getElementById('hooshaFormatStyles')){
+                var st = document.createElement('style');
+                st.id = 'hooshaFormatStyles';
+                st.textContent = '.hoosha-badge{display:inline-block;background:#eef;border:1px solid #bcd;padding:0 4px;margin-inline-start:.4rem;font-size:.63rem;line-height:1.2;border-radius:4px;color:#234;font-weight:500;vertical-align:middle}' +
+                  '.hoosha-badge[data-fmt=rating]{background:#ffe;border-color:#f5c;color:#734}' +
+                  '.hoosha-badge[data-fmt=time]{background:#eef9ff}' +
+                  '.hoosha-badge[data-fmt=date_jalali]{background:#f3f7ff}' +
+                  '.hoosha-badge[data-fmt=ip]{background:#f5f5ff}' +
+                  '.hoosha-badge[data-fmt=fa_letters]{background:#f9f2ff}' +
+                  '.hoosha-badge[data-fmt=en_letters]{background:#f2fff5}' +
+                  '.hoosha-badge[data-fmt=postal_code_ir]{background:#fff7f2}' +
+                  '.hoosha-badge[data-fmt=mobile_intl]{background:#e9f9ff}' +
+                  '.hoosha-badge[data-fmt=credit_card_ir]{background:#fffbe6;border-color:#f5e08a}' +
+                  '.hoosha-badge[data-fmt=sheba_ir]{background:#e6fff2;border-color:#99e6c2}' +
+                  '.hoosha-badge[data-fmt=national_id_company_ir]{background:#e6f0ff;border-color:#aac4ff}' +
+                  '.hoosha-badge[data-fmt=captcha_alphanumeric]{background:#f0e6ff;border-color:#c7b3f5}' +
+                  '.hoosha-badge[data-fmt=alphanumeric_no_space]{background:#e8f7ff;border-color:#b4e1f5}' +
+                  '.hoosha-badge[data-fmt=alphanumeric_extended]{background:#ececec;border-color:#ccc}' +
+                  '.hoosha-badge[data-fmt=file_upload]{background:#f6f6f6;border-color:#bbb}' +
+                  '.hoosha-field-highlight{animation:hooshaFlash 2.2s ease-in-out 1;position:relative;}' +
+                  '.hoosha-field-highlight:before{content:"";position:absolute;inset:0;border:2px solid #3b82f6;border-radius:10px;box-shadow:0 0 0 4px rgba(59,130,246,0.25);pointer-events:none;}' +
+                  '@keyframes hooshaFlash{0%{background:#dbeafe}55%{background:#eff6ff}100%{background:transparent}}';
+                document.head.appendChild(st);
+              }
+            } catch(_cssErr){}
+
+            function formatBadge(fmt){
+              if (!fmt) return '';
+              var tip = '';
+              switch(fmt){
+                case 'file_upload': tip='فایل (آپلود امن محدود به پسوندهای مجاز)'; break;
+                case 'sheba_ir': tip='شماره شبا بانکی (IBAN ایران)'; break;
+                case 'credit_card_ir': tip='شماره کارت بانکی (الگوریتم لون)'; break;
+                case 'captcha_alphanumeric': tip='کد کپچا حروف/اعداد'; break;
+                case 'alphanumeric': tip='حروف و اعداد (با فاصله مجاز)'; break;
+                case 'alphanumeric_no_space': tip='فقط حروف و اعداد بدون فاصله'; break;
+                case 'alphanumeric_extended': tip='شناسه توسعه‌یافته (حروف، اعداد، _ و -)'; break;
+                case 'national_id_company_ir': tip='شناسه ملی شرکت (ایران)'; break;
+                case 'national_id_ir': tip='کد ملی شخصی'; break;
+                case 'postal_code_ir': tip='کد پستی ۱۰ رقمی'; break;
+                case 'mobile_ir': tip='موبایل ایران (09...)'; break;
+                case 'mobile_intl': tip='موبایل بین‌المللی با +'; break;
+                case 'fa_letters': tip='حروف فارسی'; break;
+                case 'en_letters': tip='حروف لاتین'; break;
+                case 'sheba': tip='شماره شبا'; break;
+              }
+              var txt = fmt;
+              var titleAttr = tip ? (' title="'+escapeAttr(tip)+'" data-tip="'+escapeAttr(tip)+'"') : '';
+              return '<span class="hoosha-badge" data-fmt="'+fmt+'"'+titleAttr+'>'+escapeHtml(txt)+'</span>';
+            }
+
+            function buildInputMeta(fmt, f){
+              var attr = { extra:'', placeholder:'' };
+              switch(fmt){
+                case 'national_id_ir':
+                  attr.extra = ' inputmode="numeric" maxlength="10" pattern="^\\d{10}$"';
+                  attr.placeholder = '0012345678';
+                  break;
+                case 'mobile_ir':
+                  attr.extra = ' inputmode="tel" maxlength="11" pattern="^09\\d{9}$"';
+                  attr.placeholder = '09121234567';
+                  break;
+                case 'mobile_intl':
+                  attr.extra = ' inputmode="tel" pattern="^\\+\\d{6,15}$"';
+                  attr.placeholder = '+98912XXXXXXX';
+                  break;
+                case 'postal_code_ir':
+                  attr.extra = ' inputmode="numeric" maxlength="10" pattern="^\\d{10}$"';
+                  attr.placeholder = '1234567890';
+                  break;
+                case 'fa_letters':
+                  attr.extra = ' pattern="^[\\u0600-\\u06FF\\s]+$"';
+                  attr.placeholder = 'نمونه';
+                  break;
+                case 'en_letters':
+                  attr.extra = ' pattern="^[A-Za-z\\s]+$"';
+                  attr.placeholder = 'Sample';
+                  break;
+                case 'ip':
+                  attr.extra = ' inputmode="decimal" pattern="^(?:\\d{1,3}\\.){3}\\d{1,3}$"';
+                  attr.placeholder = '192.168.0.1';
+                  break;
+                case 'date_greg':
+                  attr.extra = ' type="date"';
+                  // placeholder will be overwritten later if blank
+                  break;
+                case 'date_jalali':
+                  attr.extra = ' data-format="jalali" pattern="^(13|14)\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"';
+                  attr.placeholder = '1403-07-15';
+                  break;
+                case 'time':
+                  attr.extra = ' type="time"';
+                  attr.placeholder = '12:30';
+                  break;
+                case 'numeric':
+                  attr.extra = ' inputmode="numeric" pattern="^\\d+$"';
+                  attr.placeholder = '123';
+                  break;
+              }
+              return attr;
+            }
+            var changedIndexes = {};
+            if (Array.isArray(deltas)){
+              deltas.forEach(function(d){ if (d && typeof d.field_index==='number'){ changedIndexes[d.field_index] = d; } });
+            }
+            var html = s.fields.map(function(f, i){
+              var idx = i + 1;
+              var q = String(f.label || f.question || '');
+              var source = f.props && f.props.source || '';
+              var injectBadge='';
+              if (source==='coverage_injected' || source==='coverage_injected_refined'){
+                injectBadge+='<span class="hint" style="background:#2563eb;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Injected to satisfy coverage">COV+</span> ';
+              } else if (source==='file_injected'){
+                injectBadge+='<span class="hint" style="background:#7c3aed;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Injected file field">FILE+</span> ';
+              }
+              try {
+                if (f && f.props && typeof f.props.duplicate_of !== 'undefined' && f.props.duplicate_of !== null){
+                  var dIdx = parseInt(f.props.duplicate_of);
+                  if (!isNaN(dIdx)){
+                    injectBadge+='<span class="hint" style="background:#dc2626;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Duplicate of original field #'+(dIdx+1)+'">DUP</span> ';
+                  } else {
+                    injectBadge+='<span class="hint" style="background:#dc2626;color:#fff;padding:0 .4rem;border-radius:.25rem;font-size:.65rem" title="Duplicate field">DUP</span> ';
+                  }
+                }
+              } catch(_db){}
+              var num = '<span class="hint" style="min-width:2ch;display:inline-block">'+idx+'.</span> ';
+              var req = f.required ? '<span class="hint" style="color:#ef4444">(الزامی)</span>' : '';
+              var line = '';
+              var type = f.type || 'short_text';
+              var ph = f.placeholder || (f.props && f.props.placeholder) || '';
+              var fmt = (f.props && f.props.format) || '';
+              var inputExtra = '';
+              var meta = buildInputMeta(fmt, f);
+              if (!ph && meta.placeholder) ph = meta.placeholder;
+              if (fmt==='date_greg'){ // ISO normalize if placeholder unset or US pattern
+                if (!ph || /^(mm|MM)\/(dd|DD)\/(yyyy|YYYY)$/.test(ph) || /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.test(ph)){
+                  try { var d=new Date(); var y=d.getFullYear(); var m=('0'+(d.getMonth()+1)).slice(-2); var da=('0'+d.getDate()).slice(-2); ph = y+'-'+m+'-'+da; } catch(_d){ ph=''; }
+                }
+              }
+              inputExtra = meta.extra || '';
+              var badge = formatBadge(fmt);
+              var changeBadge='';
+              if (changedIndexes[i]){
+                var op = changedIndexes[i].op || '';
+                var clr = (op.indexOf('add_')===0)?'#065f46':(op.indexOf('remove_')===0?'#991b1b':(op.indexOf('update_')===0?'#1e3a8a':'#6366f1'));
+                changeBadge = '<span class="hint" style="background:'+clr+'20;color:'+clr+';padding:0 .35rem;border-radius:.25rem;font-size:.6rem;margin-inline-start:.35rem" title="'+escapeAttr(op)+'">'+escapeHtml(op.replace('update_','upd:'))+'</span>';
+              }
+              var attrIdx = ' data-field-idx="'+i+'"';
+              if (type==='short_text'){
+                line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/><input class="ar-input"'+inputExtra+' placeholder="'+escapeAttr(ph)+'" /></div>';
+              }
+              else if (type==='long_text'){ line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+changeBadge+' '+req+'<br/><textarea class="ar-input" rows="'+(parseInt(f.props&&f.props.rows||4))+'" maxlength="'+(parseInt(f.props&&f.props.maxLength||5000))+'" placeholder="'+escapeAttr(ph)+'"></textarea></div>'; }
+              else if (type==='multiple_choice'){ var opts=(f.props&&f.props.options)||[]; line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+changeBadge+' '+req+'<br/>'+opts.map(function(o){return '<label style="display:inline-flex;align-items:center;gap:.35rem;margin-inline-end:.6rem"><input type="'+(f.props&&f.props.multiple?'checkbox':'radio')+'" name="f'+i+'"> '+escapeHtml(String(o||''))+'</label>'}).join('')+'</div>'; }
+              else if (type==='dropdown'){ var opts2=(f.props&&f.props.options)||[]; line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><select class="ar-select"'+(fmt?(' data-format="'+fmt+'"'):'')+'>'+opts2.map(function(o){return '<option>'+escapeHtml(String(o||''))+'</option>';}).join('')+'</select></div>'; }
+              else if (type==='rating'){ var r=(f.props&&f.props.rating)||{min:1,max:10,icon:'like'}; var stars=[]; for (var k=r.min||1; k<=(r.max||10); k++){ stars.push('<button class="ar-btn ar-btn--soft" style="padding:.25rem .5rem;margin:.15rem">'+(r.icon==='like'?'👍':'★')+' '+k+'</button>'); } line = '<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+formatBadge('rating')+' '+req+'<br/>'+stars.join('')+'</div>'; }
+              else if (type==='file'){ var accept=''; if(fmt==='file_upload'){ /* could derive from pattern later */ } line='<div'+attrIdx+' style="margin:.35rem 0">'+num+injectBadge+escapeHtml(q)+' '+badge+' '+req+'<br/><input type="file" class="ar-input" '+(accept?(' accept="'+escapeAttr(accept)+'"'):'')+' /></div>'; }
+              return line;
+            }).join('');
+            preview.innerHTML = html; preview.style.display='block';
+            // Highlight & scroll to first changed field (if any deltas) + move action buttons near it
+            try {
+              if (Array.isArray(deltas) && deltas.length){
+                var first = deltas[0];
+                var idx = null;
+                if (typeof first.field_index==='number') idx = first.field_index; else if (typeof first.index==='number') idx = first.index; else if (typeof first.field==='number') idx = first.field;
+                if (idx!=null){
+                  // Defer to next frame to ensure layout complete before scroll/focus
+                  requestAnimationFrame(function(){
+                    var el = preview.querySelector('[data-field-idx="'+idx+'"]');
+                    if (!el){ return; }
+                    el.classList.add('hoosha-field-highlight');
+                    // Secondary timeout to re-apply class if rapid re-render removed it
+                    setTimeout(function(){ if (el && !el.classList.contains('hoosha-field-highlight')){ try { el.classList.add('hoosha-field-highlight'); } catch(_r2){} } }, 120);
+                    // Scroll only (no focus per new requirement)
+                    try { el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_sv){}
+                    // Move NL action buttons (nlActions) directly under changed field for better UX
+                    try {
+                      var actionsHost = document.getElementById('arHooshaNlActions');
+                      if (actionsHost && actionsHost.style.display !== 'none'){ // only when visible
+                        // Create or reuse a wrapper just after field
+                        var wrapId = 'arHooshaFieldActionWrap';
+                        var existingWrap = document.getElementById(wrapId);
+                        if (!existingWrap){
+                          existingWrap = document.createElement('div');
+                          existingWrap.id = wrapId;
+                          existingWrap.style.margin = '.5rem 0 0';
+                          existingWrap.style.display = 'flex';
+                          existingWrap.style.gap = '.5rem';
+                          existingWrap.style.flexWrap = 'wrap';
+                        }
+                        // Insert after the field element
+                        if (el.nextSibling){ el.parentNode.insertBefore(existingWrap, el.nextSibling); } else { el.parentNode.appendChild(existingWrap); }
+                        existingWrap.appendChild(actionsHost);
+                        actionsHost.classList.add('hoosha-actions-floating');
+                      }
+                    } catch(_moveAct){}
+                    setTimeout(function(){ try { el.classList.remove('hoosha-field-highlight'); } catch(_rh){} }, 3000);
+                  });
+                }
+              }
+            } catch(_hl){}
+            // If deltas exist but highlight branch didn't run yet (or actions hidden earlier), late ensure after paint
+            if (Array.isArray(deltas) && deltas.length){
+              setTimeout(function(){ ensureNlActionsPosition(); }, 320);
+            }
+          } catch(_){ preview.style.display='none'; preview.innerHTML=''; }
+        }
+        function setBusy(el, busy){ if (!el) return; el.disabled = !!busy; el.classList.toggle('is-busy', !!busy); }
+        function headers(){ return { 'Content-Type':'application/json', 'X-WP-Nonce': (window.ARSHLINE_NONCE || (window.ARSHLINE_ADMIN && ARSHLINE_ADMIN.nonce) || '') }; }
+        // attempt to find / create form name input
+        var inpFormName = document.querySelector('#ar-form-name');
+        btnPrepare.onclick = function(){
+          var txt = (inpRaw && inpRaw.value || '').trim(); if (!txt){ notify('متن اولیه را وارد کنید', 'warn'); return; }
+          var frmName = (inpFormName && inpFormName.value || '').trim();
+          stepsBox.textContent=''; setProgress('آغاز تحلیل', 10); step('۱) آغاز تحلیل'); cap('info','hoosha.prepare.start', txt.slice(0,120));
+          setBusy(btnPrepare, true);
+          cap('ajax','hoosha.prepare.request',(window.ARSHLINE_REST||ARSHLINE_REST)+'hoosha/prepare'); setProgress('ارسال درخواست به مدل', 30); step('۲) ارسال درخواست به مدل');
+          var _prepUrl = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/prepare';
+          var _prepBody = { user_text: txt };
+          if (frmName){ _prepBody.form_name = frmName; }
+          try { dbg('SEND prepare '+_prepUrl+' :: '+JSON.stringify(_prepBody)); } catch(_){ }
+          fetch(_prepUrl, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(_prepBody) })
+            .then(function(r){ cap('info','hoosha.prepare.response','HTTP '+r.status); if (!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('دریافت پاسخ', 60); step('۳) دریافت پاسخ'); return r.clone().text().then(function(t){ try{ dbg('RECV prepare HTTP '+r.status+' :: '+String(t||'').slice(0,2000)); }catch(_){ } return t; }); })
+            .then(function(txtRaw){ var j=null; try { j = txtRaw ? JSON.parse(txtRaw) : {}; } catch(e){ dbg('PARSE ERROR prepare :: '+String(e&&e.message||e)); throw e; } try { cap('info','hoosha.prepare.parsed'); schema = j.schema||null; var editedText = (j && typeof j.edited_text==='string')? j.edited_text : (j && typeof j.text==='string')? j.text : (j && typeof j.output==='string')? j.output : ''; if (inpEdited) inpEdited.value = editedText; showNotes(j.notes||[], j.confidence); // backend progress integration
+              // Reveal NL edit card only now (first successful prepare)
+              try { var shell=document.getElementById('arHooshaNlShell'); if (shell){ shell.style.display='block'; } } catch(_sh){}
+              if (j && j.form_name && inpFormName && !frmName){ try { inpFormName.value = j.form_name; } catch(_fn){} }
+              try { if (Array.isArray(j.events)){ j.events.forEach(function(ev){ try { var kind=(ev.type||'evt'); var msg = (ev.message||ev.step||ev.note||''); console.log('%c[ARSH-EVENT]','color:#3b82f6', '['+kind.toUpperCase()+']', msg); if (typeof cap==='function'){ cap('event','hoosha.prepare.'+kind, msg); } } catch(_l){} }); } } catch(_ev){}
+              try { if (Array.isArray(j.progress) && j.progress.length){ stepsBox.textContent=''; var total=j.progress.length; j.progress.forEach(function(p,i){ var pct=Math.round(((i+1)/total)*90); step((i+1)+') '+(p.message||p.step)); setProgress(p.message || p.step, pct); }); } } catch(_pr){}
+              showPreview(schema); if (!editedText && (!schema || !Array.isArray(schema.fields) || !schema.fields.length)){ var keys = []; try { keys = Object.keys(j||{}); } catch(_e){} notify('پاسخی از مدل دریافت نشد', 'warn'); step('خروجی متنی از مدل دریافت نشد'); if (keys && keys.length){ step('کلیدهای پاسخ: ' + keys.slice(0,12).join(',')); try { dbg('prepare keys :: '+keys.join(',')); } catch(_){ } } cap('warn','hoosha.prepare.empty', keys.slice(0,12).join(',')); } else { step('پیش‌نمایش به‌روزرسانی شد'); }
+              if (autoApply && autoApply.checked && j.confidence && j.confidence >= 0.9){ notify('اعتماد بالا؛ اعمال خودکار انجام شد', 'success'); cap('info','hoosha.prepare.autoApply'); }
+              try { if (inpNl){ inpNl.focus(); } } catch(_fc){}
+              setProgress('اعتبارسنجی خروجی', 95); doneProgress(); cap('info','hoosha.prepare.success'); } catch(e){ console.error(e); cap('error','hoosha.prepare.parseError', String(e&&e.message||e)); } })
+            .catch(function(e){ console.error('[ARSH] hoosha.prepare failed', e); cap('error','hoosha.prepare.error', String(e&&e.message||e)); notify('تحلیل ناموفق بود', 'error'); setProgress('خطا در تحلیل', 100); })
+            .finally(function(){ setBusy(btnPrepare, false); });
+        };
+        btnApply.onclick = function(){
+          if (!schema){ notify('ابتدا تحلیل را انجام دهید', 'warn'); return; }
+          var cmd = (inpCmd && inpCmd.value||'').trim(); if (!cmd){ notify('دستور یا ویرایش را وارد کنید', 'warn'); return; }
+          stepsBox.textContent=''; setProgress('آغاز اعمال دستورات', 10); step('۱) آغاز اعمال دستورات'); cap('info','hoosha.apply.start', cmd.slice(0,120));
+          setBusy(btnApply, true);
+          var commands = cmd ? [ cmd ] : [];
+          cap('ajax','hoosha.apply.request',(window.ARSHLINE_REST||ARSHLINE_REST)+'hoosha/apply'); setProgress('ارسال دستورات', 30); step('۲) ارسال دستورات');
+          var _applyUrl = (window.ARSHLINE_REST||ARSHLINE_REST) + 'hoosha/apply';
+          var _applyBody = { schema: schema, commands: commands };
+          try { dbg('SEND apply '+_applyUrl+' :: '+JSON.stringify(_applyBody)); } catch(_){ }
+          fetch(_applyUrl, { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify(_applyBody) })
+            .then(function(r){ cap('info','hoosha.apply.response','HTTP '+r.status); if (!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('دریافت نتیجه', 60); step('۳) دریافت نتیجه'); return r.clone().text().then(function(t){ try{ dbg('RECV apply HTTP '+r.status+' :: '+String(t||'').slice(0,2000)); }catch(_){ } return t; }); })
+            .then(function(txtRaw){ var j=null; try { j = txtRaw ? JSON.parse(txtRaw) : {}; } catch(e){ dbg('PARSE ERROR apply :: '+String(e&&e.message||e)); throw e; } try { schema = j.schema||schema; cap('info','hoosha.apply.parsed'); showPreview(schema); step('۴) پیش‌نمایش به‌روزرسانی شد'); notify('اعمال شد', 'success'); doneProgress(); cap('info','hoosha.apply.success'); } catch(e){ console.error(e); cap('error','hoosha.apply.parseError', String(e&&e.message||e)); } })
+            .catch(function(e){ console.error('[ARSH] hoosha.apply failed', e); cap('error','hoosha.apply.error', String(e&&e.message||e)); notify('اعمال دستورات ناموفق بود', 'error'); setProgress('خطا در اعمال', 100); })
+            .finally(function(){ setBusy(btnApply, false); });
+        };
+        var createBtn = document.getElementById('arHooshaCreate');
+        function mapHooshaToFields(s){
+          var out = [];
+          if (!s || !Array.isArray(s.fields)) return out;
+          s.fields.forEach(function(f){
+            var type = f.type || 'short_text';
+            var label = f.label || f.question || '';
+            var required = !!f.required;
+            var props = f.props || {};
+            if (type==='short_text'){
+              out.push({ type:'short_text', question:label, required:required, format:(props.format||'free_text'), minLength:(props.minLength||0), maxLength:(props.maxLength||0), placeholder:(f.placeholder||'') });
+            } else if (type==='long_text'){
+              out.push({ type:'long_text', question:label, required:required, rows:(props.rows||4), maxLength:(props.maxLength||5000), placeholder:(f.placeholder||'') });
+            } else if (type==='multiple_choice'){
+              out.push({ type:'multiple_choice', question:label, required:required, multiple:!!props.multiple, options:Array.isArray(props.options)?props.options:[] });
+            } else if (type==='dropdown'){
+              out.push({ type:'dropdown', question:label, required:required, options:Array.isArray(props.options)?props.options:[] });
+            } else if (type==='rating'){
+              var r = props.rating || { min:1, max:10, icon:'like' };
+              out.push({ type:'rating', question:label, required:required, min:parseInt(r.min||1), max:parseInt(r.max||10), icon:String(r.icon||'like') });
+            }
+          });
+          return out;
+        }
+        // Local fallback when preview_edit fails or times out: supports
+        // 1) Upgrade to long_text ("پاسخ بلند" / "پاسخ طولانی" / long text)
+        // 2) Toggle required ("سوال X الزامی باشد" / "سوال X اختیاری باشد")
+        // Can apply both if both intents appear in same natural instruction.
+        function localPreviewFallback(nl){
+          try {
+            if (!schema || !Array.isArray(schema.fields)) return;
+            var text = String(nl||'').trim(); if(!text) return;
+            var digitsMap = {'۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'};
+            function normalizeDigits(s){ return String(s||'').replace(/[۰-۹]/g,function(ch){ return digitsMap[ch]||ch; }); }
+            var previewClone = JSON.parse(JSON.stringify(schema));
+            var deltas = [];
+            var applied = false;
+            try { dbg('FALLBACK STEP 1) شروع تحلیل محلی'); } catch(_fb1){}
+            // Pattern 1: long text upgrade
+            var reLong = /سوال\s+([0-9۰-۹]+)[^\n]*?(پاسخ\s*(?:بلند|طولانی)|long\s*text)/gi;
+            var mLong;
+            while((mLong = reLong.exec(text))){
+              var numRaw = normalizeDigits(mLong[1]);
+              var idx = parseInt(numRaw,10); if (isNaN(idx) || idx<1) continue;
+              var fi = idx-1; if (!previewClone.fields[fi]) continue;
+              var fld = previewClone.fields[fi];
+              if (fld.type !== 'long_text'){
+                fld.type = 'long_text'; if(!fld.props) fld.props={}; fld.props.rows = fld.props.rows||4;
+                deltas.push({ op:'update_type', field_index: fi, detail:'(fallback)->long_text' });
+                applied = true;
+              }
+            }
+            // Pattern 2: required toggle (الزامی / اختیاری)
+            // Examples: "سوال 1 الزامی باشد", "سوال ۲ اختیاری بشه", "سوال 3 غیر الزامی کن"
+            var reReq = /سوال\s+([0-9۰-۹]+)[^\n]*?(الزامی|اجباری|ضروری|ضرورى|اختیاری|غير\s*الزامی|غیر\s*الزامی|غیرالزامی|غیر الزامى|غیرالزامى)/gi;
+            var mReq;
+            while((mReq = reReq.exec(text))){
+              var numRaw2 = normalizeDigits(mReq[1]);
+              var idx2 = parseInt(numRaw2,10); if (isNaN(idx2) || idx2<1) continue;
+              var fi2 = idx2-1; if(!previewClone.fields[fi2]) continue;
+              var token = mReq[2];
+              var makeRequired = /(الزامی|اجباری|ضروری|ضرورى)/.test(token);
+              var fld2 = previewClone.fields[fi2];
+              if (!!fld2.required !== makeRequired){
+                fld2.required = makeRequired;
+                deltas.push({ op: makeRequired ? 'update_required_on' : 'update_required_off', field_index: fi2, detail: '(fallback)->'+(makeRequired?'required=true':'required=false') });
+                applied = true;
+              }
+            }
+            // Pattern 2b: global name/name-family required if user requests generally (without شماره سوال)
+            try {
+              if (/(نام|نام و نام خانوادگی)/.test(text) && /(اجباری|الزامی|ضروری|ضرورى)/.test(text)){
+                previewClone.fields.forEach(function(f, i){
+                  var lbl = (f.label||f.question||'').trim(); if(!lbl) return;
+                  if (/نام/.test(lbl) && !f.required){ f.required = true; deltas.push({ op:'update_required_on', field_index:i, detail:'(fallback)->required(name)' }); applied=true; }
+                });
+              }
+            } catch(_gn){}
+            // Pattern 3: add option "سایر" (other)
+            // Example: "سوال 3 گزینه ی سایر هم داشته باشد" / "سوال سه گزینه سایر"
+            var reOther = /سوال\s+([0-9۰-۹]+)[^\n]*?گزینه(?:\s*ی)?\s*(سایر|ديگر|دیگر|other)/gi;
+            var mOther;
+            while((mOther = reOther.exec(text))){
+              var numRaw3 = normalizeDigits(mOther[1]);
+              var idx3 = parseInt(numRaw3,10); if (isNaN(idx3) || idx3<1) continue;
+              var fi3 = idx3-1; if(!previewClone.fields[fi3]) continue;
+              var fld3 = previewClone.fields[fi3];
+              if (fld3.type==='multiple_choice' || fld3.type==='dropdown'){
+                var opts = (fld3.props && Array.isArray(fld3.props.options)) ? fld3.props.options : (fld3.props.options = []);
+                // Avoid duplicate if already exists (case-insensitive Persian/English)
+                var exists = opts.some(function(o){ return String(o||'').trim().replace(/\s+/g,'') === 'سایر'; });
+                if (!exists){
+                  opts.push('سایر');
+                  deltas.push({ op:'add_option', field_index: fi3, detail:'(fallback)->option=سایر' });
+                  applied = true;
+                }
+              }
+            }
+            if (!applied) return; // nothing recognized
+            try { dbg('FALLBACK STEP 2) تولید پیش‌نمایش محلی با '+deltas.length+' تغییر'); } catch(_fb2){}
+            pendingSchema = previewClone;
+            showPreview(previewClone, deltas);
+            if (diffBox){
+              var html = '<div style="direction:rtl">(Fallback محلی) تغییرات زیر شناسایی شد:</div><ul style="direction:rtl;line-height:1.6;margin:.4rem 1rem">'+
+                deltas.map(function(d){ return '<li>#'+(d.field_index+1)+': '+d.op+' '+(d.detail||''); }).join('') + '</ul><div style="direction:rtl">تایید می‌کنی؟</div>';
+              diffBox.innerHTML = html; diffBox.style.display='block';
+            }
+            if (nlActions){ nlActions.style.display='flex'; }
+            interpretStatus.textContent='پیش‌نمایش محلی (در انتظار تایید)'; interpretStatus.style.color='#f59e0b';
+            try { dbg('FALLBACK STEP 3) انتظار تایید/انصراف کاربر'); } catch(_fb3){}
+          } catch(_lf){}
+        }
+        function createDraftFromSchema(){
+          try {
+            if (!schema || !Array.isArray(schema.fields) || !schema.fields.length){ notify('ابتدا پیش‌نمایش فرم را بسازید', 'warn'); return; }
+            var fields = mapHooshaToFields(schema);
+            var title = (schema.title || schema.name || 'فرم جدید (هوشا)');
+            stepsBox.textContent=''; setProgress('ساخت فرم جدید', 15); step('۱) ساخت فرم جدید'); cap('info','hoosha.create.start', title);
+            setBusy(createBtn, true);
+            fetch((window.ARSHLINE_REST||ARSHLINE_REST) + 'forms', { method:'POST', credentials:'same-origin', headers: headers(), body: JSON.stringify({ title: title }) })
+              .then(function(r){ cap('info','hoosha.create.form.response','HTTP '+r.status); if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('فرم ایجاد شد؛ ذخیره سوالات', 45); step('۲) ذخیره سوالات'); return r.json(); })
+              .then(function(obj){ if (!obj || !obj.id){ throw new Error('bad_create'); } var id = parseInt(obj.id); cap('info','hoosha.create.form.id', id); return fetch((window.ARSHLINE_REST||ARSHLINE_REST)+'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers: headers(), body: JSON.stringify({ fields: fields }) }).then(function(r){ cap('info','hoosha.create.fields.response','HTTP '+r.status); if(!r.ok){ if(r.status===401){ if (typeof handle401==='function') handle401(); } throw new Error('HTTP '+r.status); } setProgress('سوالات ذخیره شد', 75); step('۳) سوالات ذخیره شد'); return r.json(); }).then(function(){ return id; }); })
+              .then(function(id){ setProgress('باز کردن ویرایشگر', 95); step('۴) باز کردن ویرایشگر'); notify('فرم پیش‌نویس ساخته شد', 'success'); try { if (typeof setHash==='function') setHash('builder/'+id); } catch(_){ } try { if (typeof window.renderFormBuilder==='function') window.renderFormBuilder(id); } catch(_){ } doneProgress(); cap('info','hoosha.create.success', id); })
+              .catch(function(e){ console.error('[ARSH] create draft from schema failed', e); cap('error','hoosha.create.error', String(e&&e.message||e)); notify('ساخت فرم ناموفق بود', 'error'); setProgress('خطا در ساخت فرم', 100); })
+              .finally(function(){ setBusy(createBtn, false); });
+          } catch(e){ console.error(e); }
+        }
+        if (createBtn){ createBtn.onclick = createDraftFromSchema; }
+      }
 
       // Lazy loader for گروه‌های کاربری inside custom panel
       function renderUsersUG(){
@@ -353,7 +1189,10 @@
 
     // Centralized tab renderer (ported from template)
     function renderTab(tab){
+      try { console.debug('[ARSH][NAV][renderTab] enter tab="'+tab+'" ts='+Date.now()+' hash="'+location.hash+'"'); } catch(_){ }
       try {
+  // Support calling with legacy 'messages'
+  if (tab === 'messages') tab = 'messaging';
   if (['dashboard','forms','reports','users','settings','messaging','analytics'].includes(tab)){
           var _h = (location.hash||'').replace('#','');
           var _seg0 = (_h.split('/')[0]||'').split('?')[0];
@@ -376,10 +1215,31 @@
       if (globalHeaderCreateBtn) {
         globalHeaderCreateBtn.addEventListener('click', function(){ window._arOpenCreateInlineOnce = true; renderTab('forms'); });
       }
-      if (tab === 'dashboard'){
+      try { console.debug('[ARSH][NAV][renderTab] after-setup tab="'+tab+'"'); } catch(_){ }
+  if (tab === 'dashboard'){
+        // Full dashboard: modern navigation cards + KPI grid + trend charts + quick analytics
         content.innerHTML = ''+
           '<div class="tagline">عرش لاین ، سیستم هوشمند فرم، آزمون، گزارش گیری</div>'+
-          '<div id="arCardsMount"></div>'+
+          // Modern navigation cards (quick access)
+          '<div class="ar-modern-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1rem">'+
+            '<div class="ar-card ar-card--blue" id="arCardFormBuilder" style="cursor:pointer;position:relative;overflow:hidden">'+
+              '<div class="icon"><ion-icon name="globe-outline"></ion-icon></div>'+
+              '<div class="content"><h2>فرم‌ساز پیشرفته</h2></div>'+
+            '</div>'+
+            '<div class="ar-card ar-card--amber" id="arCardMessaging" style="cursor:pointer;position:relative;overflow:hidden">'+
+              '<div class="icon"><ion-icon name="diamond-outline"></ion-icon></div>'+
+              '<div class="content"><h2>پیامرسانی پیشرفته</h2></div>'+
+            '</div>'+
+            '<div class="ar-card ar-card--violet" id="arCardReports" style="cursor:pointer;position:relative;overflow:hidden">'+
+              '<div class="icon"><ion-icon name="rocket-outline"></ion-icon></div>'+
+              '<div class="content"><h2>گزارشات و تحلیل</h2></div>'+
+            '</div>'+
+            '<div class="ar-card ar-card--teal" id="arCardGroups" style="cursor:pointer;position:relative;overflow:hidden">'+
+              '<div class="icon"><ion-icon name="settings-outline"></ion-icon></div>'+
+              '<div class="content"><h2>گروه‌های کاربری</h2></div>'+
+            '</div>'+
+          '</div>'+
+          // KPI grid
           '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
             '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
               '<div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
@@ -403,6 +1263,199 @@
                 '<ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
               '</div>'+
             '</div>'+
+          '</div>'+
+          // Trend charts (submissions line + forms status donut)
+          '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
+            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem; flex-wrap:wrap">'+
+              '<span class="title">روند ارسال‌ها</span>'+
+              '<span class="hint">۳۰ روز اخیر</span>'+
+              '<span style="flex:1 1 auto"></span>'+
+              '<select id="arStatsDaysDash" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+            '</div>'+
+            '<div style="display:flex; flex-wrap:wrap; gap:.8rem; align-items:stretch;">'+
+              '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChartDash"></canvas></div>'+
+              '<div style="width:160px; flex:0 0 160px; height:140px;"><canvas id="arFormsDonutDash"></canvas></div>'+
+            '</div>'+
+          '</div>'+
+          // Quick analytics (distinct Dash IDs to match initDashboardStats)
+          '<div class="card glass" style="padding:1rem; margin-top:1rem;">'+
+            '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem; flex-wrap:wrap">'+
+              '<span class="title">تحلیل سریع</span>'+
+              '<span class="hint">پیامک / پاسخ / بازدید / اعضا (۳۰ روز)</span>'+
+              '<span style="flex:1 1 auto"></span>'+
+              '<select id="arMetricsDaysDash" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+            '</div>'+
+            '<div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap:.8rem;">'+
+              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                '<div class="hint" style="font-size:.7rem;">پیامک</div>'+
+                '<div id="arMetricSmsTotalDash" class="title" style="font-size:1.3rem;">0</div>'+
+                '<canvas id="arMetricSmsChartDash" height="60"></canvas>'+
+              '</div>'+
+              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                '<div class="hint" style="font-size:.7rem;">پاسخ</div>'+
+                '<div id="arMetricSubsTotalDash" class="title" style="font-size:1.3rem;">0</div>'+
+                '<canvas id="arMetricSubsChartDash" height="60"></canvas>'+
+              '</div>'+
+              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                '<div class="hint" style="font-size:.7rem;">بازدید</div>'+
+                '<div id="arMetricViewsTotalDash" class="title" style="font-size:1.3rem;">0</div>'+
+                '<canvas id="arMetricViewsChartDash" height="60"></canvas>'+
+              '</div>'+
+              '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                '<div class="hint" style="font-size:.7rem;">اعضا</div>'+
+                '<div id="arMetricMembersTotalDash" class="title" style="font-size:1.3rem;">0</div>'+
+                '<canvas id="arMetricMembersChartDash" height="60"></canvas>'+
+              '</div>'+
+            '</div>'+
+          '</div>';
+
+        // Wire modern card clicks
+        (function(){
+          try {
+            var CF=document.getElementById('arCardFormBuilder'); if(CF) CF.onclick=function(){ renderTab('forms'); };
+            var CM=document.getElementById('arCardMessaging'); if(CM) CM.onclick=function(){ renderTab('messaging'); };
+            var CR=document.getElementById('arCardReports'); if(CR) CR.onclick=function(){ renderTab('reports'); };
+            var CG=document.getElementById('arCardGroups'); if(CG) CG.onclick=function(){ setHash('users/ug?tab=groups'); renderUsersUG(); };
+          } catch(_){ }
+        })();
+
+        // Lightweight re-init for KPIs + charts (independent from early initDashboardStats to ensure elements now exist)
+        (function(){
+          function ensureChart(cb){ if(window.Chart) return cb(); var s=document.getElementById('arDashChartDyn'); if(!s){ s=document.createElement('script'); s.id='arDashChartDyn'; s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'; s.onload=cb; s.onerror=function(){ cb(); }; document.head.appendChild(s);} else { s.addEventListener('load', cb); } }
+          var lineChart=null, donutChart=null;
+          function palette(){ var dark=document.body.classList.contains('dark'); return { grid: dark?'rgba(255,255,255,.08)':'rgba(0,0,0,.06)', text: dark?'#e5e7eb':'#374151', line: dark?'#60a5fa':'#2563eb', fill: dark?'rgba(96,165,250,.15)':'rgba(37,99,235,.12)', active: dark?'#34d399':'#10b981', disabled: dark?'#f87171':'#ef4444' }; }
+          function renderLine(labels, data){
+            ensureChart(function(){
+              if(!window.Chart) return;
+              try { if(lineChart){ lineChart.destroy(); lineChart = null; } } catch(_){ }
+              var pal = palette();
+              var ctx = document.getElementById('arSubsChartDash');
+              if(!ctx) return;
+              lineChart = new window.Chart(ctx, {
+                type: 'line',
+                data: { labels: labels, datasets: [{ label: 'ارسال‌ها', data: data, borderColor: pal.line, backgroundColor: pal.fill, fill: true, tension: .3, pointRadius: 2, borderWidth: 2 }] },
+                options: { responsive:true, maintainAspectRatio:false, scales:{ x:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, maxRotation:0, autoSkip:true, maxTicksLimit:10 } }, y:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, precision:0 } } }, plugins:{ legend:{ labels:{ color:pal.text } }, tooltip:{ intersect:false, mode:'index' } } }
+              });
+            });
+          }
+          function renderDonut(active,disabled){ ensureChart(function(){ if(!window.Chart) return; try{ if(donutChart){ donutChart.destroy(); donutChart=null; } }catch(_){ } var pal=palette(); var ctx=document.getElementById('arFormsDonutDash'); if(!ctx) return; donutChart=new window.Chart(ctx,{type:'doughnut',data:{labels:['فعال','غیرفعال'],datasets:[{data:[active,disabled],backgroundColor:[pal.active,pal.disabled],borderColor:[pal.active,pal.disabled]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:pal.text}}}}}); }); }
+          function loadStats(){ var sel=document.getElementById('arStatsDaysDash'); var days=parseInt(sel? sel.value : '30')||30; try { var url=new URL(ARSHLINE_REST+'stats', location.origin); url.searchParams.set('days', String(days)); fetch(url.toString(), {credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE}}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(j){ var counts=j.counts||j||{}; var total=counts.forms||0; var active=counts.forms_active||0; var disabled=Math.max(total-active,0); function set(id,v){ var el=document.getElementById(id); if(el) el.textContent=String(v); } set('arKpiForms', total); set('arKpiFormsActive', active); set('arKpiFormsDisabled', disabled); set('arKpiSubs', counts.submissions||0); set('arKpiUsers', counts.users||0); var ser=j.series||{}; renderLine(ser.labels||[], ser.submissions_per_day||[]); renderDonut(active, disabled); }).catch(function(e){ console.warn('[ARSH][DASH] stats load failed', e); }); } catch(e){ console.warn(e); } }
+          function loadQuick(){ if(!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick)) return; var sel=document.getElementById('arMetricsDaysDash'); var d= sel? sel.value : '30'; var url=new URL(ARSHLINE_REST+'analytics/metrics', location.origin); url.searchParams.set('days', d); fetch(url.toString(), {credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE}}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(json){ if(!json||!json.totals){ return; } var allZero=(json.totals.sms||0)===0&&(json.totals.submissions||0)===0&&(json.totals.views||0)===0&&(json.totals.group_members||0)===0; if(allZero){ var daysN=parseInt(d)||30; var labels=[]; var sms=[]; var subs=[]; var views=[]; for(var i=daysN-1;i>=0;i--){ var dt=new Date(Date.now()-i*86400000); labels.push(dt.toISOString().slice(0,10)); } labels.forEach(function(_,idx){ sms.push((idx%7)+1); subs.push(Math.round((Math.sin(idx/3)+1)*3+(idx%4))); views.push(subs[idx]*(1+(idx%3))+(idx%5)); }); json.series=json.series||{}; json.series.labels=labels; json.series.sms_per_day=sms; json.series.submissions_per_day=subs; json.series.views_per_day=views; json.totals.sms=sms.reduce((a,b)=>a+b,0); json.totals.submissions=subs.reduce((a,b)=>a+b,0); json.totals.views=views.reduce((a,b)=>a+b,0); json.totals.group_members=25; var host=document.getElementById('arMetricSmsTotalDash'); if(host && !host.dataset.demo){ var tag=document.createElement('span'); tag.textContent='Demo'; tag.style.cssText='font-size:10px;margin-right:4px;color:#f59e0b;'; host.parentNode.insertBefore(tag, host); host.dataset.demo='1'; } }
+            var labs=(json.series&&json.series.labels)||[]; function set(id,v){ var el=document.getElementById(id); if(el) el.textContent=String(v); }
+            set('arMetricSmsTotalDash', json.totals.sms||0); set('arMetricSubsTotalDash', json.totals.submissions||0); set('arMetricViewsTotalDash', json.totals.views||0); set('arMetricMembersTotalDash', json.totals.group_members||0);
+            ensureChart(function(){ if(!window.Chart) return; function mini(id, data, color){ var ctxEl=document.getElementById(id); if(!ctxEl) return; try { new window.Chart(ctxEl,{ type:'bar', data:{ labels:labs, datasets:[{ data:data, backgroundColor:color, borderRadius:4, maxBarThickness:10 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{enabled:true}}, scales:{x:{display:false},y:{display:false}} } }); } catch(_){ } }
+              var pal=palette(); mini('arMetricSmsChartDash', (json.series&&json.series.sms_per_day)||[], pal.line); mini('arMetricSubsChartDash', (json.series&&json.series.submissions_per_day)||[], pal.active); mini('arMetricViewsChartDash', (json.series&&json.series.views_per_day)||[], pal.disabled); mini('arMetricMembersChartDash', labs.map(function(){ return json.totals.group_members||0; }), pal.text); });
+          }).catch(function(e){ console.warn('[ARSH][DASH] quick metrics failed', e); }); }
+          try { var sd=document.getElementById('arStatsDaysDash'); if(sd) sd.addEventListener('change', loadStats); if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick){ var md=document.getElementById('arMetricsDaysDash'); if(md) md.addEventListener('change', loadQuick); } } catch(_){ }
+          loadStats(); if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick){ loadQuick(); }
+          // Theme re-render
+          try { var tt=document.getElementById('arThemeToggle'); if(tt){ tt.addEventListener('click', function(){ setTimeout(function(){ loadStats(); if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick){ loadQuick(); } }, 350); }); } } catch(_){ }
+        })();
+        return; // IMPORTANT: prevent fall-through
+    } else if (tab === 'messaging') {
+            // Real Messaging / SMS management UI (integrated)
+            if (window.__ARSH_MSG_RENDERED__) { try { console.debug('[ARSH][NAV][messaging] reuse existing UI'); } catch(_){ } }
+            content.innerHTML = ''+
+              '<div class="tagline">پیامرسانی</div>'+
+              '<div class="card glass" style="padding:1rem;margin-bottom:1rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'+
+                '<span class="title" style="font-size:1.05rem">ارسال پیامک گروهی</span>'+
+                '<span style="flex:1 1 auto"></span>'+
+                '<button data-m-tab="sms" class="ar-btn ar-btn--soft" style="min-width:120px">ارسال</button>'+
+                '<button data-m-tab="settings" class="ar-btn ar-btn--soft" style="min-width:120px">تنظیمات</button>'+
+              '</div>'+
+              '<div id="arMsg_SMS" class="card glass" style="padding:1rem;margin-bottom:1rem">'+
+                '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:1rem">'+
+                  '<label class="ar-field"><span class="ar-label">گروه‌ها</span><select id="smsGroups" class="ar-select" multiple size="4" style="min-height:120px"></select></label>'+
+                  '<div class="ar-field"><span class="ar-label">فرم اختیاری</span><select id="smsForm" class="ar-select"><option value="">— بدون لینک —</option></select><div class="hint">اگر در متن #link استفاده شود باید فرم انتخاب شود.</div></div>'+
+                  '<div class="ar-field"><span class="ar-label">زمان‌بندی (اختیاری)</span><input id="smsSchedule" class="ar-input" placeholder="YYYY-MM-DD HH:MM" /><div class="hint">برای ارسال فوری خالی بگذارید</div></div>'+
+                '</div>'+
+                '<label class="ar-field" style="display:block"><span class="ar-label">متن پیام</span><textarea id="smsMessage" class="ar-input" rows="4" placeholder="مثال: سلام #name، لطفاً فرم زیر را تکمیل کنید: #link"></textarea></label>'+
+                '<div style="display:flex;align-items:center;gap:.6rem;margin-top:.75rem">'+
+                  '<button id="smsSend" class="ar-btn">ارسال</button>'+
+                  '<button id="smsTest" class="ar-btn ar-btn--soft">تست</button>'+
+                  '<input id="smsTestPhone" class="ar-input" placeholder="شماره تست" style="max-width:180px" />'+
+                  '<span id="smsVarsHint" class="hint" style="flex:1 1 auto">#name #phone #link</span>'+
+                '</div>'+
+              '</div>'+
+              '<div id="arMsg_Settings" class="card glass" style="padding:1rem;display:none">'+
+                '<div class="title" style="margin-bottom:.75rem">تنظیمات اتصال SMS.IR</div>'+
+                '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:1rem">'+
+                  '<label class="ar-field"><span class="ar-label">فعال</span><input id="smsEnabled" type="checkbox" class="ar-input" /></label>'+
+                  '<label class="ar-field"><span class="ar-label">کلید API</span><input id="smsApiKey" class="ar-input" placeholder="API Key" /></label>'+
+                  '<label class="ar-field"><span class="ar-label">شماره خط</span><input id="smsLine" class="ar-input" placeholder="3000..." /></label>'+
+                '</div>'+
+                '<div style="display:flex;align-items:center;gap:.6rem">'+
+                  '<button id="smsSave" class="ar-btn">ذخیره</button>'+
+                '</div>'+
+              '</div>';
+            (function initMessagingReal(){
+              try { console.debug('[ARSH][NAV][messaging] init real UI'); } catch(_){ }
+              window.__ARSH_MSG_RENDERED__ = true;
+              // Hash param support messaging?tab=sms/settings&sub=sms-settings
+              function parseMsgHash(){ var h=(location.hash||'').replace('#',''); var q=h.split('?')[1]||''; var p=new URLSearchParams(q); return { mtab:p.get('tab')||'sms', msub:p.get('sub')||'sms-settings' }; }
+              function setMsgHash(tab, sub){ try { var h='messaging?tab='+tab; if(sub) h+='&sub='+sub; setHash(h); } catch(_){ } }
+              var { mtab, msub } = parseMsgHash();
+              var MAIN = { sms: 'arMsg_SMS', settings: 'arMsg_Settings' };
+              function showMain(which){ Object.keys(MAIN).forEach(function(k){ var el=document.getElementById(MAIN[k]); if(el) el.style.display = (k===which)?'block':'none'; }); }
+              showMain(mtab);
+              var mBtns = content.querySelectorAll('[data-m-tab]'); mBtns.forEach(function(b){ b.addEventListener('click', function(){ mtab=b.getAttribute('data-m-tab')||'sms'; setMsgHash(mtab, mtab==='settings'? msub : ''); showMain(mtab); }); });
+              // Fetch settings
+              fetch(ARSHLINE_REST + 'sms/settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function(s){ try { var en=document.getElementById('smsEnabled'); if(en) en.checked=!!s.enabled; var ak=document.getElementById('smsApiKey'); if(ak) ak.value=s.api_key||''; var ln=document.getElementById('smsLine'); if(ln) ln.value=s.line_number||''; } catch(_){ } })
+                .catch(function(e){ console.warn('[ARSH][SMS] settings fetch failed', e); });
+              // Local caches
+              var _smsAllForms=[]; var _smsFormAccessCache=Object.create(null); var _smsFormAccessInFlight=Object.create(null); var _smsGroupFieldsCache=Object.create(null); var _smsGroupFieldsInFlight=Object.create(null);
+              function smsGetFormAllowedGroups(fid){ if(_smsFormAccessCache[fid]) return Promise.resolve(_smsFormAccessCache[fid]); if(_smsFormAccessInFlight[fid]) return _smsFormAccessInFlight[fid]; var p=fetch(ARSHLINE_REST+'forms/'+fid+'/groups',{ credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(arr){ var ids=Array.isArray(arr)?arr.map(function(g){ return g.id; }):[]; _smsFormAccessCache[fid]=ids; return ids; }).finally(function(){ delete _smsFormAccessInFlight[fid]; }); _smsFormAccessInFlight[fid]=p; return p; }
+              function updateSmsFormsOptions(){
+                var el=document.getElementById('smsForm'); if(!el) return;
+                var baseHtml='<option value="">— بدون لینک —</option>';
+                var published=(_smsAllForms||[]).filter(function(f){ return String(f.status)==='published'; });
+                if(!published.length){ el.innerHTML=baseHtml; return; }
+                // Previous logic gated by allowed groups; if endpoint fails we still show forms.
+                var safePromises = published.map(function(f){
+                  return smsGetFormAllowedGroups(f.id).then(function(ids){ return { f:f, ids:ids||[] }; }).catch(function(){ return { f:f, ids:[] }; });
+                });
+                Promise.all(safePromises).then(function(rows){
+                  var html=baseHtml;
+                  rows.forEach(function(r){ html+='<option value="'+r.f.id+'">'+escapeHtml(r.f.title||('فرم #'+r.f.id))+'</option>'; });
+                  el.innerHTML=html;
+                }).catch(function(){ el.innerHTML=baseHtml; });
+              }
+              function smsGetGroupFields(gid){ // switched to user-groups endpoint
+                if(_smsGroupFieldsCache[gid]) return Promise.resolve(_smsGroupFieldsCache[gid]);
+                if(_smsGroupFieldsInFlight[gid]) return _smsGroupFieldsInFlight[gid];
+                var p=fetch(ARSHLINE_REST+'user-groups/'+gid+'/fields', { credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE} })
+                  .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+                  .then(function(arr){ var out=Array.isArray(arr)?arr.map(function(f){ return { name:String(f.name||'').trim(), label:String(f.label||'').trim()||String(f.name||'') }; }).filter(function(f){ return !!f.name; }):[]; _smsGroupFieldsCache[gid]=out; return out; })
+                  .finally(function(){ delete _smsGroupFieldsInFlight[gid]; });
+                _smsGroupFieldsInFlight[gid]=p; return p;
+              }
+              function updateSmsVariablesHint(){ var hintEl=document.getElementById('smsVarsHint'); if(!hintEl) return; var grpEl=document.getElementById('smsGroups'); var sel=[].filter.call((grpEl&&grpEl.options)||[], function(o){ return o.selected; }).map(function(o){ return parseInt(o.value)||0; }).filter(Boolean); Promise.all(sel.map(function(gid){ return smsGetGroupFields(gid); })).then(function(all){ var vars=['#name','#phone','#link']; all.forEach(function(arr){ arr.forEach(function(f){ if(f&&f.name) vars.push('#'+f.name); }); }); hintEl.textContent=vars.join(' '); }).catch(function(){ }); }
+              // Load groups (user-groups endpoint unified)
+              fetch(ARSHLINE_REST + 'user-groups', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function(gs){ var el=document.getElementById('smsGroups'); if(!el) return; var arr = Array.isArray(gs)? gs : []; if(!arr.length){ el.innerHTML=''; var hint=document.getElementById('smsVarsHint'); if(hint) hint.textContent='هیچ گروهی تعریف نشده است.'; } else { el.innerHTML=arr.map(function(g){ return '<option value="'+g.id+'">'+escapeHtml(String(g.name||('گروه #'+g.id)))+' ('+(g.member_count||0)+')</option>'; }).join(''); } try { el.addEventListener('change', function(){ updateSmsFormsOptions(); updateSmsVariablesHint(); }); } catch(_){ } updateSmsVariablesHint(); })
+                .catch(function(e){ console.warn('[ARSH][SMS] user-groups fetch failed', e); var el=document.getElementById('smsGroups'); if(el) el.innerHTML=''; });
+              // Load forms
+              // Fetch forms: original code used 'forms/list' which does not exist; fallback to 'forms'
+              (function loadSmsForms(){
+                function use(fs){ _smsAllForms=Array.isArray(fs)?fs: (Array.isArray(fs&&fs.items)?fs.items:[]); updateSmsFormsOptions(); updateSmsVariablesHint(); }
+                fetch(ARSHLINE_REST + 'forms/list', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                  .then(function(r){ if(!r.ok) throw new Error('status_'+r.status); return r.json(); })
+                  .then(function(fs){ use(fs); })
+                  .catch(function(){
+                    fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                      .then(function(r2){ if(!r2.ok) throw new Error('status_'+r2.status); return r2.json(); })
+                      .then(function(fs2){ use(fs2); })
+                      .catch(function(e){ console.warn('[ARSH][SMS] forms fetch failed (fallback)', e); use([]); });
+                  });
+              })();
+              var btnSave=document.getElementById('smsSave'); if(btnSave) btnSave.addEventListener('click', function(){ var payload={ enabled: !!(document.getElementById('smsEnabled')&&document.getElementById('smsEnabled').checked), api_key: String((document.getElementById('smsApiKey')&&document.getElementById('smsApiKey').value)||''), line_number: String((document.getElementById('smsLine')&&document.getElementById('smsLine').value)||'') }; fetch(ARSHLINE_REST+'sms/settings',{ method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':ARSHLINE_NONCE}, body: JSON.stringify(payload) }).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(){ notify('ذخیره شد','success'); }).catch(function(e){ notify('ذخیره ناموفق بود','error'); console.warn(e); }); });
+              var btnTest=document.getElementById('smsTest'); if(btnTest) btnTest.addEventListener('click', function(){ var phEl=document.getElementById('smsTestPhone'); var ph=String(phEl&&phEl.value||'').trim(); fetch(ARSHLINE_REST+'sms/test',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':ARSHLINE_NONCE}, body: JSON.stringify({ phone: ph }) }).then(function(r){ return r.json().catch(function(){ return {}; }); }).then(function(j){ if(j && j.success){ notify('تست ارسال شد','success'); } else { notify('تست ناموفق بود','error'); } }).catch(function(){ notify('تست ناموفق بود','error'); }); });
+              var btnSend=document.getElementById('smsSend'); if(btnSend) btnSend.addEventListener('click', async function(){ var groupsSel=document.getElementById('smsGroups'); var formSel=document.getElementById('smsForm'); var msgEl=document.getElementById('smsMessage'); var schEl=document.getElementById('smsSchedule'); var gids=[].filter.call((groupsSel&&groupsSel.options)||[], function(o){ return o.selected; }).map(function(o){ return parseInt(o.value)||0; }).filter(Boolean); if(!gids.length){ notify('گروهی انتخاب نشده','warn'); return; } var fid=parseInt(formSel&&formSel.value)||0; var messageRaw=(msgEl&&msgEl.value)||''; var schedule_at=(schEl&&schEl.value)||''; var usesLink=/(#link|#لینک)/i.test(messageRaw); var includeLink=false; if(usesLink && !fid){ notify('برای #link باید فرم انتخاب شود','warn'); return; } includeLink=!!(fid && usesLink); var message=messageRaw + ' لغو11'; if(!message.trim()){ notify('متن پیام خالی است','warn'); return; } var payload={ group_ids:gids, message:message, include_link: includeLink, form_id: includeLink? fid: undefined, schedule_at: schedule_at||undefined }; try { btnSend.disabled=true; btnSend.textContent='ارسال...'; var r=await fetch(ARSHLINE_REST+'sms/send',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce':ARSHLINE_NONCE}, body: JSON.stringify(payload) }); var body=null; try { body=await r.json(); } catch(_){ } if(!r.ok || !body || body.success!==true){ var code=body&&body.code; var errMsg=(body&&(body.message||body.error))||'ارسال ناموفق بود'; if(code==='sms_disabled') errMsg='ارسال پیامک غیرفعال است.'; else if(code==='empty_message') errMsg='متن پیام خالی است.'; notify(errMsg,'error'); } else { notify('ارسال شد','success'); } } catch(e){ notify('ارسال ناموفق بود','error'); console.error(e); } finally { btnSend.disabled=false; btnSend.textContent='ارسال'; } });
+            })();
+            return;
           '</div>'+
           '<div class="card glass" style="padding:1rem;">'+
             '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
@@ -436,15 +1489,34 @@
           var ctx = document.getElementById('arSubsChart');
           var donutCtx = document.getElementById('arFormsDonut');
           var chart = null, donut = null;
+          // Quick analytics refs
+          var metricsDays = document.getElementById('arMetricsDays');
+          var elSmsTotal = document.getElementById('arMetricSmsTotal');
+          var elSubsTotal = document.getElementById('arMetricSubsTotal');
+          var elViewsTotal = document.getElementById('arMetricViewsTotal');
+          var elMembersTotal = document.getElementById('arMetricMembersTotal');
+          var smsCtx = document.getElementById('arMetricSmsChart');
+          var subsCtx = document.getElementById('arMetricSubsChart');
+          var viewsCtx = document.getElementById('arMetricViewsChart');
+            var membersCtx = document.getElementById('arMetricMembersChart');
+          var chartsMini = {};
           function palette(){ var dark = document.body.classList.contains('dark'); return { grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)', text: dark ? '#e5e7eb' : '#374151', line: dark ? '#60a5fa' : '#2563eb', fill: dark ? 'rgba(96,165,250,.15)' : 'rgba(37,99,235,.12)', active: dark ? '#34d399' : '#10b981', disabled: dark ? '#f87171' : '#ef4444' }; }
           function renderChart(labels, data){ var pal = palette(); if (!ctx) return; try { if (chart){ chart.destroy(); chart=null; } } catch(_){ } if (!window.Chart) return; chart = new window.Chart(ctx, { type:'line', data:{ labels:labels, datasets:[{ label:'ارسال‌ها', data:data, borderColor:pal.line, backgroundColor:pal.fill, fill:true, tension:.3, pointRadius:2, borderWidth:2 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:6, right:8, bottom:6, left:8 } }, scales:{ x:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, maxRotation:0, autoSkip:true, maxTicksLimit:10 } }, y:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, precision:0 } } }, plugins:{ legend:{ labels:{ color:pal.text } }, tooltip:{ intersect:false, mode:'index' } } } }); }
           function renderDonut(activeCnt, disabledCnt){ if (!donutCtx || !window.Chart) return; var pal = palette(); try{ if(donut){ donut.destroy(); donut=null; } } catch(_){ } donut = new window.Chart(donutCtx, { type:'doughnut', data:{ labels:['فعال','غیرفعال'], datasets:[{ data:[activeCnt, disabledCnt], backgroundColor:[pal.active,pal.disabled], borderColor:[pal.active,pal.disabled], borderWidth:1 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ color:pal.text } }, tooltip:{ callbacks:{ label:function(ctx){ var v=ctx.parsed; var sum=(activeCnt+disabledCnt)||1; var pct=Math.round((v/sum)*100); return ctx.label+': '+v+' ('+pct+'%)'; } } } }, cutout:'55%' } }); }
           function applyCounts(c){ function set(id,v){ var el=document.getElementById(id); if(el) el.textContent=String(v); } var total=c.forms||0; var active=c.forms_active||0; var disabled=Math.max(total-active,0); set('arKpiForms', total); set('arKpiFormsActive', active); set('arKpiFormsDisabled', disabled); set('arKpiSubs', c.submissions||0); set('arKpiUsers', c.users||0); try{ renderDonut(active,disabled); } catch(_){ } }
-          function load(days){ try { var url = new URL(ARSHLINE_REST + 'stats'); url.searchParams.set('days', String(days||30)); fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { applyCounts(data.counts||{}); var ser=data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } }).catch(function(err){ console.error('[ARSH] stats failed', err); notify('دریافت آمار ناموفق بود', 'error'); }); } catch(e){ console.error(e); } }
+      function load(days){ try { var url = new URL(ARSHLINE_REST + 'stats'); url.searchParams.set('days', String(days||30)); fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ try { var counts = data.counts||{}; var ser = data.series||{}; var zeroCounts = (counts.forms||0)===0 && (counts.forms_active||0)===0 && (counts.submissions||0)===0 && (counts.users||0)===0; var zeroSeries = !(ser.submissions_per_day||[]).some(function(v){ return (v||0) > 0; }); if (zeroCounts && zeroSeries){ var dN = parseInt(days)||30; var labelsDemo=[]; var subsDemo=[]; for(var i=dN-1;i>=0;i--){ var dt=new Date(Date.now()-i*86400000); labelsDemo.push(dt.toISOString().slice(0,10)); } labelsDemo.forEach(function(_,idx){ subsDemo.push(Math.max(1, Math.round((Math.sin(idx/3)+1)*4 + (idx%5)))); }); counts = { forms: 12, forms_active: 9, submissions: subsDemo.reduce((a,b)=>a+b,0), users: 34 }; ser.labels = labelsDemo; ser.submissions_per_day = subsDemo; try { var badgeHost = document.querySelector('#arKpiForms'); if (badgeHost && !badgeHost.dataset.demo){ var demoTag=document.createElement('span'); demoTag.textContent='Demo'; demoTag.style.cssText='font-size:10px;margin-right:6px;color:#f59e0b;'; badgeHost.parentNode.insertBefore(demoTag, badgeHost); badgeHost.dataset.demo='1'; } } catch(_b){} }
+        applyCounts(counts); renderChart(ser.labels||[], ser.submissions_per_day||[]); } catch(e){ console.error(e); } }).catch(function(err){ console.error('[ARSH] stats failed', err); notify('دریافت آمار ناموفق بود', 'error'); }); } catch(e){ console.error(e); } }
+          function renderMini(id, ctxEl, labels, data, color){ if(!window.Chart || !ctxEl) return; try{ if(chartsMini[id]){ chartsMini[id].destroy(); chartsMini[id]=null; } } catch(_){ } chartsMini[id] = new window.Chart(ctxEl, { type:'bar', data:{ labels:labels, datasets:[{ data:data, backgroundColor:color, borderRadius:4, maxBarThickness:10 }]}, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{enabled:true} }, scales:{ x:{display:false}, y:{display:false} } } }); }
+          function ensureChartLib(cb){ if(window.Chart) return cb(); if(!document.getElementById('arChartJsDyn')){ var s=document.createElement('script'); s.id='arChartJsDyn'; s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'; s.onload=function(){ cb(); }; s.onerror=function(){ cb(); }; document.head.appendChild(s); } else { setTimeout(cb, 400); } }
+          function fetchMetrics(){ var d = metricsDays ? metricsDays.value : '30'; try { var url = new URL(ARSHLINE_REST + 'analytics/metrics'); url.searchParams.set('days', d); fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(json){ if(!json || !json.totals) return; var allZero = (json.totals.sms||0)===0 && (json.totals.submissions||0)===0 && (json.totals.views||0)===0 && (json.totals.group_members||0)===0; if(allZero){ var daysN=parseInt(d)||30; var labelsDemo=[]; var smsDemo=[]; var subsDemo=[]; var viewsDemo=[]; for(var i=daysN-1;i>=0;i--){ var dt=new Date(Date.now()-i*86400000); labelsDemo.push(dt.toISOString().slice(0,10)); } labelsDemo.forEach(function(_,idx){ smsDemo.push((idx%7)+1); subsDemo.push(Math.round((Math.sin(idx/3)+1)*3 + (idx%4))); viewsDemo.push(subsDemo[idx]*(1+(idx%3)) + (idx%5)); }); json.series = json.series || {}; json.series.labels = labelsDemo; json.series.sms_per_day = smsDemo; json.series.submissions_per_day = subsDemo; json.series.views_per_day = viewsDemo; json.totals.sms = smsDemo.reduce((a,b)=>a+b,0); json.totals.submissions = subsDemo.reduce((a,b)=>a+b,0); json.totals.views = viewsDemo.reduce((a,b)=>a+b,0); json.totals.group_members = 25; var badge = document.getElementById('arMetricSmsTotal'); if (badge && !badge.dataset.demo){ var demoTag=document.createElement('span'); demoTag.textContent='Demo'; demoTag.style.cssText='font-size:10px;margin-right:4px;color:#f59e0b;'; badge.parentNode.insertBefore(demoTag, badge); badge.dataset.demo='1'; } } elSmsTotal && (elSmsTotal.textContent = json.totals.sms || 0); elSubsTotal && (elSubsTotal.textContent = json.totals.submissions || 0); elViewsTotal && (elViewsTotal.textContent = json.totals.views || 0); elMembersTotal && (elMembersTotal.textContent = json.totals.group_members || 0); var pal = palette(); var labels = (json.series && json.series.labels)||[]; ensureChartLib(function(){ renderMini('sms', smsCtx, labels, (json.series && json.series.sms_per_day)||[], pal.line); renderMini('subs', subsCtx, labels, (json.series && json.series.submissions_per_day)||[], pal.active); renderMini('views', viewsCtx, labels, (json.series && json.series.views_per_day)||[], pal.disabled); var memSeries = labels.map(function(){ return json.totals.group_members || 0; }); renderMini('members', membersCtx, labels, memSeries, pal.text); }); }).catch(function(err){ console.warn('[ARSH] metrics failed', err); }); } catch(e){ console.error(e); } }
           if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
+          if (metricsDays){ metricsDays.addEventListener('change', fetchMetrics); }
           load(30);
-          try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart && chart.config && chart.config.data && chart.config.data.labels; var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data; if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v); var a = parseInt((document.getElementById('arKpiFormsActive')||{}).textContent||'0')||0; var d = parseInt((document.getElementById('arKpiFormsDisabled')||{}).textContent||'0')||0; renderDonut(a, d); } catch(_){ } }); } } catch(_){ }
+          fetchMetrics();
+          try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart && chart.config && chart.config.data && chart.config.data.labels; var v = chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data; if (Array.isArray(l) && Array.isArray(v)) renderChart(l, v); var a = parseInt((document.getElementById('arKpiFormsActive')||{}).textContent||'0')||0; var d = parseInt((document.getElementById('arKpiFormsDisabled')||{}).textContent||'0')||0; renderDonut(a, d); fetchMetrics(); } catch(_){ } }); } } catch(_){ }
         })();
+      } else if (tab === 'hoosha'){
+        renderHoosha();
       } else if (tab === 'analytics'){
         setActive('analytics');
         content.innerHTML = ''+
@@ -468,7 +1540,8 @@
             '</div>'+
             '<div id="arChatOut" class="card glass" style="padding:1rem;white-space:pre-wrap;line-height:1.7;max-height:420px;overflow:auto"></div>'+
           '</div>'+
-          '<div id="arHoshAdv" style="display:none">'+
+          // Advanced analysis pane (multi-form). Gated by feature flag analyticsAdvanced.
+          '<div id="arHoshAdv" style="display:none" data-feature="analyticsAdvanced">'+
             '<div class="hint" style="margin-bottom:.4rem">تحلیل پیشرفته (نسخهٔ قبلی با گزینه‌ها)</div>'+
             '<div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem">'+
               '<input id="arAnaFormSearch" class="ar-input" placeholder="جستجوی فرم‌ها…" style="min-width:200px;flex:0 0 220px" />'+
@@ -492,6 +1565,17 @@
           '</div>'+
         '</div>';
         (function initAna(){
+          var _anaFlag = !!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.analyticsAdvanced);
+          // If disabled, hide advanced toggle + force chat mode label style; keep minimal shell.
+          if(!_anaFlag){
+            try {
+              var advRadio = document.getElementById('arHoshModeAdv');
+              if(advRadio){ advRadio.closest('label').style.display='none'; }
+              // ensure chat radio is checked
+              var chatRadio = document.getElementById('arHoshModeChat'); if(chatRadio){ chatRadio.checked = true; }
+              var advPane = document.getElementById('arHoshAdv'); if(advPane){ advPane.parentNode.removeChild(advPane); }
+            } catch(_){ }
+          }
           // Mode toggle
           var modeChat = document.getElementById('arHoshModeChat');
           var modeAdv = document.getElementById('arHoshModeAdv');
@@ -500,7 +1584,7 @@
           function setMode(which){ var isChat = (which==='chat'); if (paneChat) paneChat.style.display = isChat?'block':'none'; if (paneAdv) paneAdv.style.display = isChat?'none':'block'; try { localStorage.setItem('arshHoshMode', isChat?'chat':'advanced'); } catch(_){ } }
           try { var savedMode = localStorage.getItem('arshHoshMode')||'chat'; if (savedMode!=='chat'){ if (modeAdv) modeAdv.checked = true; setMode('advanced'); } else { if (modeChat) modeChat.checked = true; setMode('chat'); } } catch(_){ }
           if (modeChat) modeChat.addEventListener('change', function(){ if (modeChat.checked) setMode('chat'); });
-          if (modeAdv) modeAdv.addEventListener('change', function(){ if (modeAdv.checked) setMode('advanced'); });
+          if (modeAdv) modeAdv.addEventListener('change', function(){ if (modeAdv.checked){ if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.analyticsAdvanced){ setMode('advanced'); } else { modeChat && (modeChat.checked=true); setMode('chat'); notify('تحلیل پیشرفته غیرفعال است','warn'); } } });
 
           // Simple chat wiring
           (function initSimpleChat(){
@@ -1216,74 +2300,80 @@
             notify('بارگذاری فرم‌ها ناموفق بود', 'error');
           });
       } else if (tab === 'reports'){
+  // Reports tab: gated by feature flag reportsCharts; basic shell always loads, charts only if enabled.
+  // One-time init guard window.__ARSH_REPORTS_INIT__ prevents redundant Chart.js re-renders.
+        var _reportsChartsEnabled = !!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.reportsCharts);
         content.innerHTML = ''+
           '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
           '  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:.6rem; align-items:stretch;">'+
           '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-          '      <div><div class="hint">همه فرم‌ها</div><div id="arRptKpiForms" class="title">0</div></div>'+
+          '      <div><div class="hint">همه فرم‌ها</div><div id="arKpiForms" class="title">0</div></div>'+
           '      <ion-icon name="albums-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
           '    </div>'+
           '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-          '      <div><div class="hint">فرم‌های فعال</div><div id="arRptKpiFormsActive" class="title">0</div></div>'+
+          '      <div><div class="hint">فرم‌های فعال</div><div id="arKpiFormsActive" class="title">0</div></div>'+
           '      <ion-icon name="flash-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
           '    </div>'+
           '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-          '      <div><div class="hint">فرم‌های غیرفعال</div><div id="arRptKpiFormsDisabled" class="title">0</div></div>'+
+          '      <div><div class="hint">فرم‌های غیرفعال</div><div id="arKpiFormsDisabled" class="title">0</div></div>'+
           '      <ion-icon name="ban-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
           '    </div>'+
           '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-          '      <div><div class="hint">پاسخ‌ها</div><div id="arRptKpiSubs" class="title">0</div></div>'+
+          '      <div><div class="hint">پاسخ‌ها</div><div id="arKpiSubs" class="title">0</div></div>'+
           '      <ion-icon name="clipboard-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
           '    </div>'+
           '    <div class="card glass" style="padding:1rem; display:flex; align-items:center; justify-content:space-between;">'+
-          '      <div><div class="hint">کاربران</div><div id="arRptKpiUsers" class="title">0</div></div>'+
+          '      <div><div class="hint">کاربران</div><div id="arKpiUsers" class="title">0</div></div>'+
           '      <ion-icon name="people-outline" style="font-size:28px; opacity:.8"></ion-icon>'+
           '    </div>'+
           '  </div>'+
           '</div>'+
-          '<div class="card glass" style="padding:1rem;">'+
+          (_reportsChartsEnabled ? '<div class="card glass" style="padding:1rem;">' : '<div class="card glass" style="padding:1rem;display:none" aria-hidden="true">')+
           '  <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
           '    <span class="title">روند ارسال‌ها</span>'+
           '    <span class="hint">۳۰ روز اخیر</span>'+
           '    <span style="flex:1 1 auto"></span>'+
-          '    <select id="arRptStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+          '    <select id="arStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
           '  </div>'+
-          '  <div style="width:100%; max-width:360px; height:140px;"><canvas id="arRptSubsChart"></canvas></div>'+
+          '  <div style="display:flex; flex-wrap:wrap; gap:.8rem; align-items:stretch;">'+
+          '    <div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChart"></canvas></div>'+
+          '    <div style="width:160px; flex:0 0 160px; height:140px;"><canvas id="arFormsDonut"></canvas></div>'+
+          '  </div>'+
+          '</div>'+
+          (_reportsChartsEnabled ? '<div class="card glass" style="padding:1rem; margin-top:1rem;">' : '<div class="card glass" style="padding:1rem; margin-top:1rem;display:none" aria-hidden="true">')+
+          '  <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
+          '    <span class="title">تحلیل سریع</span>'+
+          '    <span class="hint">پیامک / پاسخ / بازدید / اعضا (۳۰ روز)</span>'+
+          '    <span style="flex:1 1 auto"></span>'+
+          '    <select id="arMetricsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+          '  </div>'+
+          '  <div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap:.8rem;">'+
+          '    <div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+          '      <div class="hint" style="font-size:.7rem;">پیامک</div>'+
+          '      <div id="arMetricSmsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+          '      <canvas id="arMetricSmsChart" height="60"></canvas>'+
+          '    </div>'+
+          '    <div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+          '      <div class="hint" style="font-size:.7rem;">پاسخ</div>'+
+          '      <div id="arMetricSubsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+          '      <canvas id="arMetricSubsChart" height="60"></canvas>'+
+          '    </div>'+
+          '    <div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+          '      <div class="hint" style="font-size:.7rem;">بازدید</div>'+
+          '      <div id="arMetricViewsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+          '      <canvas id="arMetricViewsChart" height="60"></canvas>'+
+          '    </div>'+
+          '    <div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+          '      <div class="hint" style="font-size:.7rem;">اعضا</div>'+
+          '      <div id="arMetricMembersTotal" class="title" style="font-size:1.3rem;">0</div>'+
+          '      <canvas id="arMetricMembersChart" height="60"></canvas>'+
+          '    </div>'+
+          '  </div>'+
           '</div>';
-        (function(){
-          var daysSel = document.getElementById('arRptStatsDays');
-          var ctx = document.getElementById('arRptSubsChart');
-          var chart = null;
-          function palette(){ var dark = document.body.classList.contains('dark'); return { grid: dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)', text: dark ? '#e5e7eb' : '#374151', line: dark ? '#34d399' : '#059669', fill: dark ? 'rgba(52,211,153,.15)' : 'rgba(5,150,105,.12)' }; }
-          function renderChart(labels, data){ var pal=palette(); if (!ctx) return; try{ if(chart){ chart.destroy(); chart=null; } } catch(_){ } if (!window.Chart) return; chart = new window.Chart(ctx, { type:'line', data:{ labels:labels, datasets:[{ label:'ارسال‌ها', data:data, borderColor:pal.line, backgroundColor:pal.fill, fill:true, tension:.3, pointRadius:1.5, borderWidth:1.5 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:6, right:8, bottom:6, left:8 } }, scales:{ x:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, maxRotation:0, autoSkip:true, maxTicksLimit:10 } }, y:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, precision:0 } } }, plugins:{ legend:{ labels:{ color:pal.text } }, tooltip:{ intersect:false, mode:'index' } } } }); }
-          function applyCounts(c){ function set(id,v){ var el=document.getElementById(id); if (el) el.textContent=String(v||0); } set('arRptKpiForms', c.forms); set('arRptKpiFormsActive', c.forms_active); set('arRptKpiFormsDisabled', c.forms_disabled); set('arRptKpiSubs', c.submissions); set('arRptKpiUsers', c.users); }
-          function load(days){ try { var url=new URL(ARSHLINE_REST + 'stats'); url.searchParams.set('days', String(days||30)); fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(data){ applyCounts(data.counts||{}); var ser=data.series||{}; renderChart(ser.labels||[], ser.submissions_per_day||[]); }).catch(function(err){ console.error('[ARSH] stats failed', err); notify('دریافت آمار ناموفق بود', 'error'); }); } catch(e){ console.error(e); } }
-          if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
-          load(30);
-          try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = (chart && chart.config && chart.config.data && chart.config.data.labels) || []; var v = (chart && chart.config && chart.config.data && chart.config.data.datasets && chart.config.data.datasets[0] && chart.config.data.datasets[0].data) || []; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
-        })();
-      } else if (tab === 'messaging'){
-        // Messaging: split into sub-sections (tabs):
-        // - sms: sending UI
-        // - settings: nested tabs, starting with "تنظیمات پیامک"
-        var qs = new URLSearchParams((location.hash.split('?')[1]||''));
-        var mtab = qs.get('tab') || 'sms'; // sms | settings
-        var msub = qs.get('sub') || 'sms-settings';
-
-        function setMsgHash(tab, sub){
-          try { setHash('messaging' + (tab? ('?tab='+encodeURIComponent(tab) + (sub? ('&sub='+encodeURIComponent(sub)) : '')) : '')); } catch(_){ }
+        // Chart initialization (one-time) guarded so re-entering tab doesn't recreate charts
+        if (_reportsChartsEnabled){
+          if (!window.__ARSH_REPORTS_INIT__){ window.__ARSH_REPORTS_INIT__ = true; }
         }
-
-        content.innerHTML = ''+
-          '<div class="card glass" style="padding:1rem;display:flex;flex-direction:column;gap:.8rem">'
-          + '  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">'
-          + '    <button class="ar-btn ar-btn--soft" data-m-tab="sms">پیامک</button>'
-          + '    <button class="ar-btn ar-btn--soft" data-m-tab="settings">تنظیمات</button>'
-          + '  </div>'
-          + '  <div id="arMsg_SMS" class="m-panel" style="display:none">'
-          + '    <div class="title" style="margin-bottom:.4rem">ارسال پیامک به گروه‌های کاربری</div>'
-          + '    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem">'
-          + '      <label class="ar-field"><span class="ar-label">گروه‌ها</span><select id="smsGroups" class="ar-select" multiple size="6"></select></label>'
           + '      <label class="ar-field"><span class="ar-label">فرم (اختیاری برای لینک شخصی)</span><select id="smsForm" class="ar-select"><option value="">— بدون لینک —</option></select></label>'
           + '    </div>'
           + '    <label class="ar-field"><span class="ar-label">متن پیام</span><textarea id="smsMessage" class="ar-input" rows="4" placeholder="مثال: سلام #name، لطفاً فرم زیر را تکمیل کنید: #link"></textarea></label>'
@@ -1737,6 +2827,7 @@
               <div id="arS_AI" class="s-panel" style="display:none;">\
                 <div class="title">تنظیمات هوش مصنوعی (سراسری)</div>\
                 <label><input type="checkbox" id="gsAiEnabled"/> فعال‌سازی هوش مصنوعی ضداسپم</label>\
+                <label style="display:inline-flex;align-items:center;gap:.35rem"><input type="checkbox" id="gsAiFinalReview"/> بازبینی نهایی AI (پاس نهایی طرح فرم)</label>\
                 <div class="field" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">\
                   <span class="hint">آستانه امتیاز (0 تا 1)</span><input id="gsAiThreshold" type="number" min="0" max="1" step="0.05" class="ar-input" style="width:120px"/>\
                 </div>\
@@ -1787,13 +2878,13 @@
         (function(){ try { var btns = content.querySelectorAll('[data-s-tab]'); function show(which){ ['Security','AI','Users'].forEach(function(k){ var el = document.getElementById('arS_'+k); if (el) el.style.display = (k.toLowerCase()===which)?'block':'none'; }); btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-s-tab')===which); }); } btns.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-s-tab')); }); }); show('security'); } catch(_){ } })();
         fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-          .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try { var hp=document.getElementById('gsHoneypot'); if(hp) hp.checked=!!s.anti_spam_honeypot; var ms=document.getElementById('gsMinSec'); if(ms) ms.value=String(s.min_submit_seconds||0); var rpm=document.getElementById('gsRatePerMin'); if(rpm) rpm.value=String(s.rate_limit_per_min||0); var rwin=document.getElementById('gsRateWindow'); if(rwin) rwin.value=String(s.rate_limit_window_min||1); var ce=document.getElementById('gsCaptchaEnabled'); if(ce) ce.checked=!!s.captcha_enabled; var cs=document.getElementById('gsCaptchaSite'); if(cs) cs.value=s.captcha_site_key||''; var ck=document.getElementById('gsCaptchaSecret'); if(ck) ck.value=s.captcha_secret_key||''; var cv=document.getElementById('gsCaptchaVersion'); if(cv) cv.value=s.captcha_version||'v2'; var uk=document.getElementById('gsUploadKB'); if(uk) uk.value=String(s.upload_max_kb||300); var bsvg=document.getElementById('gsBlockSvg'); if(bsvg) bsvg.checked=(s.block_svg !== false); var aiE=document.getElementById('gsAiEnabled'); if(aiE) aiE.checked=!!s.ai_enabled; var aiT=document.getElementById('gsAiThreshold'); if(aiT) aiT.value=String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5)); var mode=document.getElementById('gsAiMode'); if(mode) mode.value = s.ai_mode || 'hybrid'; var mx=document.getElementById('gsAiMaxRows'); if(mx) mx.value = String(s.ai_max_rows || 400); var ap=document.getElementById('gsAiAllowPII'); if(ap) ap.checked = !!s.ai_allow_pii; var tt=document.getElementById('gsAiTokTypical'); if(tt) tt.value = String(s.ai_tok_typical || 8000); var tm=document.getElementById('gsAiTokMax'); if(tm) tm.value = String(s.ai_tok_max || 32000); function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; } updC(); if (ce) ce.addEventListener('change', updC); } catch(_){ } })
+          .then(function(resp){ var s = resp && resp.settings ? resp.settings : {}; try { var hp=document.getElementById('gsHoneypot'); if(hp) hp.checked=!!s.anti_spam_honeypot; var ms=document.getElementById('gsMinSec'); if(ms) ms.value=String(s.min_submit_seconds||0); var rpm=document.getElementById('gsRatePerMin'); if(rpm) rpm.value=String(s.rate_limit_per_min||0); var rwin=document.getElementById('gsRateWindow'); if(rwin) rwin.value=String(s.rate_limit_window_min||1); var ce=document.getElementById('gsCaptchaEnabled'); if(ce) ce.checked=!!s.captcha_enabled; var cs=document.getElementById('gsCaptchaSite'); if(cs) cs.value=s.captcha_site_key||''; var ck=document.getElementById('gsCaptchaSecret'); if(ck) ck.value=s.captcha_secret_key||''; var cv=document.getElementById('gsCaptchaVersion'); if(cv) cv.value=s.captcha_version||'v2'; var uk=document.getElementById('gsUploadKB'); if(uk) uk.value=String(s.upload_max_kb||300); var bsvg=document.getElementById('gsBlockSvg'); if(bsvg) bsvg.checked=(s.block_svg !== false); var aiE=document.getElementById('gsAiEnabled'); if(aiE) aiE.checked=!!s.ai_enabled; var aiT=document.getElementById('gsAiThreshold'); if(aiT) aiT.value=String((typeof s.ai_spam_threshold==='number'?s.ai_spam_threshold:0.5)); var mode=document.getElementById('gsAiMode'); if(mode) mode.value = s.ai_mode || 'hybrid'; var mx=document.getElementById('gsAiMaxRows'); if(mx) mx.value = String(s.ai_max_rows || 400); var ap=document.getElementById('gsAiAllowPII'); if(ap) ap.checked = !!s.ai_allow_pii; var tt=document.getElementById('gsAiTokTypical'); if(tt) tt.value = String(s.ai_tok_typical || 8000); var tm=document.getElementById('gsAiTokMax'); if(tm) tm.value = String(s.ai_tok_max || 32000); var fr=document.getElementById('gsAiFinalReview'); if(fr) fr.checked = !!s.ai_final_review_enabled; function updC(){ var en = !!(ce && ce.checked); if (cs) cs.disabled=!en; if (ck) ck.disabled=!en; if (cv) cv.disabled=!en; } updC(); if (ce) ce.addEventListener('change', updC); } catch(_){ } })
           .then(function(){ return fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(resp){ try { var c = resp && resp.config ? resp.config : {}; var bu=document.getElementById('gsAiBaseUrl'); if (bu) bu.value = c.base_url || ''; var mo=document.getElementById('gsAiModel'); if (mo) mo.value = c.model || 'auto'; var pa=document.getElementById('gsAiParser'); if (pa) pa.value = c.parser || 'hybrid'; var ak=document.getElementById('gsAiApiKey'); if (ak) ak.value = c.api_key || ''; var hm=document.getElementById('gsHoshModel'); if (hm) hm.value = c.hosh_model || ''; var hmd=document.getElementById('gsHoshMode'); if (hmd) hmd.value = c.hosh_mode || 'hybrid'; } catch(_){ } }); })
           .catch(function(){ notify('خطا در بارگذاری تنظیمات سراسری', 'error'); });
         function putSettings(part){ return fetch(ARSHLINE_REST + 'settings', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ settings: part }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
         function putAiConfig(cfg){ return fetch(ARSHLINE_REST + 'ai/config', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ config: cfg }) }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
     var saveSec=document.getElementById('gsSaveSecurity'); if (saveSec){ saveSec.addEventListener('click', function(){ var payload = { anti_spam_honeypot: !!(document.getElementById('gsHoneypot')?.checked), min_submit_seconds: Math.max(0, parseInt(document.getElementById('gsMinSec')?.value||'0')||0), rate_limit_per_min: Math.max(0, parseInt(document.getElementById('gsRatePerMin')?.value||'0')||0), rate_limit_window_min: Math.max(1, parseInt(document.getElementById('gsRateWindow')?.value||'1')||1), captcha_enabled: !!(document.getElementById('gsCaptchaEnabled')?.checked), captcha_site_key: String(document.getElementById('gsCaptchaSite')?.value||''), captcha_secret_key: String(document.getElementById('gsCaptchaSecret')?.value||''), captcha_version: String(document.getElementById('gsCaptchaVersion')?.value||'v2'), upload_max_kb: Math.max(50, Math.min(4096, parseInt(document.getElementById('gsUploadKB')?.value||'300')||300)), block_svg: !!(document.getElementById('gsBlockSvg')?.checked) }; putSettings(payload).then(function(){ notify('تنظیمات امنیت ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات امنیت ناموفق بود', 'error'); }); }); }
-  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)), ai_mode: String(document.getElementById('gsAiMode')?.value||'hybrid'), ai_max_rows: Math.max(50, Math.min(1000, parseInt(document.getElementById('gsAiMaxRows')?.value||'400')||400)), ai_allow_pii: !!(document.getElementById('gsAiAllowPII')?.checked), ai_tok_typical: Math.max(1000, Math.min(16000, parseInt(document.getElementById('gsAiTokTypical')?.value||'8000')||8000)), ai_tok_max: Math.max(4000, Math.min(32000, parseInt(document.getElementById('gsAiTokMax')?.value||'32000')||32000)) }; var selectedModel = String(document.getElementById('gsAiModel')?.value||'auto'); var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: selectedModel, model_mode: (selectedModel==='auto'?'auto':'manual'), parser: String(document.getElementById('gsAiParser')?.value||'hybrid'), hosh_model: String(document.getElementById('gsHoshModel')?.value||''), hosh_mode: String(document.getElementById('gsHoshMode')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
+  var saveAI=document.getElementById('gsSaveAI'); if (saveAI){ saveAI.addEventListener('click', function(){ var ai_enabled = !!(document.getElementById('gsAiEnabled')?.checked); var payload = { ai_enabled: ai_enabled, ai_final_review_enabled: !!(document.getElementById('gsAiFinalReview')?.checked), ai_spam_threshold: Math.max(0, Math.min(1, parseFloat(document.getElementById('gsAiThreshold')?.value||'0.5')||0.5)), ai_mode: String(document.getElementById('gsAiMode')?.value||'hybrid'), ai_max_rows: Math.max(50, Math.min(1000, parseInt(document.getElementById('gsAiMaxRows')?.value||'400')||400)), ai_allow_pii: !!(document.getElementById('gsAiAllowPII')?.checked), ai_tok_typical: Math.max(1000, Math.min(16000, parseInt(document.getElementById('gsAiTokTypical')?.value||'8000')||8000)), ai_tok_max: Math.max(4000, Math.min(32000, parseInt(document.getElementById('gsAiTokMax')?.value||'32000')||32000)) }; var selectedModel = String(document.getElementById('gsAiModel')?.value||'auto'); var cfg = { enabled: ai_enabled, base_url: String(document.getElementById('gsAiBaseUrl')?.value||''), api_key: String(document.getElementById('gsAiApiKey')?.value||''), model: selectedModel, model_mode: (selectedModel==='auto'?'auto':'manual'), parser: String(document.getElementById('gsAiParser')?.value||'hybrid'), hosh_model: String(document.getElementById('gsHoshModel')?.value||''), hosh_mode: String(document.getElementById('gsHoshMode')?.value||'hybrid') }; putSettings(payload).then(function(){ return putAiConfig(cfg); }).then(function(){ notify('تنظیمات هوش مصنوعی ذخیره شد', 'success'); }).catch(function(){ notify('ذخیره تنظیمات هوش مصنوعی ناموفق بود', 'error'); }); }); }
         var exportBtn=document.getElementById('gsExportAI'); if (exportBtn){ exportBtn.addEventListener('click', function(){ Promise.all([
           fetch(ARSHLINE_REST + 'settings', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){return {};}); }),
           fetch(ARSHLINE_REST + 'ai/config', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} }).then(function(r){ return r.json().catch(function(){return {};}); })
@@ -2402,8 +3493,9 @@
         .finally(function(){ try { window._arAddInFlight = false; } catch(_){ } setToolsDisabled(false); });
     }
 
-    function renderFormBuilder(id){
-      dlog('renderFormBuilder:start', id);
+    function renderFormBuilder(id, opts){
+      dlog('renderFormBuilder:start', id, opts);
+      opts = opts || {};
       if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); arRenderTab('forms'); return; }
       try { setSidebarClosed(true, false); } catch(_){ }
       document.body.classList.remove('preview-only');
@@ -2584,6 +3676,7 @@
             function showPanel(which){ var title = document.getElementById('arSectionTitle'); var panels = { builder: document.getElementById('arFormFieldsList'), design: document.getElementById('arDesignPanel'), settings: document.getElementById('arSettingsPanel'), share: document.getElementById('arSharePanel'), reports: document.getElementById('arReportsPanel'), }; Object.keys(panels).forEach(function(k){ panels[k].style.display = (k===which)?'block':'none'; }); document.getElementById('arBulkToolbar').style.display = (which==='builder')?'flex':'none'; var tools = document.getElementById('arToolsSide'); if (tools) tools.style.display = (which==='builder')?'block':'none'; title.textContent = (which==='builder'?'پیش‌نمایش فرم': which==='design'?'طراحی فرم': which==='settings'?'تنظیمات فرم': which==='share'?'ارسال/اشتراک‌گذاری': 'گزارشات فرم'); }
             function setActive(btn){ tabs.forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); }); btn.classList.add('active'); btn.setAttribute('aria-selected','true'); }
             tabs.forEach(function(btn, idx){ btn.setAttribute('tabindex', idx===0? '0' : '-1'); btn.addEventListener('click', function(){ setActive(btn); showPanel(btn.getAttribute('data-tab')); }); btn.addEventListener('keydown', function(e){ var i = tabs.indexOf(btn); if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){ e.preventDefault(); var ni = (e.key==='ArrowRight') ? (i+1) % tabs.length : (i-1+tabs.length) % tabs.length; tabs[ni].focus(); } if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); setActive(btn); showPanel(btn.getAttribute('data-tab')); } }); }); var def = content.querySelector('.ar-tabs [data-tab="builder"]'); if (def){ setActive(def); } showPanel('builder');
+            if (opts.tab){ var initBtn = content.querySelector('.ar-tabs [data-tab="'+opts.tab+'"]'); if (initBtn){ setActive(initBtn); showPanel(opts.tab); dlog('renderFormBuilder:init-tab', opts.tab); } }
             var meta = data.meta || {}; var dPrim = document.getElementById('arDesignPrimary'); if (dPrim) dPrim.value = meta.design_primary || '#1e40af'; var dBg = document.getElementById('arDesignBg'); if (dBg) dBg.value = meta.design_bg || '#f5f7fb'; var dTheme = document.getElementById('arDesignTheme'); if (dTheme) dTheme.value = meta.design_theme || 'light';
             // Populate and wire Title editing
             try {
@@ -2694,7 +3787,7 @@
             } catch(_){ }
           } catch(_){ }
           var fields = data.fields || []; var qCounter = 0; var visibleMap = []; var vIdx = 0;
-          list.innerHTML = fields.map(function(f, i){ var p = f.props || f; var type = p.type || f.type || 'short_text'; if (type === 'welcome' || type === 'thank_you'){ var ttl = (type==='welcome') ? 'پیام خوش‌آمد' : 'پیام تشکر'; var head = (p.heading && String(p.heading).trim()) || ''; return '<div class="card" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+          list.innerHTML = fields.map(function(f, i){ var p = f.props || f; var type = p.type || f.type || 'short_text'; if (type === 'welcome' || type === 'thank_you'){ var ttl = (type==='welcome') ? 'پیام خوش‌آمد' : 'پیام تشکر'; var head = (p.heading && String(p.heading).trim()) || ''; return '<div class="card" data-oid="'+i+'" data-field-idx="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
             <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
               <div class="hint" style="display:flex;align-items:center;gap:.4rem;">\
                 <span class="ar-type-ic"><ion-icon name="'+getTypeIcon(type)+'"></ion-icon></span>\
@@ -2707,7 +3800,7 @@
             </div>\
           </div>'; }
             visibleMap[vIdx] = i; vIdx++; var q = (p.question&&p.question.trim()) || ''; var qHtml = q ? sanitizeQuestionHtml(q) : 'پرسش بدون عنوان'; var n = ''; if (p.numbered !== false) { qCounter += 1; n = qCounter + '. '; }
-            return '<div class="card ar-draggable" draggable="true" data-vid="'+(vIdx-1)+'" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+            return '<div class="card ar-draggable" draggable="true" data-vid="'+(vIdx-1)+'" data-oid="'+i+'" data-field-idx="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
               <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
                 <div style="display:flex;align-items:center;gap:.5rem;">\
                   <span class="ar-dnd-handle" title="جابجایی">≡</span>\
@@ -2721,6 +3814,11 @@
                 </div>\
               </div>\
             </div>'; }).join('');
+          // Highlight requested field index (if provided)
+          if (typeof opts.fieldIndex === 'number' && !isNaN(opts.fieldIndex)){
+            var hi = list.querySelector('[data-field-idx="'+opts.fieldIndex+'"]');
+            if (hi){ try { hi.classList.add('ar-pulse'); setTimeout(function(){ hi.classList.remove('ar-pulse'); }, 2500); } catch(_){ } try { hi.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_){ } dlog('renderFormBuilder:init-field', opts.fieldIndex); }
+          }
           // Minimal delete/edit binding
           list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
           list.querySelectorAll('.arDeleteField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var card = a.closest('.card'); if (!card) return; var oid = parseInt(card.getAttribute('data-oid')||''); if (isNaN(oid)) return; var p = fields[oid] && (fields[oid].props || fields[oid]); var ty = p && (p.type || fields[oid].type); if (ty === 'welcome' || ty === 'thank_you') return; var ok = window.confirm('از حذف این سؤال مطمئن هستید؟'); if (!ok) return; var newFields = fields.slice(); newFields.splice(oid, 1); fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('سؤال حذف شد', 'success'); renderFormBuilder(id); }).catch(function(){ notify('حذف سؤال ناموفق بود', 'error'); }); }); });

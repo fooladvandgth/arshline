@@ -100,7 +100,7 @@
     function logConsole(action, detail){ try { console.log(LOG_MARK+'[HOSHYAR]', action, detail||''); } catch(_){ } }
 
     function humanizeTab(tab){
-      var map = { dashboard:'داشبورد', forms:'فرم‌ها', reports:'گزارشات', users:'کاربران', settings:'تنظیمات', 'users/ug':'گروه‌های کاربری' };
+  var map = { dashboard:'داشبورد', forms:'فرم‌ها', reports:'گزارشات', analytics:'تحلیل‌ها', users:'کاربران', settings:'تنظیمات', 'users/ug':'گروه‌های کاربری' };
       var key = String(tab||'');
       return map[key] || map[key.split('/')[0]] || key;
     }
@@ -306,10 +306,21 @@
         if (j.action === 'ui' && j.target === 'toggle_theme'){
           try {
             var t = document.getElementById('arThemeToggle');
-            var prev = t ? (t.getAttribute('aria-checked')==='true') : null;
-            if (t) t.click();
+            var isDark = document.body.classList.contains('dark');
+            var desired = null;
+            if (j.mode === 'dark') desired = true; else if (j.mode === 'light') desired = false;
+            var prev = isDark;
+            if (t){
+              if (desired === null){
+                // simple toggle
+                t.click();
+              } else if (desired !== isDark){
+                t.click(); // only click if state differs
+              }
+            }
             uiStack.push({ type:'toggle_theme', payload:{ prev: prev }, undo:function(){ if (t) t.click(); } });
-            logConsole('UI action', 'toggle_theme');
+            logConsole('UI action', { toggle_theme: j.mode || 'toggle' });
+            appendOut(desired===true? 'حالت تاریک فعال شد.' : desired===false? 'حالت روشن فعال شد.' : 'تم تغییر کرد.');
           } catch(_){ }
           return;
         }
@@ -420,6 +431,41 @@
       if (cmdEl) { try { cmdEl.value = ''; } catch(_){ } }
       if (!cmd){ notify('دستور خالی است', 'warn'); return; }
       appendOut('> '+cmd);
+      // Fast-path: local theme command detection (dark/light/toggle) to avoid server roundtrip
+      try {
+        var lc0 = cmd.replace(/[\u200c\u200d]/g,' ').trim().toLowerCase().replace(/\s+/g,' ');
+  // Extended synonyms: "تم دارک", "تم لایت", "روز بشه", "شب بشه", "روشن بشه", "تیره بشه", "تاریک بشه"
+  var darkP = /(حالت|تم|پوسته)?\s*(?:کاملا\s*)?(تاریک|تیره|شب|تشب|دارک)\b|\b(dark|darkmode)\b|\b(شب\s*بشه|تاریک\s*بشه|تیره\s*بشه)\b/;
+  var lightP = /(حالت|تم|پوسته)?\s*(?:کاملا\s*)?(روشن|روز|سفید|لایت)\b|\b(light|lightmode)\b|\b(روز\s*بشه|روشن\s*بشه)\b/;
+  var toggleP = /^(?:تم|حالت)\s*رو?\s*(?:عوض|تغییر) کن$/;
+  var shortDarkP = /^(تم\s*(?:تاریک|تیره|دارک)|تاریک کن|تیره کن|دارکش کن|حالت تیره|تم شب|شب بشه|تاریک بشه|تیره بشه)$/;
+  var shortLightP = /^(تم\s*(?:روشن|روز|لایت)|روشن کن|سفیدش کن|تم روز|حالت روز|روز بشه|روشن بشه)$/;
+  // NOTE (NL Theme Synonyms): Added extended Persian variants:
+  //   دارک / لایت / شب بشه / روز بشه / تاریک بشه / تیره بشه / روشن بشه
+  // Maintain parity here if dashboard-controller.js ARSH_SET_THEME signature changes.
+        var mode=null, matched=false;
+        if (darkP.test(lc0) || shortDarkP.test(lc0)){ mode='dark'; matched=true; }
+        else if (lightP.test(lc0) || shortLightP.test(lc0)){ mode='light'; matched=true; }
+        else if (toggleP.test(lc0)){ matched=true; }
+        if (matched){
+          var tgl = document.getElementById('arThemeToggle');
+          var isDarkNow = document.body.classList.contains('dark');
+          try {
+            if (window.ARSH_SET_THEME && (mode==='dark' || mode==='light')){
+              window.ARSH_SET_THEME(mode);
+            } else {
+              if (mode==='dark' && !isDarkNow && tgl) tgl.click();
+              else if (mode==='light' && isDarkNow && tgl) tgl.click();
+              else if (mode===null && tgl) tgl.click();
+            }
+          } catch(_){ }
+          var msg = mode==='dark' ? 'حالت تاریک فعال شد.' : mode==='light' ? 'حالت روشن فعال شد.' : 'تم تغییر کرد.';
+          appendOut(msg);
+          notify('تم بروزرسانی شد','success');
+          saveHist(cmd, msg);
+          return;
+        }
+      } catch(_){ }
       // Client-side smart intents for common Persian routes
       try {
         var c = cmd.replace(/[\s\u200c\u200d]+/g,' ').trim();
@@ -446,6 +492,42 @@
             saveHist(cmd, 'در حال باز کردن کاربران…\nباز شد: کاربران');
             notify('باز شد', 'success');
           } catch(_){ }
+          return;
+        }
+        // Settings tab synonyms: تنظیمات / ستینگ / کانفیگ
+        var reSettings = /(برو\s*(به)?\s*)?(تنظیمات|ستینگ|کانفیگ)/i;
+        if (reSettings.test(c)){
+          appendOut('در حال باز کردن تنظیمات…');
+          try { if (typeof window.setHash==='function') setHash('settings'); else { location.hash = '#settings'; } if (typeof window.renderTab==='function') window.renderTab('settings'); appendOut('باز شد: تنظیمات'); notify('باز شد','success'); saveHist(cmd,'باز شد: تنظیمات'); } catch(_){ }
+          return;
+        }
+        // Messaging (SMS) synonyms: پیام رسانی / پیام‌رسانی / sms / پیامک
+        var reMessaging = /(برو\s*(به)?\s*)?(پیام\s*رسانی|پیام‌رسانی|پیامک|sms|اس\s*ام\s*اس)/i;
+        if (reMessaging.test(c)){
+          appendOut('در حال باز کردن پیام‌رسانی…');
+          try { if (typeof window.setHash==='function') setHash('messaging'); else { location.hash = '#messaging'; } if (typeof window.renderTab==='function') window.renderTab('messaging'); appendOut('باز شد: پیام‌رسانی'); notify('باز شد','success'); saveHist(cmd,'باز شد: پیام‌رسانی'); } catch(_){ }
+          return;
+        }
+        // Analytics synonyms: تحلیل ها / آنالیز / آنالیتیکس
+        var reAnalytics = /(برو\s*(به)?\s*)?(تحلیل(?:\s*ها)?|آنالیز|آنالیتیکس|analytics)/i;
+        if (reAnalytics.test(c)){
+          appendOut('در حال باز کردن تحلیل‌ها…');
+          try { if (typeof window.setHash==='function') setHash('analytics'); else { location.hash = '#analytics'; } if (typeof window.renderTab==='function') window.renderTab('analytics'); appendOut('باز شد: تحلیل‌ها'); notify('باز شد','success'); saveHist(cmd,'باز شد: تحلیل‌ها'); } catch(_){ }
+          return;
+        }
+        // Reports synonyms: گزارشات / گزارش ها / ریپورت
+        var reReports = /(برو\s*(به)?\s*)?(گزارش(?:ات| ها)?|ریپورت|reports?)/i;
+        if (reReports.test(c)){
+          appendOut('در حال باز کردن گزارشات…');
+          try { if (typeof window.setHash==='function') setHash('reports'); else { location.hash = '#reports'; } if (typeof window.renderTab==='function') window.renderTab('reports'); appendOut('باز شد: گزارشات'); notify('باز شد','success'); saveHist(cmd,'باز شد: گزارشات'); } catch(_){ }
+          return;
+        }
+        // Hoosha builder / analytics synonyms: route to analytics (هوشا) tab instead of generic forms
+        // NOTE: User requested that phrase "فرم ساز هوشا" open Hoosha (analytics) context.
+        var reFormBuilderHoosha = /(برو\s*(به)?\s*)?(فرم\s*ساز\s*هوشا|سازنده\s*فرم\s*هوشا|بیلدر\s*هوشا|هوشا\s*فرم\s*ساز|هوشنگ|هوشا|تحلیل\s*هوشمند)/i;
+        if (reFormBuilderHoosha.test(c)){
+          appendOut('در حال باز کردن تحلیل‌ها…');
+          try { if (typeof window.setHash==='function') setHash('analytics'); else { location.hash='#analytics'; } if (typeof window.renderTab==='function') window.renderTab('analytics'); appendOut('باز شد: تحلیل‌ها'); notify('باز شد','success'); saveHist(cmd,'باز شد: تحلیل‌ها'); } catch(_){ }
           return;
         }
         // Quick add field intents

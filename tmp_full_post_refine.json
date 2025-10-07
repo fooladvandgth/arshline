@@ -1,0 +1,180 @@
+{
+    "ok": true,
+    "edited_text": "1. قد خود را وارد کنید. [multiple_choice|format=numeric|options=بله/خیر]\n2. آدرس ایمیل محل کارتان چیست؟ [multiple_choice|format=email]\n3. کد ملی خود را وارد کنید. [short_text|format=national_id_ir]\n4. در هفته چند روز ورزش می‌کنید؟ [multiple_choice|options=بله/خیر]\n5. رنگ مورد علاقه‌تان چیست؟ [multiple_choice|options=سبز/آبی/قرمز]\n6. آیا تا به حال از بیمه خودرو استفاده کرده‌اید؟ [multiple_choice|options=بله/خیر]\n7. تاریخ (تقویم جلالی) را وارد کنید. [multiple_choice|format=date_greg|options=بله/خیر]",
+    "schema": {
+        "fields": [
+            {
+                "type": "multiple_choice",
+                "label": "میزان حقوق ماهانه شما چقدر است؟",
+                "required": false,
+                "props": {
+                    "options": [
+                        "بله",
+                        "خیر"
+                    ],
+                    "multiple": false,
+                    "source": "yesno_infer",
+                    "format": "numeric"
+                }
+            },
+            {
+                "type": "multiple_choice",
+                "label": "آدرس ایمیل محل کارتان چیست؟",
+                "required": false,
+                "props": {
+                    "source": "yesno_infer",
+                    "format": "email",
+                    "confirm_for": 12
+                }
+            },
+            {
+                "type": "short_text",
+                "label": "کد ملی خود را وارد کنید.",
+                "required": false,
+                "props": {
+                    "format": "national_id_ir"
+                }
+            },
+            {
+                "type": "multiple_choice",
+                "label": "در هفته چند روز ورزش می‌کنید؟",
+                "required": false,
+                "props": {
+                    "options": [
+                        "بله",
+                        "خیر"
+                    ],
+                    "multiple": true,
+                    "source": "yesno_infer"
+                }
+            },
+            {
+                "type": "multiple_choice",
+                "label": "رنگ مورد علاقه‌تان چیست؟",
+                "required": false,
+                "props": {
+                    "options": [
+                        "سبز",
+                        "آبی",
+                        "قرمز"
+                    ],
+                    "multiple": false,
+                    "source": "color_inferred"
+                }
+            },
+            {
+                "type": "multiple_choice",
+                "label": "آیا تا به حال از بیمه خودرو استفاده کرده‌اید؟",
+                "required": false,
+                "props": {
+                    "options": [
+                        "بله",
+                        "خیر"
+                    ],
+                    "multiple": false,
+                    "source": "yesno_infer"
+                }
+            },
+            {
+                "type": "multiple_choice",
+                "label": "تاریخ تولد خود را چه زمانی است؟",
+                "required": false,
+                "props": {
+                    "options": [
+                        "بله",
+                        "خیر"
+                    ],
+                    "multiple": false,
+                    "source": "restored_baseline",
+                    "format": "date_greg"
+                }
+            }
+        ]
+    },
+    "notes": [
+        "pipe:model_call_start",
+        "ai:added(label=تاریخ تولد خود را چه زما)",
+        "ai:added(label=روز تولد خود را وارد کنی)",
+        "ai:added(label=کد ملی خود را وارد کنید.)",
+        "ai:added(label=شماره ملی خود را ثبت کنی)",
+        "ai:added(label=در هفته چند روز ورزش می‌)",
+        "ai:added(label=رنگ مورد علاقه‌تان چیست؟)",
+        "ai:added(label=رنگ محبوب خود را انتخاب )",
+        "ai:added(label=میانگین حقوق ماهانه‌تان )",
+        "ai:added(label=آیا تا به حال از بیمه خو)",
+        "ai:added(label=آیا بیمه ماشین را فعال ک)",
+        "ai:removed(count=10)",
+        "ai:added_full(count=10;labels=تاریخ تولد خود را چه زمانی ثبت می‌کنید؟|روز تولد خود را وارد کنید.|کد ملی خود را وارد کنید.|شماره ملی خود را ثبت کنید.|در هفته چند روز ورزش می‌کنید؟|رنگ مورد علاقه‌تان چیست؟|رنگ محبوب خود را انتخاب کنید (سبز، آبی، |میانگین حقوق ماهانه‌تان را وارد کنید.|آیا تا به حال از بیمه خودرو استفاده کرده|آیا بیمه ماشین را فعال کرده‌اید؟)",
+        "ai:refinement_applied(15)",
+        "pipe:model_call_latency(ms=9434)",
+        "pipe:model_call_end",
+        "heur:dual_date_collapsed(date_jalali)",
+        "audit:restore_skipped_guard(10)",
+        "audit:coverage(1.00)",
+        "perf:tokens(in=57,out=124,total=181)",
+        "perf:cost(usd~2.7E-5)",
+        "perf:latency_ms=9454",
+        "ai:custom_base_url",
+        "guard:issue(removed_ai_added(13))",
+        "guard:issue(choice_expanded(tokenized_list))",
+        "guard:issue(options_purged_yes_no(آدرس ایمیل محل کارتان چیست؟))",
+        "guard:issue(duplicate_label(رنگمحبوبخودراانتخابکنیدسبزآبیقرمز))",
+        "guard:issue_detail(error:removed_ai_added(13))",
+        "guard:issue_detail(info:choice_expanded(tokenized_list))",
+        "guard:issue_detail(warning:options_purged_yes_no(آدرس ایمیل محل کارتان چیست؟))",
+        "guard:issue_detail(error:duplicate_label(رنگمحبوبخودراانتخابکنیدسبزآبیقرمز))",
+        "guard:issues_error_count(2)",
+        "guard:issues_warning_count(1)",
+        "guard:issues_info_count(1)",
+        "guard:diag_ai_added(13)",
+        "guard:diag_ai_removed(13)",
+        "guard:diag_options_corrected(3)",
+        "guard:rejected",
+        "guard:final_normalize_start(before=24)",
+        "guard:confirm_yesno_cleaned(index=3)",
+        "guard:final_collapse(removed=17)",
+        "guard:merged_groups(dob|national|color|sport|salary|email|insurance|dob)",
+        "guard:final_normalize_end(after=7)",
+        "guard:final_debug(fields_before=24,fields_after=7)",
+        "guard:edited_text_rebuilt_final"
+    ],
+    "confidence": 0.9,
+    "model_used": true,
+    "model_skip_reason": "",
+    "guard": {
+        "approved": false,
+        "issues": [
+            "removed_ai_added(13)",
+            "choice_expanded(tokenized_list)",
+            "options_purged_yes_no(آدرس ایمیل محل کارتان چیست؟)",
+            "duplicate_label(رنگمحبوبخودراانتخابکنیدسبزآبیقرمز)"
+        ],
+        "issues_detail": [
+            {
+                "code": "removed_ai_added(13)",
+                "severity": "error"
+            },
+            {
+                "code": "choice_expanded(tokenized_list)",
+                "severity": "info"
+            },
+            {
+                "code": "options_purged_yes_no(آدرس ایمیل محل کارتان چیست؟)",
+                "severity": "warning"
+            },
+            {
+                "code": "duplicate_label(رنگمحبوبخودراانتخابکنیدسبزآبیقرمز)",
+                "severity": "error"
+            }
+        ],
+        "diagnostics": {
+            "ai_added": 13,
+            "ai_removed": 13,
+            "type_fixed": 0,
+            "duplicates_collapsed": 0,
+            "options_corrected": 3
+        },
+        "lat_ms": null,
+        "adopted": false
+    }
+}

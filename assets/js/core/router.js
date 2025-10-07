@@ -27,19 +27,39 @@
   }
   function routeFromHash(){
     var raw = (location.hash||'').replace('#','').trim();
+    try { console.debug('[ARSH][NAV][routeFromHash] raw="'+raw+'" hash="'+location.hash+'" ts='+Date.now()); } catch(_){ }
     if (!raw){ arRenderTab('dashboard'); return; }
     var parts = raw.split('/');
     // Normalize first segment to ignore query (e.g., "messaging?tab=sms" -> "messaging")
     var seg0 = (parts[0]||'').split('?')[0];
+    try { console.debug('[ARSH][NAV] seg0(before-alias)="'+seg0+'" parts='+JSON.stringify(parts)); } catch(_){ }
+    // Legacy alias support (older builds / saved links). Map legacy route tokens to current ones.
+    if (seg0 === 'messages') seg0 = 'messaging';
+    try { console.debug('[ARSH][NAV] seg0(after-alias)="'+seg0+'"'); } catch(_){ }
     // Support nested route: users/ug (query params allowed like ?tab=...)
     var seg1 = (parts[1]||'').split('?')[0];
+    try { console.debug('[ARSH][NAV] seg1="'+seg1+'"'); } catch(_){ }
     if (seg0==='users' && seg1==='ug'){
       try { if (typeof window.renderUsersUG === 'function') { window.renderUsersUG(); return; } } catch(_){}
       arRenderTab('users'); return;
     }
     if (seg0==='submissions'){ arRenderTab('forms'); return; }
     if (['dashboard','forms','reports','users','settings','messaging'].includes(seg0)){ arRenderTab(seg0); return; }
-    if (seg0==='builder' && parts[1]){ var id = parseInt(parts[1]||'0'); if (id) { try { window.renderFormBuilder && window.renderFormBuilder(id); } catch(_){ } return; } }
+    if (seg0==='builder' && parts[1]){
+      // Support query parameters (e.g. #builder/12?tab=design&field=3)
+      var rawIdPart = parts[1];
+      var idStr = rawIdPart.split('?')[0];
+      var id = parseInt(idStr||'0');
+      if (id){
+        var query = (rawIdPart.indexOf('?')>-1)? rawIdPart.split('?')[1] : '';
+        var q = {};
+        if (query){
+          query.split('&').forEach(function(p){ if(!p) return; var kv=p.split('='); var k=decodeURIComponent(kv[0]||''); var v=decodeURIComponent(kv[1]||''); if(k) q[k]=v; });
+        }
+        try { if (typeof window.renderFormBuilder==='function') window.renderFormBuilder(id, { tab:q.tab, fieldIndex: (q.field? parseInt(q.field): undefined) }); else if (typeof renderFormBuilder==='function') renderFormBuilder(id, { tab:q.tab, fieldIndex:(q.field? parseInt(q.field): undefined) }); } catch(_){ }
+        return;
+      }
+    }
     if (seg0==='editor' && parts[1]){ var id2 = parseInt(parts[1]||'0'); var idx = parseInt(parts[2]||'0'); if (id2) { try { window.renderFormEditor && window.renderFormEditor(id2, { index: isNaN(idx)?0:idx }); } catch(_){ } return; } }
     if (seg0==='preview' && parts[1]){ var id3 = parseInt(parts[1]||'0'); if (id3) { try { window.renderFormPreview && window.renderFormPreview(id3); } catch(_){ } return; } }
     if (seg0==='results' && parts[1]){ var id4 = parseInt(parts[1]||'0'); if (id4) { try { window.renderFormResults && window.renderFormResults(id4); } catch(_){ } return; } }
@@ -56,6 +76,8 @@
     if (location.hash){ routeFromHash(); }
     else {
       var initial = (function(){ try { return localStorage.getItem('arshLastTab') || ''; } catch(_){ return ''; } })() || 'dashboard';
+      // Apply same alias normalization to persisted initial tab
+      if (initial === 'messages') initial = 'messaging';
       if (![ 'dashboard','forms','reports','users','settings','messaging' ].includes(initial)) initial = 'dashboard';
       setHash(initial);
       arRenderTab(initial);

@@ -54,6 +54,11 @@ class Hoshyar
             return [ 'ok' => true, 'action' => 'open_tab', 'tab' => $tab ];
         }
         if ($intent === 'ui' && ($params['target'] ?? '') === 'toggle_theme'){
+            // Optional explicit mode request: { intent: 'ui', params: { target:'toggle_theme', mode:'dark'|'light' } }
+            $mode = isset($params['mode']) ? strtolower((string)$params['mode']) : '';
+            if ($mode === 'dark' || $mode === 'light'){
+                return [ 'ok' => true, 'action' => 'ui', 'target' => 'toggle_theme', 'mode' => $mode ];
+            }
             return [ 'ok' => true, 'action' => 'ui', 'target' => 'toggle_theme' ];
         }
 
