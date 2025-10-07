@@ -1,5 +1,35 @@
 # Changelog
 
+## 7.2.2 - پایدار و تست شده با استاد (Stable Tested Release)
+
+Focus: ماژولار سازی هوشا، تفکیک «گزارشات» از «تحلیل‌ها»، بازگشت کامل پیام‌رسانی پیشرفته، و تشخیص/لاگ بهتر خطاهای پیامک.
+
+Added / Changed:
+- تب Reports مستقل + Feature Flag (reportsCharts) و محافظ init یک‌باره.
+- جداسازی کامل Quick Analytics از Hoosha Preview و حذف رندر تکراری.
+- پرچم‌های قابلیت: dashboardQuick, reportsCharts, analyticsAdvanced, messagingAdvanced, aiTerminal.
+- بازگردانی UI پیام‌رسانی پیشرفته (گروه‌ها، فرم‌ها، متغیرهای پویا) با fallback فرم‌ها (`forms` در صورت نبود `forms/list`).
+- بهبود NLP: تبدیل «سوال 1 را الزامی کن» به `set_required:<index>` به‌جای blanket `set_required:all`.
+- Intent Routing: عبارات «فرم ساز هوشا» → تب تحلیل/Hoosha بجای فرم‌ها.
+
+Messaging / SMS:
+- رفع مشکل خالی بودن لیست گروه‌ها (سوئیچ endpoint به `user-groups`).
+- رفع عدم نمایش فرم برای لینک #link (فچ فرم‌ها با fallback).
+- افزودن لاگ تشخیصی Provider (`[ARSH][SMS] ...`) هنگام خطای WP_Error یا کد HTTP غیرموفق.
+- تفکیک پاسخ ارسال انبوه: اگر همه شکست → `error: provider_fail` با نمونه شماره‌ها.
+- UI: تشخیص موفقیت بر اساس `ok` یا `success`، نمایش شمارش sent/failed و دلیل فیلد `message|error`.
+- UI تست پیامک: نمایش خطای دقیق بجای پیام کلی.
+
+Fixes:
+- جلوگیری از برگرداندن خطای کاذب هنگام ارسال موفق (شرط قبلی فقط success را بررسی می‌کرد).
+- همسان‌سازی نرمال‌سازی #نام / #لینک در اعتبارسنجی اولیه.
+
+Developer Notes:
+- نسخه پچ (patch) چون API عمومی شکسته نشده و تغییرات backward compatible هستند.
+- توصیه: بررسی `wp-content/debug.log` برای تایید لاگ‌های جدید SMS پس از فعال بودن WP_DEBUG.
+
+---
+
 ## 7.2.1 - پایداری و بهبود زمان انتظار (Stable Maintenance)
 
 Fixes & Improvements:
