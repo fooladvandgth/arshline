@@ -2739,9 +2739,16 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
         }
 
         function renderTab(tab){
+            // If dashboard was passed but the hash indicates analytics synonyms, normalize.
+            try {
+                if (tab === 'dashboard'){
+                    var rawHash = (window.location.hash||'').toLowerCase();
+                    if (/تحلیل|analytics|آنالیز/.test(rawHash)) { tab = 'analytics'; }
+                }
+            } catch(_){ }
             try { localStorage.setItem('arshLastTab', tab); } catch(_){ }
             try {
-                if (['dashboard','forms','hoosha','reports','users','settings','messaging'].includes(tab)){
+                if (['dashboard','forms','hoosha','reports','analytics','users','settings','messaging'].includes(tab)){
                     var _h = (location.hash||'').replace('#','');
                     var _seg0 = (_h.split('/')[0]||'').split('?')[0];
                     if (_seg0 !== tab) setHash(tab); // keep existing query if first segment matches
@@ -2840,6 +2847,36 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arSubsChart"></canvas></div>'+
                                                 '<div style="width:160px; flex:0 0 160px; height:140px;"><canvas id="arFormsDonut"></canvas></div>'+
                                             '</div>'+
+                    '</div>'+
+                    '<div class="card glass" style="padding:1rem; margin-top:1rem;">'+
+                       '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
+                          '<span class="title">تحلیل سریع</span>'+
+                          '<span class="hint">پیامک / پاسخ / بازدید / اعضا (۳۰ روز)</span>'+
+                          '<span style="flex:1 1 auto"></span>'+
+                          '<select id="arMetricsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
+                       '</div>'+
+                       '<div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap:.8rem;">'+
+                           '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                               '<div class="hint" style="font-size:.7rem;">پیامک</div>'+
+                               '<div id="arMetricSmsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                               '<canvas id="arMetricSmsChart" height="60"></canvas>'+
+                           '</div>'+
+                           '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                               '<div class="hint" style="font-size:.7rem;">پاسخ</div>'+
+                               '<div id="arMetricSubsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                               '<canvas id="arMetricSubsChart" height="60"></canvas>'+
+                           '</div>'+
+                           '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                               '<div class="hint" style="font-size:.7rem;">بازدید</div>'+
+                               '<div id="arMetricViewsTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                               '<canvas id="arMetricViewsChart" height="60"></canvas>'+
+                           '</div>'+
+                           '<div class="card glass" style="padding:.5rem; height:120px; display:flex; flex-direction:column;">'+
+                               '<div class="hint" style="font-size:.7rem;">اعضا</div>'+
+                               '<div id="arMetricMembersTotal" class="title" style="font-size:1.3rem;">0</div>'+
+                               '<canvas id="arMetricMembersChart" height="60"></canvas>'+
+                           '</div>'+
+                       '</div>'+
                     '</div>';
 
                 // Fetch stats and render chart
@@ -2849,6 +2886,19 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                     var donutCtx = document.getElementById('arFormsDonut');
                     var chart = null;
                     var donut = null;
+                    // Quick metrics elements
+                    var metricsDays = document.getElementById('arMetricsDays');
+                    var elSmsTotal = document.getElementById('arMetricSmsTotal');
+                    var elSubsTotal = document.getElementById('arMetricSubsTotal');
+                    var elViewsTotal = document.getElementById('arMetricViewsTotal');
+                    var elMembersTotal = document.getElementById('arMetricMembersTotal');
+                    var smsCtx = document.getElementById('arMetricSmsChart');
+                    var subsCtx = document.getElementById('arMetricSubsChart');
+                    var viewsCtx = document.getElementById('arMetricViewsChart');
+                    var membersCtx = document.getElementById('arMetricMembersChart');
+                    var chartsMini = {};
+                    function dbg(){ if (window.AR_DEBUG){ try { console.log('[ARSH-DASH]', [].slice.call(arguments)); } catch(_){ } } }
+                    dbg('init', { hasChart: !!window.Chart });
                     function palette(){
                         var dark = document.body.classList.contains('dark');
                         return {
@@ -2860,13 +2910,82 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                             disabled: dark ? '#f87171' : '#ef4444'
                         };
                     }
+                    function renderMini(id, ctxEl, labels, data, color){
+                        if (!window.Chart || !ctxEl) return;
+                        try { if (chartsMini[id]) { chartsMini[id].destroy(); chartsMini[id]=null; } } catch(_){ }
+                        chartsMini[id] = new window.Chart(ctxEl, {
+                            type: 'bar',
+                            data: { labels: labels, datasets: [{ data: data, backgroundColor: color, borderRadius: 4, maxBarThickness: 10 }]},
+                            options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{enabled:true} }, scales:{ x:{display:false}, y:{display:false} } }
+                        });
+                    }
+                    function ensureChartLib(cb){
+                        if (window.Chart) return cb();
+                        if (!document.getElementById('arChartJsDyn')){
+                            var s=document.createElement('script'); s.id='arChartJsDyn'; s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'; s.onload=function(){ dbg('chart.js loaded dynamic'); cb(); }; s.onerror=function(){ dbg('chart.js load error'); cb(); }; document.head.appendChild(s);
+                        } else { setTimeout(cb, 400); }
+                    }
+                    function fetchMetrics(){
+                        var d = metricsDays ? metricsDays.value : '30';
+                        var url = new URL(ARSHLINE_REST + 'analytics/metrics');
+                        url.searchParams.set('days', d);
+                        dbg('fetch metrics', url.toString());
+                        fetch(url.toString(), { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                          .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+                          .then(function(json){
+                              if (!json || !json.totals) return;
+                              var allZero = (json.totals.sms||0)===0 && (json.totals.submissions||0)===0 && (json.totals.views||0)===0 && (json.totals.group_members||0)===0;
+                              if (allZero){
+                                  // Synthesize demo data (non-persistent) for better first impression
+                                  var daysN = parseInt(d)||30; var labelsDemo=[]; var smsDemo=[]; var subsDemo=[]; var viewsDemo=[];
+                                  for (var i=daysN-1;i>=0;i--){ var dt = new Date(Date.now()-i*86400000); labelsDemo.push(dt.toISOString().slice(0,10)); }
+                                  labelsDemo.forEach(function(_, idx){
+                                      // Simple wave patterns
+                                      smsDemo.push( (idx%7)+1 );
+                                      subsDemo.push( Math.round( (Math.sin(idx/3)+1)*3 + (idx%4) ) );
+                                      viewsDemo.push( subsDemo[idx] * (1 + (idx%3)) + (idx%5) );
+                                  });
+                                  json.series = json.series || {};
+                                  json.series.labels = labelsDemo;
+                                  json.series.sms_per_day = smsDemo;
+                                  json.series.submissions_per_day = subsDemo;
+                                  json.series.views_per_day = viewsDemo;
+                                  json.totals.sms = smsDemo.reduce((a,b)=>a+b,0);
+                                  json.totals.submissions = subsDemo.reduce((a,b)=>a+b,0);
+                                  json.totals.views = viewsDemo.reduce((a,b)=>a+b,0);
+                                  json.totals.group_members = 25; // placeholder
+                                  var badge = document.getElementById('arMetricSmsTotal');
+                                  if (badge && !badge.dataset.demo){
+                                      var demoTag = document.createElement('span');
+                                      demoTag.textContent = 'Demo';
+                                      demoTag.style.cssText='font-size:10px;margin-right:4px;color:#f59e0b;';
+                                      badge.parentNode.insertBefore(demoTag, badge);
+                                      badge.dataset.demo='1';
+                                  }
+                              }
+                              elSmsTotal && (elSmsTotal.textContent = json.totals.sms || 0);
+                              elSubsTotal && (elSubsTotal.textContent = json.totals.submissions || 0);
+                              elViewsTotal && (elViewsTotal.textContent = json.totals.views || 0);
+                              elMembersTotal && (elMembersTotal.textContent = json.totals.group_members || 0);
+                              var pal = palette();
+                              var labels = (json.series && json.series.labels)||[];
+                              ensureChartLib(function(){
+                                  renderMini('sms', smsCtx, labels, (json.series && json.series.sms_per_day)||[], pal.line);
+                                  renderMini('subs', subsCtx, labels, (json.series && json.series.submissions_per_day)||[], pal.active);
+                                  renderMini('views', viewsCtx, labels, (json.series && json.series.views_per_day)||[], pal.disabled);
+                              });
+                              var memSeries = labels.map(function(){ return json.totals.group_members || 0; });
+                              ensureChartLib(function(){ renderMini('members', membersCtx, labels, memSeries, pal.text); });
+                          })
+                          .catch(function(err){ console.warn('[ARSH] metrics failed', err); });
+                    }
                     function renderChart(labels, data){
                         var pal = palette();
-                        if (!ctx) return;
+                        if (!ctx){ dbg('no main chart canvas'); return; }
                         try {
                             if (chart){ chart.destroy(); chart = null; }
                         } catch(_){ }
-                        if (!window.Chart) { return; }
+                        if (!window.Chart){ dbg('Chart.js missing for main line'); return; }
                         chart = new window.Chart(ctx, {
                             type: 'line',
                             data: {
@@ -2898,7 +3017,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                         });
                     }
                     function renderDonut(activeCnt, disabledCnt){
-                        if (!donutCtx || !window.Chart) return;
+                        if (!donutCtx){ dbg('no donut canvas'); return; }
+                        if (!window.Chart){ dbg('Chart.js missing for donut'); return; }
                         var pal = palette();
                         try { if (donut) { donut.destroy(); donut = null; } } catch(_){ }
                         donut = new window.Chart(donutCtx, {
@@ -2946,8 +3066,31 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 } catch(e){ console.error(e); }
                                         }
                     if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
+                    if (metricsDays){ metricsDays.addEventListener('change', fetchMetrics); }
                     // Initial
                     load(30);
+                    fetchMetrics();
+                    // Mark canvases if chart lib missing after delay
+                    setTimeout(function(){ if (!window.Chart){ ['arSubsChart','arFormsDonut','arMetricSmsChart','arMetricSubsChart','arMetricViewsChart','arMetricMembersChart'].forEach(function(id){ var el=document.getElementById(id); if(el) el.setAttribute('data-chart-status','lib-missing'); }); } }, 2500);
+                    // In some cases Chart.js may not be ready yet when this IIFE runs (network latency)
+                    // Retry a few times to render charts once the library is available
+                    (function retryChartLib(attempt){
+                        if (window.Chart){
+                            try {
+                                // Re-fetch to ensure visual render if first attempt skipped due to missing window.Chart
+                                fetchMetrics();
+                                // If main line chart not drawn (chart null), reload stats
+                                if (!chart){
+                                    var curDays = daysSel ? parseInt(daysSel.value||'30') : 30;
+                                    load(curDays);
+                                }
+                            } catch(e){ /* ignore */ }
+                            return; // done
+                        }
+                        if (attempt < 10){
+                            setTimeout(function(){ retryChartLib(attempt+1); }, 600);
+                        }
+                    })(0);
                     // Re-render chart on theme toggle
                     try {
                         var themeToggle = document.getElementById('arThemeToggle');
@@ -3206,8 +3349,8 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                                 '<select id="arRptStatsDays" class="ar-select"><option value="30" selected>۳۰ روز</option><option value="60">۶۰ روز</option><option value="90">۹۰ روز</option></select>'+
                                             '</div>'+
                                             '<div style="width:100%; max-width:360px; height:140px;"><canvas id="arRptSubsChart"></canvas></div>'+
-                                        '</div>';
-
+                                            '</div>'+ 
+                                        '</div>'+
                                 (function(){
                                         var daysSel = document.getElementById('arRptStatsDays');
                                         var ctx = document.getElementById('arRptSubsChart');
@@ -3253,6 +3396,51 @@ if (!is_user_logged_in() || !( current_user_can('edit_posts') || current_user_ca
                                         if (daysSel){ daysSel.addEventListener('change', function(){ load(parseInt(daysSel.value||'30')); }); }
                                         load(30);
                                         try { var themeToggle = document.getElementById('arThemeToggle'); if (themeToggle){ themeToggle.addEventListener('click', function(){ try { var l = chart?.config?.data?.labels||[]; var v = chart?.config?.data?.datasets?.[0]?.data||[]; if (l.length) renderChart(l, v); } catch(_){ } }); } } catch(_){ }
+                                })();
+                        } else if (tab === 'analytics') {
+                                // Dedicated Analytics (AI) interactive panel
+                                content.innerHTML = ''+
+                                    '<div class="card glass" style="padding:1rem; margin-bottom:1rem;">'+
+                                        '<div class="title" style="font-size:18px;">تحلیل هوشمند (هوشنگ)</div>'+
+                                        '<div class="hint" style="margin-top:.4rem;">انتخاب فرم‌ها و طرح پرسش برای تحلیل ترکیبی. (نسخه اولیه)</div>'+
+                                        '<div style="margin-top:1rem; display:flex; gap:.6rem; flex-wrap:wrap;" id="arAnForms"></div>'+
+                                        '<textarea id="arAnQuestion" class="ar-input" style="margin-top:.8rem; min-height:90px;" placeholder="مثلاً: میانگین سن پاسخ‌دهندگان هر فرم چقدر است؟"></textarea>'+
+                                        '<div style="margin-top:.6rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap;">'+
+                                             '<button id="arAnRun" class="ar-btn">اجرای تحلیل</button>'+
+                                             '<button id="arAnClear" class="ar-btn ar-btn--outline">پاکسازی</button>'+
+                                             '<span id="arAnStatus" class="hint"></span>'+
+                                        '</div>'+
+                                    '</div>'+
+                                    '<div class="card glass" style="padding:1rem;">'+
+                                        '<div class="title" style="font-size:16px; margin-bottom:.5rem;">نتیجه</div>'+
+                                        '<pre id="arAnOutput" style="white-space:pre-wrap; direction:rtl; font-family:inherit; background:var(--bg-alt); padding:.75rem; border-radius:.5rem; max-height:420px; overflow:auto;">-</pre>'+
+                                    '</div>';
+                                // Load forms for multi-select chips
+                                fetch(ARSHLINE_REST + 'forms', { credentials:'same-origin', headers:{'X-WP-Nonce': ARSHLINE_NONCE} })
+                                    .then(r=>r.json())
+                                    .then(function(fs){
+                                        var list = Array.isArray(fs)?fs:[]; var wrap = document.getElementById('arAnForms'); if(!wrap) return;
+                                        wrap.innerHTML = list.map(function(f){ return '<label class="ar-chip"><input type="checkbox" value="'+f.id+'"><span>#'+f.id+' '+(f.title||'بدون عنوان')+'</span></label>'; }).join('');
+                                    }).catch(function(){ var w = document.getElementById('arAnForms'); if(w) w.innerHTML='<div class="hint">خطا در بارگذاری فرم‌ها</div>'; });
+                                // Wire buttons
+                                (function(){
+                                    var btnRun = document.getElementById('arAnRun');
+                                    var btnClear = document.getElementById('arAnClear');
+                                    var outEl = document.getElementById('arAnOutput');
+                                    var qEl = document.getElementById('arAnQuestion');
+                                    var stEl = document.getElementById('arAnStatus');
+                                    function selectedFormIds(){ var wrap = document.getElementById('arAnForms'); if(!wrap) return []; var arr=[]; wrap.querySelectorAll('input[type=checkbox]:checked').forEach(function(ch){ var v=parseInt(ch.value); if(!isNaN(v)&&v>0) arr.push(v); }); return arr; }
+                                    if (btnClear){ btnClear.addEventListener('click', function(){ if(qEl) qEl.value=''; var wrap=document.getElementById('arAnForms'); if(wrap){ wrap.querySelectorAll('input[type=checkbox]').forEach(function(ch){ ch.checked=false; }); } if(outEl) outEl.textContent='-'; if(stEl) stEl.textContent=''; }); }
+                                    if (btnRun){ btnRun.addEventListener('click', function(){
+                                            var q = (qEl && qEl.value.trim()) || ''; var ids = selectedFormIds();
+                                            if(!q){ notify('پرسش را وارد کنید', 'warn'); return; }
+                                            if(!ids.length){ notify('حداقل یک فرم را انتخاب کنید', 'warn'); return; }
+                                            if(stEl) stEl.textContent='در حال پردازش…'; if(outEl) outEl.textContent='';
+                                            fetch(ARSHLINE_REST + 'analytics/analyze', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ form_ids: ids, question: q }) })
+                                                .then(function(r){ return r.json().then(function(j){ return { ok:r.ok, j:j }; }); })
+                                                .then(function(res){ if(!res.ok || !res.j || res.j.error){ notify('تحلیل ناموفق بود', 'error'); if(stEl) stEl.textContent='خطا'; outEl.textContent = JSON.stringify(res.j||{}, null, 2); return; } if(stEl) stEl.textContent='انجام شد'; var ans = res.j.answer || res.j.data || res.j; outEl.textContent = (typeof ans === 'string'? ans : JSON.stringify(ans, null, 2)); })
+                                                .catch(function(){ if(stEl) stEl.textContent='خطا'; notify('خطا در تحلیل', 'error'); });
+                                    }); }
                                 })();
                         } else if (tab === 'users') {
                 content.innerHTML = '<div style="display:flex;flex-direction:column;gap:1.2rem;">\

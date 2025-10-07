@@ -17,6 +17,18 @@ class Migrations
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY public_token_unique (public_token)
             ) ENGINE=InnoDB;",
+            // Track public form views for analytics (lightweight append-only log)
+            'form_views' => "CREATE TABLE IF NOT EXISTS {prefix}x_form_views (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                form_id BIGINT UNSIGNED NOT NULL,
+                member_id BIGINT UNSIGNED NULL,
+                ip VARCHAR(45) NULL,
+                user_agent VARCHAR(190) NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (form_id) REFERENCES {prefix}x_forms(id) ON DELETE CASCADE,
+                KEY form_idx (form_id),
+                KEY created_idx (created_at)
+            ) ENGINE=InnoDB;",
             // User Groups: تعریف گروه‌های کاربری
             'user_groups' => "CREATE TABLE IF NOT EXISTS {prefix}x_user_groups (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -154,6 +166,21 @@ class Migrations
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (session_id) REFERENCES {prefix}x_ai_chat_sessions(id) ON DELETE CASCADE,
                 KEY session_idx (session_id)
+            ) ENGINE=InnoDB;",
+            // SMS send log for analytics (captures each individual SMS attempt)
+            'sms_log' => "CREATE TABLE IF NOT EXISTS {prefix}x_sms_log (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                job_id BIGINT UNSIGNED NULL,
+                phone VARCHAR(32) NOT NULL,
+                form_id BIGINT UNSIGNED NULL,
+                group_id BIGINT UNSIGNED NULL,
+                status VARCHAR(16) NOT NULL DEFAULT 'sent',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                KEY phone_idx (phone),
+                KEY job_idx (job_id),
+                KEY form_idx (form_id),
+                KEY group_idx (group_id),
+                KEY created_idx (created_at)
             ) ENGINE=InnoDB;",
         ];
     }

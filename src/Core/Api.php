@@ -1,6 +1,27 @@
 <?php
 namespace Arshline\Core;
 
+// Explicit imports for form repositories (full-feature versions under Modules\Forms)
+use Arshline\Modules\Forms\SubmissionRepository as FormsSubmissionRepository;
+use Arshline\Modules\Forms\FieldRepository as FormsFieldRepository;
+use Arshline\Modules\Forms\FormRepository; // Added: proper Forms repository (was missing, caused class not found)
+use Arshline\Modules\Forms\Form;            // Added: Form entity class
+use Arshline\Modules\UserGroups\GroupRepository; // Added: User Groups repository import
+use Arshline\Modules\UserGroups\Group;            // Added: Group entity import
+use Arshline\Modules\UserGroups\FormGroupAccessRepository; // Access mapping repo
+use Arshline\Modules\UserGroups\FieldRepository; // For custom group fields
+use Arshline\Modules\UserGroups\Field;           // Field entity
+// MemberRepository for group members (if exists under Modules\UserGroups)
+use Arshline\Modules\UserGroups\MemberRepository; // ensure proper member repo
+
+// Backwards compatibility / aliasing for older class names referenced in code (UGFieldRepo, UGField)
+if (!class_exists(__NAMESPACE__.'\UGFieldRepo') && class_exists(FieldRepository::class)) {
+    class_alias(FieldRepository::class, __NAMESPACE__.'\UGFieldRepo');
+}
+if (!class_exists(__NAMESPACE__.'\UGField') && class_exists(Field::class)) {
+    class_alias(Field::class, __NAMESPACE__.'\UGField');
+}
+
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
@@ -106,6 +127,35 @@ class Api {
             . ' If insufficient info, answer with "<fa>اطلاعات کافی برای پاسخ وجود ندارد.</fa>" and confidence=low.';
         $user = json_encode($pkg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         try {
+            // --- Early direct phrase mapping for theme (light/dark) commands (Persian) ---
+            $plainCmd = trim(mb_strtolower(preg_replace('/[\x{200C}\x{200F}]/u',' ', (string)$cmd)));
+            if ($plainCmd !== ''){
+                // Normalize extra spaces
+                $plainCmd = preg_replace('/\s+/u',' ', $plainCmd);
+                $isDarkReq = preg_match('/(حالت|تم|پوسته)\s*(?:کاملا\s*)?(?:تاریک|تیره|شب)/u', $plainCmd) === 1
+                              || preg_match('/\b(dark|darkmode)\b/u', $plainCmd) === 1
+                              || in_array($plainCmd, ['تم تیره','حالت تیره','پوسته تیره','تم شب','حالت شب','حالت تشب','تشب','دارکش کن'], true);
+                $isLightReq = preg_match('/(حالت|تم|پوسته)\s*(?:کاملا\s*)?(?:روشن|روز|سفید)/u', $plainCmd) === 1
+                               || preg_match('/\b(light|lightmode)\b/u', $plainCmd) === 1
+                               || in_array($plainCmd, ['تم روز','حالت روز','پوسته روشن'], true);
+                $toggleReq  = !$isDarkReq && !$isLightReq && preg_match('/^(?:تم|حالت)\s*رو?\s*(?:عوض|تغییر) کن$/u', $plainCmd) === 1;
+                // Short minimal triggers
+                if (!$isDarkReq && !$isLightReq && !$toggleReq){
+                    if (in_array($plainCmd, ['تم تاریک','تاریک کن','تیره کن'], true)) $isDarkReq = true;
+                    if (in_array($plainCmd, ['تم روشن','روشن کن','سفیدش کن'], true)) $isLightReq = true;
+                }
+                if ($isDarkReq || $isLightReq || $toggleReq){
+                    $mode = $toggleReq ? null : ($isDarkReq ? 'dark' : 'light');
+                    return new WP_REST_Response([
+                        'ok'=>true,
+                        'action'=>'ui',
+                        'target'=>'toggle_theme',
+                        'mode'=> $mode,
+                        'detected'=>'theme_direct'
+                    ], 200);
+                }
+            }
+            // --- End theme phrase mapping ---
             $resp = self::openai_chat_json($base_url, $api_key, $model, $system, $user);
             if (is_array($resp) && isset($resp['answer'])){
                 $ans = [
@@ -735,7 +785,22 @@ class Api {
         $maxImmediate = 50; // limit to avoid timeouts
         if ($ts === null && count($payload) <= $maxImmediate){
             $okCount = 0; $failCount = 0;
-            foreach ($payload as $i=>$it){ $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $it['phone'], $it['message'], null); if ($ok) $okCount++; else $failCount++; }
+            global $wpdb; $logTable = \Arshline\Support\Helpers::tableName('sms_log');
+            foreach ($payload as $i=>$it){
+                $ok = self::smsir_send_single($cfg['api_key'], $cfg['line_number'], $it['phone'], $it['message'], null);
+                if ($ok) $okCount++; else $failCount++;
+                // Log attempt (best effort)
+                try {
+                    $wpdb->insert($logTable, [
+                        'job_id' => null,
+                        'phone' => $it['phone'],
+                        'form_id' => $includeLink ? $formId : null,
+                        'group_id' => isset($it['vars']['group_id']) ? (int)$it['vars']['group_id'] : (isset($groupIds[0]) ? (int)$groupIds[0] : null),
+                        'status' => $ok ? 'sent' : 'fail',
+                        'created_at' => current_time('mysql'),
+                    ]);
+                } catch (\Throwable $e) { /* swallow */ }
+            }
             return new \WP_REST_Response(['ok'=>true, 'sent'=>$okCount, 'failed'=>$failCount], 200);
         }
         // Create job in options and schedule cron
@@ -757,6 +822,20 @@ class Api {
         $cursor = (int)($job['cursor'] ?? 0);
         $batch = array_slice($payload, $cursor, 40);
         foreach ($batch as $i=>$it){ self::smsir_send_single((string)$cfg['api_key'], (string)$cfg['line_number'], (string)$it['phone'], (string)$it['message'], null); }
+        // After sending batch, log them (best effort)
+        try {
+            global $wpdb; $logTable = \Arshline\Support\Helpers::tableName('sms_log');
+            foreach ($batch as $it){
+                $wpdb->insert($logTable, [
+                    'job_id' => (int)$jobId,
+                    'phone' => (string)$it['phone'],
+                    'form_id' => isset($job['form_id']) ? (int)$job['form_id'] : null,
+                    'group_id' => isset($it['vars']['group_id']) ? (int)$it['vars']['group_id'] : null,
+                    'status' => 'sent',
+                    'created_at' => current_time('mysql'),
+                ]);
+            }
+        } catch (\Throwable $e) { /* ignore logging failures */ }
         $cursor += count($batch);
         if ($cursor >= count($payload)){
             // Persist a trimmed result for auditing
@@ -845,6 +924,23 @@ class Api {
             'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
             'callback' => [self::class, 'get_analytics_config'],
         ]);
+        // Expose menu registry for Hoshiyar assistant (list + resolve)
+        register_rest_route('arshline/v1', '/menus', [
+            'methods' => 'GET',
+            'permission_callback' => function(){ return current_user_can('manage_options'); },
+            'callback' => function(){ return new \WP_REST_Response(['menus' => \Arshline\Core\MenuRegistry::all()], 200); },
+        ]);
+        register_rest_route('arshline/v1', '/menus/resolve', [
+            'methods' => 'GET',
+            'args' => [ 'q' => [ 'required' => true, 'type' => 'string' ] ],
+            'permission_callback' => function(){ return current_user_can('manage_options'); },
+            'callback' => function(\WP_REST_Request $r){
+                $q = (string)$r->get_param('q');
+                $m = \Arshline\Core\MenuRegistry::findByCommand($q);
+                if(!$m) return new \WP_REST_Response(['found' => false], 200);
+                return new \WP_REST_Response(['found' => true, 'menu' => $m], 200);
+            },
+        ]);
         // Simple LLM chat (minimal proxy). No grounding, no form data, just chat.
         register_rest_route('arshline/v1', '/ai/simple-chat', [
             'methods' => 'POST',
@@ -866,6 +962,12 @@ class Api {
             'methods' => 'POST',
             'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
             'callback' => [self::class, 'analytics_analyze'],
+        ]);
+        // Consolidated metrics for dashboard charts
+        register_rest_route('arshline/v1', '/analytics/metrics', [
+            'methods' => 'GET',
+            'permission_callback' => function(){ return current_user_can('edit_posts') || current_user_can('manage_options'); },
+            'callback' => [self::class, 'analytics_metrics'],
         ]);
         // Chat history endpoints
         register_rest_route('arshline/v1', '/analytics/sessions', [
@@ -1809,6 +1911,56 @@ class Api {
         return new WP_REST_Response($out, 200);
     }
 
+    /** GET /analytics/metrics — unified metrics (sms sent, submissions, form views, group members) */
+    public static function analytics_metrics(WP_REST_Request $request)
+    {
+        global $wpdb;
+        $days = (int)$request->get_param('days'); if ($days <= 0) $days = 30; $days = min(max($days, 7), 180);
+        // Resolve table names
+        $tSubs = Helpers::tableName('submissions');
+        $tViews = Helpers::tableName('form_views');
+        $tSms  = Helpers::tableName('sms_log');
+        $tGroups = Helpers::tableName('user_groups');
+        $tMembers = Helpers::tableName('user_group_members');
+
+        // Totals
+        $total_sms = $wpdb->get_var("SELECT COUNT(*) FROM {$tSms}") ?: 0;
+        $total_subs = $wpdb->get_var("SELECT COUNT(*) FROM {$tSubs}") ?: 0;
+        $total_views = $wpdb->get_var("SELECT COUNT(*) FROM {$tViews}") ?: 0;
+        $total_members = $wpdb->get_var("SELECT COUNT(*) FROM {$tMembers}") ?: 0;
+
+        // Build date buckets
+        if (function_exists('wp_timezone')) { $tz = wp_timezone(); } else { $tz = new \DateTimeZone('UTC'); }
+        $now = new \DateTimeImmutable('now', $tz);
+        $start = $now->sub(new \DateInterval('P'.($days-1).'D'));
+        $labels = []; $seriesSms = []; $seriesSubs = []; $seriesViews = []; $mapSms=[]; $mapSubs=[]; $mapViews=[];
+        for ($i=0; $i<$days; $i++){ $d=$start->add(new \DateInterval('P'.$i.'D')); $k=$d->format('Y-m-d'); $labels[]=$k; $mapSms[$k]=0; $mapSubs[$k]=0; $mapViews[$k]=0; }
+        $since = $start->format('Y-m-d 00:00:00');
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT DATE(created_at) d, COUNT(*) c FROM {$tSms} WHERE created_at >= %s GROUP BY DATE(created_at)", $since), ARRAY_A) ?: [];
+        foreach($rows as $r){ $d=$r['d']; $c=(int)$r['c']; if(isset($mapSms[$d])) $mapSms[$d]=$c; }
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT DATE(created_at) d, COUNT(*) c FROM {$tSubs} WHERE created_at >= %s GROUP BY DATE(created_at)", $since), ARRAY_A) ?: [];
+        foreach($rows as $r){ $d=$r['d']; $c=(int)$r['c']; if(isset($mapSubs[$d])) $mapSubs[$d]=$c; }
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT DATE(created_at) d, COUNT(*) c FROM {$tViews} WHERE created_at >= %s GROUP BY DATE(created_at)", $since), ARRAY_A) ?: [];
+        foreach($rows as $r){ $d=$r['d']; $c=(int)$r['c']; if(isset($mapViews[$d])) $mapViews[$d]=$c; }
+        $seriesSms = array_values($mapSms); $seriesSubs = array_values($mapSubs); $seriesViews = array_values($mapViews);
+
+        $out = [
+            'totals' => [
+                'sms' => (int)$total_sms,
+                'submissions' => (int)$total_subs,
+                'views' => (int)$total_views,
+                'group_members' => (int)$total_members,
+            ],
+            'series' => [
+                'labels' => $labels,
+                'sms_per_day' => $seriesSms,
+                'submissions_per_day' => $seriesSubs,
+                'views_per_day' => $seriesViews,
+            ],
+        ];
+        return new WP_REST_Response($out, 200);
+    }
+
     public static function get_forms(WP_REST_Request $request)
     {
         global $wpdb;
@@ -1857,7 +2009,7 @@ class Api {
             FormRepository::save($form);
             $form = FormRepository::find($id) ?: $form;
         }
-        $fields = FieldRepository::listByForm($id);
+    $fields = FormsFieldRepository::listByForm($id);
         $payload = [
             'id' => $form->id,
             'status' => $form->status,
@@ -1886,7 +2038,7 @@ class Api {
         // Enforce group-based access if any mapping exists
         list($ok, $member) = self::enforce_form_group_access($form->id, $request);
     if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
-        $fields = FieldRepository::listByForm($id);
+    $fields = FormsFieldRepository::listByForm($id);
         // Minimal personalization via GET params for title/description placeholders like #name
         $meta = $form->meta;
         $params = $request->get_params();
@@ -2020,7 +2172,7 @@ class Api {
             'navigation' => [
                 'title' => 'مسیر‌یابی',
                 'items' => [
-                    [ 'id' => 'open_tab', 'label' => 'باز کردن تب‌ها', 'params' => ['tab' => 'dashboard|forms|reports|users|settings', 'section?' => 'security|ai|users'], 'confirm' => false, 'examples' => [ 'باز کردن تنظیمات', 'باز کردن فرم‌ها' ] ],
+                    [ 'id' => 'open_tab', 'label' => 'باز کردن تب‌ها', 'params' => ['tab' => 'dashboard|forms|reports|analytics|users|settings', 'section?' => 'security|ai|users'], 'confirm' => false, 'examples' => [ 'باز کردن تنظیمات', 'باز کردن فرم‌ها', 'باز کردن تحلیل‌ها' ] ],
                     [ 'id' => 'open_builder', 'label' => 'باز کردن ویرایشگر فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'ویرایش فرم 12' ] ],
                     [ 'id' => 'open_editor', 'label' => 'ویرایش یک پرسش خاص', 'params' => ['id' => 'number', 'index' => 'number (0-based)'], 'confirm' => false, 'examples' => [ 'ویرایش پرسش 1 فرم 12' ] ],
                     [ 'id' => 'public_link', 'label' => 'دریافت لینک عمومی فرم', 'params' => ['id' => 'number'], 'confirm' => false, 'examples' => [ 'لینک عمومی فرم 7' ] ],
@@ -2276,6 +2428,24 @@ class Api {
                 }
                 // else continue to internal parsing
             }
+            // High-priority: direct menu name invocation (before form-oriented heuristics)
+            try {
+                $menuMatchEarly = \Arshline\Core\MenuRegistry::findByCommand($cmd);
+                if ($menuMatchEarly && !empty($menuMatchEarly['slug'])){
+                    $slugEM = $menuMatchEarly['slug'];
+                    $tabEM = '';
+                    if (str_contains($slugEM, 'dashboard')) $tabEM='dashboard';
+                    elseif (str_contains($slugEM,'forms')) $tabEM='forms';
+                    elseif (str_contains($slugEM,'analytics')) $tabEM='analytics';
+                    elseif (str_contains($slugEM,'reports')) $tabEM='reports';
+                    elseif (str_contains($slugEM,'user-groups')) $tabEM='users';
+                    elseif (str_contains($slugEM,'users')) $tabEM='users';
+                    elseif (str_contains($slugEM,'settings')) $tabEM='settings';
+                    if ($tabEM !== ''){
+                        return new WP_REST_Response(['ok'=>true,'action'=>'open_tab','tab'=>$tabEM,'via'=>'menu_match_early'], 200);
+                    }
+                }
+            } catch (\Throwable $e){ /* ignore */ }
             // Add field (short_text) — examples:
             // "(یک )?سوال (پاسخ کوتاه|کوتاه|short_text) (در فرم (\d+|{title}))? اضافه کن|بساز"
             // New phrasing support: "افزودن سوال پاسخ کوتاه (به|در) فرم X"
@@ -2539,6 +2709,10 @@ class Api {
                 || preg_match('/^فرم\s*جدید$/u', $cmd)
             ){
                 $defTitle = apply_filters('arshline_ai_new_form_default_title', 'فرم جدید');
+                // Sanitize <fa> wrapper tags from final answer if present
+                if (is_array($res) && isset($res['answer']) && is_string($res['answer'])){
+                    $res['answer'] = preg_replace('/^<fa>(.*)<\/fa>$/u', '$1', (string)$res['answer']);
+                }
                 return new WP_REST_Response([
                     'ok'=>true,
                     'action'=>'confirm',
@@ -2663,10 +2837,17 @@ class Api {
                 $tabMap = [
                     'داشبورد' => 'dashboard', 'خانه' => 'dashboard',
                     'فرم ها' => 'forms', 'فرم‌ها' => 'forms', 'فرمها' => 'forms', 'فرم' => 'forms',
-                    'گزارشات' => 'reports', 'گزارش' => 'reports', 'آمار' => 'reports',
+                    // reports synonyms (plain reports)
+                    'گزارشات' => 'reports', 'گزارش' => 'reports', 'آمار' => 'reports', 'statistics' => 'reports', 'stats' => 'reports', 'report' => 'reports', 'reports' => 'reports',
+                    // analytics (distinct tab)
+                    'تحلیل' => 'analytics', 'تحلیل ها' => 'analytics', 'تحلیل‌ها' => 'analytics', 'تحلیلها' => 'analytics', 'تحلیل نتایج' => 'analytics', 'تحلیل فرم ها' => 'analytics', 'تحلیل فرم‌ها' => 'analytics',
+                    'آنالیز' => 'analytics', 'آنالیزها' => 'analytics', 'آنالیز ها' => 'analytics', 'آنالیز فرم ها' => 'analytics',
+                    'analytics' => 'analytics', 'insights' => 'analytics', 'form analytics' => 'analytics', 'forms analytics' => 'analytics',
                     'کاربران' => 'users', 'کاربر' => 'users', 'اعضا' => 'users',
                     'تنظیمات' => 'settings', 'تنظیم' => 'settings', 'ستینگ' => 'settings', 'پیکربندی' => 'settings',
                 ];
+                // Remove common menu prefix like "منوی" or "منو" for tab resolution
+                $rawNorm = preg_replace('/^(?:منوی|منو)\s+/u','',$rawNorm);
                 // Normalize some common variants
                 $rawNorm = str_replace(['‌'], ' ', $raw); // Persian half-space to normal space
                 $rawNorm = trim($rawNorm);
@@ -2732,7 +2913,7 @@ class Api {
             if (preg_match('/^(.+?)\s*(?:را|رو)\s*(?:ویرایش|ادیت|edit)(?:\s*کن)?$/iu', $cmd, $m)){
                 $name = trim((string)$m[1]);
                 // If user meant a known tab name, ignore this rule to avoid confusion
-                $knownTabs = ['داشبورد','dashboard','settings','reports','users','فرم‌ها','فرمها','forms'];
+                $knownTabs = ['داشبورد','dashboard','settings','reports','analytics','users','فرم‌ها','فرمها','forms','گزارشات','گزارش','تحلیل','تحلیل ها','تحلیل‌ها','تحلیلها','آنالیز','statistics','آمار'];
                 $nl = function(string $s){ return mb_strtolower($s, 'UTF-8'); };
                 $nameNL = $nl($name);
                 foreach ($knownTabs as $t){ if ($nl($t) === $nameNL){ $name = ''; break; } }
@@ -2838,7 +3019,7 @@ class Api {
             }
             // Open tab: "باز کردن تنظیمات" | "باز کردن گزارشات" | "باز کردن فرم ها"
             if (preg_match('/^باز\s*کردن\s*(داشبورد|فرم\s*ها|گزارشات|کاربران|تنظیمات)$/u', $cmd, $m)){
-                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرمها'=>'forms', 'گزارشات'=>'reports', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
+                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرمها'=>'forms', 'گزارشات'=>'reports', 'گزارش'=>'reports', 'آمار'=>'reports', 'statistics'=>'reports', 'report'=>'reports', 'reports'=>'reports', 'تحلیل'=>'analytics', 'تحلیلها'=>'analytics', 'تحلیل ها'=>'analytics', 'تحلیل‌ها'=>'analytics', 'آنالیز'=>'analytics', 'آنالیزها'=>'analytics', 'analytics'=>'analytics', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
                 $raw = (string)$m[1]; $raw = str_replace('‌',' ', $raw);
                 $tab = $map[$raw] ?? ($raw === 'فرم ها' ? 'forms' : 'dashboard');
                 return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tab], 200);
@@ -2847,7 +3028,7 @@ class Api {
             if (preg_match('/^(?:بازش\s*کن|وا\s*کن|واکن|ببر\s*به|برو\s*تو|برو\s*به)\s*(داشبورد|فرم\s*ها|فرم|گزارشات|کاربران|تنظیمات)$/u', $cmd, $m)){
                 $raw = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', (string)$m[1]);
                 $raw = preg_replace('/\s+/u', ' ', $raw);
-                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرم'=>'forms', 'گزارشات'=>'reports', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
+                $map = [ 'داشبورد'=>'dashboard', 'فرم ها'=>'forms', 'فرم'=>'forms', 'گزارشات'=>'reports', 'گزارش'=>'reports', 'آمار'=>'reports', 'statistics'=>'reports', 'report'=>'reports', 'reports'=>'reports', 'تحلیل'=>'analytics', 'تحلیل ها'=>'analytics', 'تحلیل‌ها'=>'analytics', 'تحلیلها'=>'analytics', 'تحلیل نتایج'=>'analytics', 'آنالیز'=>'analytics', 'آنالیزها'=>'analytics', 'analytics'=>'analytics', 'کاربران'=>'users', 'تنظیمات'=>'settings' ];
                 $tab = $map[$raw] ?? ($raw === 'فرم ها' || $raw === 'فرم' ? 'forms' : 'dashboard');
                 return new WP_REST_Response(['ok'=>true, 'action'=>'open_tab', 'tab'=>$tab], 200);
             }
@@ -2929,7 +3110,8 @@ class Api {
                 $syns = [
                     'forms' => ['فرم ها','فرمها','فرم‌ها','فرم'],
                     'dashboard' => ['داشبورد','خانه'],
-                    'reports' => ['گزارشات','گزارش','آمار'],
+                    'reports' => ['گزارشات','گزارش','آمار','statistics','stats'],
+                    'analytics' => ['تحلیل','تحلیل ها','تحلیل‌ها','تحلیلها','تحلیل نتایج','تحلیل فرم ها','تحلیل فرم‌ها','آنالیز','آنالیزها','آنالیز ها','آنالیز فرم ها','analytics','insights'],
                     'users' => ['کاربران','کاربر','اعضا'],
                     'settings' => ['تنظیمات','تنظیم','ستینگ','پیکربندی'],
                 ];
@@ -3147,6 +3329,31 @@ class Api {
                     if ($action === 'unknown'){ /* handled below */ }
                 }
             }
+            // Attempt structured parse via IntentParser (colloquial Persian)
+            try {
+                $ip = \Arshline\Core\Ai\Parsing\IntentParser::parse((string)$cmd);
+                if (!empty($ip['ok']) && !empty($ip['action'])){
+                    if (($ip['action'] === 'ui') && ($ip['target'] ?? '') === 'toggle_theme'){
+                        return new WP_REST_Response(['ok'=>true,'action'=>'ui','target'=>'toggle_theme','mode'=>($ip['mode'] ?? null),'detected'=>($ip['source'] ?? 'parser')], 200);
+                    }
+                    if (in_array($ip['action'], ['open_builder','open_results','list_forms'], true)){
+                        if (!empty($ip['id']) && $ip['action']==='open_builder'){
+                            return new WP_REST_Response(['ok'=>true,'action'=>'open_builder','id'=>(int)$ip['id']], 200);
+                        }
+                        if (!empty($ip['id']) && $ip['action']==='open_results'){
+                            return new WP_REST_Response(['ok'=>true,'action'=>'open_results','id'=>(int)$ip['id']], 200);
+                        }
+                        if ($ip['action']==='list_forms'){
+                            $req = new WP_REST_Request('GET', '/arshline/v1/forms');
+                            $res = self::get_forms($req);
+                            $rows = $res instanceof WP_REST_Response ? $res->get_data() : [];
+                            $list = array_map(function($r){ return [ 'id'=>(int)($r['id']??0), 'title'=>(string)($r['title']??'') ]; }, is_array($rows)?$rows:[]);
+                            return new WP_REST_Response(['ok'=>true,'action'=>'list_forms','forms'=>$list], 200);
+                        }
+                    }
+                }
+            } catch (\Throwable $e) { /* swallow parser errors */ }
+
             // Final fallback: suggest next steps instead of plain unknown
             $plain = str_replace(["\xE2\x80\x8C","\xE2\x80\x8F"], ' ', $cmd);
             $hasEdit = preg_match('/(ویرایش|ادیت|edit|باز\s*کردن|بازش\s*کن|سازنده)/u', $plain) === 1;
@@ -3234,19 +3441,36 @@ class Api {
             if ($action === 'add_field' && !empty($params['id'])){
                 $fid = (int)$params['id'];
                 $type = isset($params['type']) ? (string)$params['type'] : 'short_text';
+                $questionText = isset($params['question']) && is_string($params['question']) ? trim((string)$params['question']) : '';
                 // Load current fields and snapshot for audit
-                $before = FieldRepository::listByForm($fid);
+                $before = FormsFieldRepository::listByForm($fid);
                 $fields = $before;
-                // Compute insert index (append at end)
-                $insertAt = count($fields);
-                // Default props for short_text (server-side mirror of tool-defaults)
-                $defaults = [ 'type'=>'short_text', 'label'=>'پاسخ کوتاه', 'format'=>'free_text', 'required'=>false, 'show_description'=>false, 'description'=>'', 'placeholder'=>'', 'question'=>'', 'numbered'=>true ];
+                // Default props baseline
+                $defaults = [
+                    'type'=>'short_text',
+                    'label'=>'پاسخ کوتاه',
+                    'question'=>'',
+                    'format'=>'free_text',
+                    'required'=>false,
+                    'show_description'=>false,
+                    'description'=>'',
+                    'placeholder'=>'',
+                    'numbered'=>true,
+                ];
                 if ($type !== 'short_text') { $defaults['type'] = $type; }
+                // Specialized defaults
+                if ($type === 'long_text'){ $defaults['label'] = 'پاسخ طولانی'; $defaults['format']='paragraph'; }
+                elseif ($type === 'multiple_choice'){ $defaults['label']='سوال چندگزینه‌ای'; $defaults['options']=[ ['label'=>'گزینه ۱','value'=>'opt1'], ['label'=>'گزینه ۲','value'=>'opt2'] ]; }
+                elseif ($type === 'dropdown'){ $defaults['label']='لیست کشویی'; $defaults['options']=[ ['label'=>'آیتم ۱','value'=>'item1'], ['label'=>'آیتم ۲','value'=>'item2'] ]; }
+                elseif ($type === 'rating'){ $defaults['label']='امتیاز'; $defaults['max']=5; }
+                elseif ($type === 'welcome'){ $defaults['label']='پیام خوش‌آمد'; $defaults['type']='welcome'; }
+                elseif ($type === 'thank_you'){ $defaults['label']='پیام تشکر'; $defaults['type']='thank_you'; }
+                // Apply provided question: set both question & label if present
+                if ($questionText !== ''){ $defaults['question'] = $questionText; $defaults['label'] = $questionText; }
                 $fields[] = [ 'props' => $defaults ];
-                FieldRepository::replaceAll($fid, $fields);
-                $after = FieldRepository::listByForm($fid);
+                FormsFieldRepository::replaceAll($fid, $fields);
+                $after = FormsFieldRepository::listByForm($fid);
                 $undo = Audit::log('update_form_fields', 'form', $fid, ['fields'=>$before], ['fields'=>$after]);
-                // Determine new index by comparing lengths
                 $newIndex = max(0, count($after) - 1);
                 return new WP_REST_Response(['ok'=>true, 'action'=>'open_editor', 'id'=>$fid, 'index'=>$newIndex, 'undo_token'=>$undo], 200);
             }
@@ -3410,7 +3634,7 @@ class Api {
               . 'Your ONLY job is to convert Persian admin commands into a single strict JSON object. '
               . 'Do NOT chat, do NOT add explanations, do NOT ask follow-up questions. Output JSON ONLY. '
               . 'Schema: '
-              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_editor|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title|add_field","title?":string,"id?":number,"index?":number,"tab?":"dashboard|forms|reports|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal|undo|go_back","type?":"short_text|long_text|multiple_choice|dropdown|rating","params?":object}. '
+              . '{"action":"create_form|delete_form|public_link|list_forms|open_builder|open_editor|open_tab|open_results|export_csv|help|set_setting|ui|open_form|close_form|draft_form|update_form_title|add_field","title?":string,"id?":number,"index?":number,"tab?":"dashboard|forms|reports|analytics|users|settings","section?":"security|ai|users","key?":"ai_enabled|min_submit_seconds|rate_limit_per_min|block_svg|ai_model","value?":(string|number|boolean),"target?":"toggle_theme|open_ai_terminal|undo|go_back","type?":"short_text|long_text|multiple_choice|dropdown|rating","params?":object}. '
               . 'Examples: '
               . '"ایجاد فرم با عنوان فرم تست" => {"action":"create_form","title":"فرم تست"}. '
               . '"حذف فرم 12" => {"action":"delete_form","id":12}. '
@@ -3659,7 +3883,20 @@ class Api {
         // When accessing by public token, still enforce group mapping if present (require member token or user membership)
         list($ok, $member) = self::enforce_form_group_access($form->id, $request);
     if (!$ok){ return new WP_REST_Response(['error'=>'forbidden','message'=>'دسترسی مجاز نیست.'], 403); }
-        $fields = FieldRepository::listByForm($form->id);
+        // Log view (best effort). We don't block on failures.
+        try {
+            global $wpdb; $viewsTable = \Arshline\Support\Helpers::tableName('form_views');
+            $ip = isset($_SERVER['REMOTE_ADDR']) ? substr((string)$_SERVER['REMOTE_ADDR'],0,45) : '';
+            $ua = isset($_SERVER['HTTP_USER_AGENT']) ? substr((string)$_SERVER['HTTP_USER_AGENT'],0,190) : '';
+            $wpdb->insert($viewsTable, [
+                'form_id' => (int)$form->id,
+                'member_id' => $member && isset($member['id']) ? (int)$member['id'] : null,
+                'ip' => $ip,
+                'user_agent' => $ua,
+                'created_at' => current_time('mysql'),
+            ]);
+        } catch (\Throwable $e) { /* ignore logging errors */ }
+    $fields = FormsFieldRepository::listByForm($form->id);
         // Minimal personalization via GET params for title/description
         $meta = $form->meta;
         $params = $request->get_params();
@@ -3683,7 +3920,7 @@ class Api {
         $id = (int)$request['form_id'];
         $fields = $request->get_param('fields');
         if (!is_array($fields)) $fields = [];
-        FieldRepository::replaceAll($id, $fields);
+    FormsFieldRepository::replaceAll($id, $fields);
         return new WP_REST_Response(['ok'=>true], 200);
     }
 
@@ -3754,9 +3991,9 @@ class Api {
         $format = (string)($request->get_param('format') ?? '');
         if ($format === 'csv' || $format === 'excel') {
             // For exports, always fetch all (listByFormAll already respects filters and ignores pagination)
-            $all = SubmissionRepository::listByFormAll($form_id, $filters);
+            $all = FormsSubmissionRepository::listByFormAll($form_id, $filters);
             // Optional: include answers as separate columns (wide CSV)
-            $fields = FieldRepository::listByForm($form_id);
+            $fields = FormsFieldRepository::listByForm($form_id);
             // Only include answerable field types
             $allowedTypes = ['short_text','long_text','multiple_choice','dropdown','rating'];
             $fields = array_values(array_filter($fields, function($f) use ($allowedTypes){
@@ -3775,7 +4012,7 @@ class Api {
                 }
             }
             $ids = array_map(function($r){ return (int)$r['id']; }, $all);
-            $valsMap = SubmissionRepository::listValuesBySubmissionIds($ids);
+            $valsMap = FormsSubmissionRepository::listValuesBySubmissionIds($ids);
             $out = [];
             // Drop status per request; include only id and created_at (requested)
             $header = ['id','created_at'];
@@ -3813,7 +4050,7 @@ class Api {
             echo $csv;
             exit;
         }
-        $res = SubmissionRepository::listByFormPaged($form_id, $page, $per_page, $filters);
+    $res = FormsSubmissionRepository::listByFormPaged($form_id, $page, $per_page, $filters);
         $rows = array_map(function ($r) {
             return [
                 'id' => $r['id'],
@@ -3825,7 +4062,7 @@ class Api {
         // include values (and fields) when requested, so the dashboard can render full grid
         if ($include === 'values' || $include === 'values,fields' || $include === 'fields,values'){
             $ids = array_map(function($r){ return (int)$r['id']; }, $rows);
-            $valsMap = SubmissionRepository::listValuesBySubmissionIds($ids);
+            $valsMap = FormsSubmissionRepository::listValuesBySubmissionIds($ids);
             foreach ($rows as &$row){ $row['values'] = isset($valsMap[$row['id']]) ? $valsMap[$row['id']] : []; }
             unset($row);
         }
@@ -3836,7 +4073,7 @@ class Api {
             'per_page' => (int)$res['per_page'],
         ];
         if (strpos($include, 'fields') !== false){
-            $allFields = FieldRepository::listByForm($form_id);
+            $allFields = FormsFieldRepository::listByForm($form_id);
             $allowedTypes = ['short_text','long_text','multiple_choice','dropdown','rating'];
             $payload['fields'] = array_values(array_filter($allFields, function($f) use ($allowedTypes){
                 $p = is_array($f['props']) ? $f['props'] : [];
@@ -3859,10 +4096,10 @@ class Api {
     {
         $sid = (int)$request['submission_id'];
         if ($sid <= 0) return new WP_REST_Response(['error'=>'invalid_id'], 400);
-        $data = SubmissionRepository::findWithValues($sid);
+    $data = FormsSubmissionRepository::findWithValues($sid);
         if (!$data) return new WP_REST_Response(['error'=>'not_found'], 404);
         // Also include field meta to render labels
-        $fields = FieldRepository::listByForm((int)$data['form_id']);
+    $fields = FormsFieldRepository::listByForm((int)$data['form_id']);
         return new WP_REST_Response(['submission' => $data, 'fields' => $fields], 200);
     }
 
@@ -3937,7 +4174,7 @@ class Api {
         $values = $request->get_param('values');
         if (!is_array($values)) $values = [];
         // Load schema for validation
-        $fields = FieldRepository::listByForm($form_id);
+    $fields = FormsFieldRepository::listByForm($form_id);
         $valErrors = FormValidator::validateSubmission($fields, $values);
         if (!empty($valErrors)) {
             return new WP_REST_Response(['error' => 'validation_failed', 'messages' => $valErrors], 422);
@@ -3960,7 +4197,7 @@ class Api {
             ];
         }
         $submission = new Submission($submissionData);
-        $id = SubmissionRepository::save($submission);
+    $id = FormsSubmissionRepository::save($submission);
         foreach ($values as $idx => $entry) {
             $field_id = (int)($entry['field_id'] ?? 0);
             $value = $entry['value'] ?? '';
@@ -4044,7 +4281,7 @@ class Api {
         }
 
         // Load schema for validation
-        $fields = FieldRepository::listByForm($form_id);
+    $fields = FormsFieldRepository::listByForm($form_id);
         $params = $request->get_params();
         $values = [];
         foreach ($fields as $f) {
@@ -4072,7 +4309,7 @@ class Api {
             'values' => $values,
         ];
         $submission = new Submission($submissionData);
-        $id = SubmissionRepository::save($submission);
+    $id = FormsSubmissionRepository::save($submission);
         foreach ($values as $idx => $entry) {
             $field_id = (int)($entry['field_id'] ?? 0);
             $value = $entry['value'] ?? '';
@@ -5723,6 +5960,21 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             $notes[]='ai:preview_success('.count($deltas).')';
             $notes[]='heur:preview_conf_'.number_format($confidence,2,'.','');
             if (empty($deltas)){ $notes[]='editor:no_effect'; $editorDiagnostics[]=['type'=>'no_effect','reason'=>'No deltas generated']; }
+            // Heuristic: if prompt implies making name fields required, enforce in preview (mirrors prepare flow)
+            try {
+                $pl = mb_strtolower($prompt,'UTF-8');
+                $wantReq = (mb_strpos($pl,'اجباری')!==false) || (mb_strpos($pl,'الزامی')!==false) || (mb_strpos($pl,'ضروری')!==false);
+                if (!empty($preview['fields']) && is_array($preview['fields']) && $wantReq){
+                    foreach ($preview['fields'] as &$__pf){
+                        if (!is_array($__pf)) continue; $lbl = isset($__pf['label'])?(string)$__pf['label']:''; if($lbl==='') continue;
+                        $low = mb_strtolower($lbl,'UTF-8');
+                        if (preg_match('/\bنام\b/u',$low) || mb_strpos($low,'نام خانوادگی')!==false){
+                            if (empty($__pf['required'])){ $__pf['required']=true; $notes[]='heur:forced_required(name)_preview'; }
+                        }
+                    }
+                    unset($__pf);
+                }
+            } catch(\Throwable $heurName) { /* ignore */ }
             return new WP_REST_Response([
                 'ok'=>true,
                 'commands'=>$commands,
@@ -6094,6 +6346,16 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     $afterQ = trim(preg_replace('/^.*?(?:انتخاب کن|انتخاب کنید)[:：]?/u','',$stemWork));
                 }
             }
+            // Custom binary preference pattern: "X دوست داری یا Y" (e.g., سیب دوست داری یا پرتقال)
+            if (empty($options)){
+                if (preg_match('/^\s*([\p{L}0-9آ-ی‌ ]{1,40}?)\s+دوست\s+داری\s+یا\s+([\p{L}0-9آ-ی‌]{1,40})(?:\s|\?|$)/u',$stemWork,$mBin)){
+                    $o1 = trim(preg_replace('/\s+/u',' ',$mBin[1]));
+                    $o2 = trim(preg_replace('/\s+/u',' ',$mBin[2]));
+                    if ($o1!=='' && $o2!=='' && $o1!==$o2){
+                        $options = [$o1,$o2];
+                    }
+                }
+            }
             // Primary split strategies for inline enumerations
             if ($afterQ !== '' && mb_strlen($afterQ,'UTF-8') < 220){
                 $candidateText = $afterQ;
@@ -6223,6 +6485,11 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                 $maxInt = intval($maxNorm);
                 if ($maxInt>=3 && $maxInt<=10){ $ratingRange=[1,$maxInt]; }
             }
+            // Word-number based rating pattern: از یک تا ده / از یک تا پنج (when user writes numbers in words)
+            if (!$ratingRange && preg_match('/از\s+(یک|1|۱)\s+تا\s+(ده|10|۱۰|پنج|5|۵)/u',$lowStem,$mWordRange)){
+                $mx = $mWordRange[2];
+                $ratingRange = [1, (preg_match('/پنج|5|۵/u',$mx)?5:10)];
+            }
             // Numeric inline enumeration rating pattern: 1-کم 2-متوسط 3-زیاد ...
             if (!$ratingRange && preg_match_all('/\b(\d{1,2})\s*[-–\.،:]\s*([^\d]+?)(?=(?:\b\d{1,2}\s*[-–\.،:]|$))/u',$lowStem,$mRate,PREG_SET_ORDER)){
                 $vals=[]; $maxFound=0; $sequential=true; $expect=1;
@@ -6235,9 +6502,11 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     $type='rating'; $props['rating']=['min'=>1,'max'=>$ratingRange[1],'icon'=>'like'];
                 }
             }
-            elseif (!$ratingRange && preg_match('/(امتیاز|درجه\s*اهمیت)/u',$lowStem) && preg_match('/(1|۱).*(5|۵|10|۱۰)/u',$lowStem)){
+            elseif (!$ratingRange && preg_match('/(امتیاز|درجه\s*اهمیت)/u',$lowStem) && (preg_match('/(1|۱).*(5|۵|10|۱۰)/u',$lowStem) || preg_match('/از\s+(یک|1|۱)\s+تا\s+(ده|10|۱۰|پنج|5|۵)/u',$lowStem))){
                 // fallback rating detection
-                $type='rating'; $props['rating']=['min'=>1,'max'=> (preg_match('/5|۵/u',$lowStem)?5:10),'icon'=>'like'];
+                $maxVal = 10;
+                if (preg_match('/(5|۵|پنج)/u',$lowStem)) $maxVal = 5;
+                $type='rating'; $props['rating']=['min'=>1,'max'=>$maxVal,'icon'=>'like'];
             }
             if (!empty($options) && $type!=='rating'){
                 $type = (count($options)>=6)?'dropdown':'multiple_choice';
@@ -6932,7 +7201,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     $fid = (int)($row['target_id'] ?? 0);
                     if ($fid > 0){
                         $prevFields = is_array($before['fields'] ?? null) ? $before['fields'] : [];
-                        FieldRepository::replaceAll($fid, $prevFields);
+                        FormsFieldRepository::replaceAll($fid, $prevFields);
                         Audit::markUndone($token);
                         return new WP_REST_Response(['ok'=>true, 'restored_fields'=>true], 200);
                     }
@@ -7104,16 +7373,21 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             }
         } catch (\Throwable $e) { /* ignore persistence errors */ }
 
-        // Collect data rows per form, capped by max_rows total, and include minimal fields meta for grounding
+    // Collect data rows per form (using FormsSubmissionRepository alias). IMPORTANT:
+    // Do not remove the FormsSubmissionRepository / FormsFieldRepository aliases above.
+    // A legacy minimal SubmissionRepository also exists (without listByFormAll / values helpers) and
+    // previously caused a fatal when this block attempted to resolve the class inside Arshline\Core.
+    // The aliases ensure we always hit the full-feature repository implementation under Modules\Forms.
+    // If refactoring repositories, update the use statements at the top instead of inlining FQCNs here.
         $total_rows = 0; $tables = [];
         foreach ($form_ids as $fid){
             $remaining = max(0, $max_rows - $total_rows); if ($remaining <= 0) break;
-            $rows = SubmissionRepository::listByFormAll($fid, [], min($remaining, $chunk_size));
+            $rows = FormsSubmissionRepository::listByFormAll($fid, [], min($remaining, $chunk_size));
             $total_rows += count($rows);
             // fields_meta: id, label, type (from props)
             $fmeta = [];
             try {
-                $fieldsForMeta = FieldRepository::listByForm($fid);
+                $fieldsForMeta = FormsFieldRepository::listByForm($fid);
                 foreach (($fieldsForMeta ?: []) as $f){
                     $p = is_array($f['props'] ?? null) ? $f['props'] : [];
                     // Prefer common builder keys for question/label; fall back through sensible aliases
@@ -7142,7 +7416,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             $lines = [];
             foreach ($form_ids as $fid){
                 try {
-                    $fields = FieldRepository::listByForm($fid);
+                    $fields = FormsFieldRepository::listByForm($fid);
                     $cnt = 0;
                     foreach (($fields ?: []) as $f){
                         $p = isset($f['props']) && is_array($f['props']) ? $f['props'] : [];
@@ -7166,7 +7440,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             $lines = [];
             foreach ($form_ids as $fid){
                 try {
-                    $all = SubmissionRepository::listByFormAll($fid, [], 1_000_000);
+                    $all = FormsSubmissionRepository::listByFormAll($fid, [], 1_000_000);
                     $lines[] = "فرم " . $fid . ": " . count($all) . " ارسال";
                 } catch (\Throwable $e) { $lines[] = "فرم " . $fid . ": نامشخص"; }
             }
@@ -7253,7 +7527,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                 }
                 // fetch values for current table rows in batch
                 $sids = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, ($t['rows'] ?? [])), function($v){ return $v>0; }));
-                $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sids);
+                $valuesMap = FormsSubmissionRepository::listValuesBySubmissionIds($sids);
                 $names = [];
                 foreach ($sids as $sid){
                     $vals = $valuesMap[$sid] ?? [];
@@ -7683,13 +7957,13 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             $suggestedMaxTok = $isHeavy ? min(1200, max(800, $max_tokens)) : min(500, max(300, $max_tokens));
             if ($phase === 'plan'){
                 // Use paged listing to get total quickly
-                $pg = \Arshline\Modules\Forms\SubmissionRepository::listByFormPaged($fid, 1, 1, []);
+                $pg = FormsSubmissionRepository::listByFormPaged($fid, 1, 1, []);
                 $total = (int)($pg['total'] ?? 0);
                 $n = $useChunk>0 ? (int)ceil($total / $useChunk) : 1;
                 // fields_meta
                 $fmeta = [];
                 try {
-                    $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                    $fieldsForMeta = FormsFieldRepository::listByForm($fid);
                     foreach (($fieldsForMeta ?: []) as $f){
                         $p0 = is_array($f['props'] ?? null) ? $f['props'] : [];
                         $label0 = (string)($p0['question'] ?? $p0['label'] ?? $p0['title'] ?? $p0['name'] ?? '');
@@ -7878,12 +8152,12 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             if ($phase === 'chunk'){
                 $page = $chunk_index;
                 $t0 = microtime(true);
-                $res = \Arshline\Modules\Forms\SubmissionRepository::listByFormPaged($fid, $page, $useChunk, []);
+                $res = FormsSubmissionRepository::listByFormPaged($fid, $page, $useChunk, []);
                 $rows = is_array($res['rows'] ?? null) ? $res['rows'] : [];
                 // Build fields meta
                 $fmeta = [];
                 try {
-                    $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                    $fieldsForMeta = FormsFieldRepository::listByForm($fid);
                     foreach (($fieldsForMeta ?: []) as $f){
                         $p0 = is_array($f['props'] ?? null) ? $f['props'] : [];
                         $label0 = (string)($p0['question'] ?? $p0['label'] ?? $p0['title'] ?? $p0['name'] ?? '');
@@ -7897,7 +8171,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     $reqRelevant = is_array($p['relevant_fields'] ?? null) ? array_values(array_unique(array_filter(array_map('strval', $p['relevant_fields'])))) : [];
                 } catch (\Throwable $e) { $reqRelevant = []; }
                 $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $rows), function($v){ return $v>0; }));
-                $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                $valuesMap = FormsSubmissionRepository::listValuesBySubmissionIds($sliceIds);
                 @error_log('[Arshline][Analytics] Chunk: valuesMap keys: ' . json_encode(array_keys($valuesMap)) . ' for sliceIds: ' . json_encode($sliceIds));
                 // Header labels and CSV build (apply relevant_fields if provided); always include id, created_at at the start
                 $labels = [];
@@ -8870,10 +9144,10 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     try {
                         // Extract and inline the structured route logic
                         $fid = $form_ids[0];
-                        $rowsAll = \Arshline\Modules\Forms\SubmissionRepository::listByFormAll($fid, [], $max_rows);
+                        $rowsAll = FormsSubmissionRepository::listByFormAll($fid, [], $max_rows);
                         
                         // Re-detect field roles and classify query intent for inline processing  
-                        $fieldsForIntent = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                        $fieldsForIntent = FormsFieldRepository::listByForm($fid);
                         $fmetaIntent = [];
                         foreach (($fieldsForIntent ?: []) as $f){
                             $props = is_array($f['props'] ?? null) ? $f['props'] : [];
@@ -8887,7 +9161,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                             // Build field metadata for structured analysis
                             $fmeta = [];
                             try {
-                                $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                                $fieldsForMeta = FormsFieldRepository::listByForm($fid);
                                 foreach (($fieldsForMeta ?: []) as $f){
                                     $props = is_array($f['props'] ?? null) ? $f['props'] : [];
                                     $label0 = (string)($props['question'] ?? $props['label'] ?? $props['title'] ?? $props['name'] ?? '');
@@ -8898,7 +9172,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                             
                             // Build CSV table for structured analysis
                             $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $rowsAll), function($v){ return $v>0; }));
-                            $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                            $valuesMap = FormsSubmissionRepository::listValuesBySubmissionIds($sliceIds);
                             
                             // Header labels
                             $labels = [];
@@ -9088,13 +9362,13 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                     try {
                         $fid = $form_ids[0];
                         // Build rows with canonical keys for minimal intents
-                        $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                        $fieldsForMeta = FormsFieldRepository::listByForm($fid);
                         $field_roles = $detect_field_roles(is_array($fieldsForMeta)? array_map(function($f){ $p=is_array($f['props'] ?? null)?$f['props']:[]; return [ 'id'=>(int)($f['id']??0), 'label'=>(string)($p['question'] ?? $p['label'] ?? $p['title'] ?? $p['name'] ?? ''), 'type'=>(string)($p['type'] ?? '') ]; }, $fieldsForMeta): []);
                         // Fetch latest rows capped
                         $capMax = (int)($aiCfgF['max_rows'] ?? 400);
-                        $all = \Arshline\Modules\Forms\SubmissionRepository::listByFormAll($fid, [], $capMax);
+                        $all = FormsSubmissionRepository::listByFormAll($fid, [], $capMax);
                         $ids = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, ($all ?: [])), function($v){ return $v>0; }));
-                        $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($ids);
+                        $valuesMap = FormsSubmissionRepository::listValuesBySubmissionIds($ids);
                         $rowsBuilt = [];
                         // Quick label lookup
                         $idToLabel = [];
@@ -9274,7 +9548,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             // Restrict to the (only) selected form (enforced earlier)
             $fid = $form_ids[0];
             // Fetch up to max_rows for a single grounded CSV
-            $rowsAll = \Arshline\Modules\Forms\SubmissionRepository::listByFormAll($fid, [], $max_rows);
+            $rowsAll = FormsSubmissionRepository::listByFormAll($fid, [], $max_rows);
             if (empty($rowsAll)){
                 $payloadOut = [ 'result' => [ 'answer' => 'No matching data found.', 'fields_used'=>[], 'aggregations'=>new \stdClass(), 'chart_data'=>[], 'confidence'=>'low' ], 'summary' => 'No matching data found.', 'usage' => [], 'voice' => $voice, 'session_id' => $session_id ];
                 return new WP_REST_Response($payloadOut, 200);
@@ -9282,7 +9556,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             // Build fields meta
             $fmeta = [];
             try {
-                $fieldsForMeta = \Arshline\Modules\Forms\FieldRepository::listByForm($fid);
+                $fieldsForMeta = FormsFieldRepository::listByForm($fid);
                 foreach (($fieldsForMeta ?: []) as $f){
                     $p0 = is_array($f['props'] ?? null) ? $f['props'] : [];
                     $label0 = (string)($p0['question'] ?? $p0['label'] ?? $p0['title'] ?? $p0['name'] ?? '');
@@ -9292,7 +9566,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
             } catch (\Throwable $e) { /* ignore */ }
             // Compose a single table CSV grounding across rows (with optional pre-filter via LLM planning)
             $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $rowsAll), function($v){ return $v>0; }));
-            $valuesMap = \Arshline\Modules\Forms\SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+            $valuesMap = FormsSubmissionRepository::listValuesBySubmissionIds($sliceIds);
 
             // Lightweight server-side name disambiguation (clarify candidates)
             $clarify = null;
@@ -9776,7 +10050,7 @@ Return strict JSON. No markdown. NEVER wrap in code fences.';
                 $slice = array_slice($rows, $i, $chunk_size);
                 // Fetch submission values in batch for this slice to ground the model
                 $sliceIds = array_values(array_filter(array_map(function($r){ return (int)($r['id'] ?? 0); }, $slice), function($v){ return $v>0; }));
-                $valuesMap = SubmissionRepository::listValuesBySubmissionIds($sliceIds);
+                $valuesMap = FormsSubmissionRepository::listValuesBySubmissionIds($sliceIds);
                 // Optionally build a tabular CSV (header=field labels, rows=submissions) to help the model
                 $tableCsv = '';
                 // Allow tabular grounding for all non-greeting questions to improve extraction (entity lookups, filters, etc.)

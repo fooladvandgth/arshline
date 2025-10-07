@@ -7,25 +7,6 @@
    Exports: attaches renderFormBuilder/renderFormEditor/renderFormPreview to window
    ========================================================================= */
 (function(){
-  // ---------------------------------------------------------------------------
-  // Feature Flags (lightweight; can be toggled later or overridden before load)
-  // ---------------------------------------------------------------------------
-  // dashboardQuick: show KPI + quick analytics mini charts on main dashboard
-  // reportsCharts: enable charts & quick analytics panel inside Reports tab
-  // analyticsAdvanced: enable advanced (multi-form) analysis pane in Analytics
-  // messagingAdvanced: keep restored advanced messaging UI
-  // aiTerminal: allow AI floating terminal integrations (not modified here)
-  try {
-    if (!window.__ARSH_FEATURE_FLAGS__) {
-      window.__ARSH_FEATURE_FLAGS__ = {
-        dashboardQuick: true,
-        reportsCharts: true,
-        analyticsAdvanced: true,
-        messagingAdvanced: true,
-        aiTerminal: true
-      };
-    }
-  } catch(_ff){ }
   // Signal as early as possible that external controller is present,
   // so inline block (in template) can skip binding duplicate handlers.
   try { window.ARSH_CTRL_EXTERNAL = true; } catch(_){ }
@@ -417,7 +398,7 @@
               '<div id="arHooshaPreview" class="card" style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;display:none;margin-top:1.25rem"></div>'+ 
             '</div>'+ 
           '</div>'+
-          '<div id="arDashQuickAnalytics" class="card glass" style="padding:1rem; margin-top:1rem;">'+
+          '<div class="card glass" style="padding:1rem; margin-top:1rem;">'+
             '<div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem;">'+
               '<span class="title">تحلیل سریع</span>'+
               '<span class="hint">پیامک / پاسخ / بازدید / اعضا (۳۰ روز)</span>'+
@@ -447,8 +428,6 @@
               '</div>'+
             '</div>'+
           '</div>';
-        // Remove quick analytics card if feature flag disabled
-        try { if(!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick)){ var qa=document.getElementById('arDashQuickAnalytics'); if(qa && qa.parentNode) qa.parentNode.removeChild(qa); } } catch(_remQA){}
         // Scroll sync (raw -> edited caret proximity)
         (function(){
           var raw = document.getElementById('arHooshaRaw');
@@ -1349,32 +1328,19 @@
           function ensureChart(cb){ if(window.Chart) return cb(); var s=document.getElementById('arDashChartDyn'); if(!s){ s=document.createElement('script'); s.id='arDashChartDyn'; s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'; s.onload=cb; s.onerror=function(){ cb(); }; document.head.appendChild(s);} else { s.addEventListener('load', cb); } }
           var lineChart=null, donutChart=null;
           function palette(){ var dark=document.body.classList.contains('dark'); return { grid: dark?'rgba(255,255,255,.08)':'rgba(0,0,0,.06)', text: dark?'#e5e7eb':'#374151', line: dark?'#60a5fa':'#2563eb', fill: dark?'rgba(96,165,250,.15)':'rgba(37,99,235,.12)', active: dark?'#34d399':'#10b981', disabled: dark?'#f87171':'#ef4444' }; }
-          function renderLine(labels, data){
-            ensureChart(function(){
-              if(!window.Chart) return;
-              try { if(lineChart){ lineChart.destroy(); lineChart = null; } } catch(_){ }
-              var pal = palette();
-              var ctx = document.getElementById('arSubsChartDash');
-              if(!ctx) return;
-              lineChart = new window.Chart(ctx, {
-                type: 'line',
-                data: { labels: labels, datasets: [{ label: 'ارسال‌ها', data: data, borderColor: pal.line, backgroundColor: pal.fill, fill: true, tension: .3, pointRadius: 2, borderWidth: 2 }] },
-                options: { responsive:true, maintainAspectRatio:false, scales:{ x:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, maxRotation:0, autoSkip:true, maxTicksLimit:10 } }, y:{ grid:{ color:pal.grid }, ticks:{ color:pal.text, precision:0 } } }, plugins:{ legend:{ labels:{ color:pal.text } }, tooltip:{ intersect:false, mode:'index' } } }
-              });
-            });
-          }
+          function renderLine(labels,data){ ensureChart(function(){ if(!window.Chart) return; try{ if(lineChart){ lineChart.destroy(); lineChart=null; } }catch(_){ } var pal=palette(); var ctx=document.getElementById('arSubsChartDash'); if(!ctx) return; lineChart=new window.Chart(ctx,{type:'line',data:{labels:labels,datasets:[{label:'ارسال‌ها',data:data,borderColor:pal.line,backgroundColor:pal.fill,fill:true,tension:.3,pointRadius:2,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{grid:{color:pal.grid},ticks:{color:pal.text,maxRotation:0,autoSkip:true,maxTicksLimit:10}},y:{grid:{color:pal.grid},ticks:{color:pal.text,precision:0}}},plugins:{legend:{labels:{color:pal.text}},tooltip:{intersect:false,mode:'index'}}}); }); }
           function renderDonut(active,disabled){ ensureChart(function(){ if(!window.Chart) return; try{ if(donutChart){ donutChart.destroy(); donutChart=null; } }catch(_){ } var pal=palette(); var ctx=document.getElementById('arFormsDonutDash'); if(!ctx) return; donutChart=new window.Chart(ctx,{type:'doughnut',data:{labels:['فعال','غیرفعال'],datasets:[{data:[active,disabled],backgroundColor:[pal.active,pal.disabled],borderColor:[pal.active,pal.disabled]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:pal.text}}}}}); }); }
           function loadStats(){ var sel=document.getElementById('arStatsDaysDash'); var days=parseInt(sel? sel.value : '30')||30; try { var url=new URL(ARSHLINE_REST+'stats', location.origin); url.searchParams.set('days', String(days)); fetch(url.toString(), {credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE}}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(j){ var counts=j.counts||j||{}; var total=counts.forms||0; var active=counts.forms_active||0; var disabled=Math.max(total-active,0); function set(id,v){ var el=document.getElementById(id); if(el) el.textContent=String(v); } set('arKpiForms', total); set('arKpiFormsActive', active); set('arKpiFormsDisabled', disabled); set('arKpiSubs', counts.submissions||0); set('arKpiUsers', counts.users||0); var ser=j.series||{}; renderLine(ser.labels||[], ser.submissions_per_day||[]); renderDonut(active, disabled); }).catch(function(e){ console.warn('[ARSH][DASH] stats load failed', e); }); } catch(e){ console.warn(e); } }
-          function loadQuick(){ if(!(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick)) return; var sel=document.getElementById('arMetricsDaysDash'); var d= sel? sel.value : '30'; var url=new URL(ARSHLINE_REST+'analytics/metrics', location.origin); url.searchParams.set('days', d); fetch(url.toString(), {credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE}}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(json){ if(!json||!json.totals){ return; } var allZero=(json.totals.sms||0)===0&&(json.totals.submissions||0)===0&&(json.totals.views||0)===0&&(json.totals.group_members||0)===0; if(allZero){ var daysN=parseInt(d)||30; var labels=[]; var sms=[]; var subs=[]; var views=[]; for(var i=daysN-1;i>=0;i--){ var dt=new Date(Date.now()-i*86400000); labels.push(dt.toISOString().slice(0,10)); } labels.forEach(function(_,idx){ sms.push((idx%7)+1); subs.push(Math.round((Math.sin(idx/3)+1)*3+(idx%4))); views.push(subs[idx]*(1+(idx%3))+(idx%5)); }); json.series=json.series||{}; json.series.labels=labels; json.series.sms_per_day=sms; json.series.submissions_per_day=subs; json.series.views_per_day=views; json.totals.sms=sms.reduce((a,b)=>a+b,0); json.totals.submissions=subs.reduce((a,b)=>a+b,0); json.totals.views=views.reduce((a,b)=>a+b,0); json.totals.group_members=25; var host=document.getElementById('arMetricSmsTotalDash'); if(host && !host.dataset.demo){ var tag=document.createElement('span'); tag.textContent='Demo'; tag.style.cssText='font-size:10px;margin-right:4px;color:#f59e0b;'; host.parentNode.insertBefore(tag, host); host.dataset.demo='1'; } }
+          function loadQuick(){ var sel=document.getElementById('arMetricsDaysDash'); var d= sel? sel.value : '30'; var url=new URL(ARSHLINE_REST+'analytics/metrics', location.origin); url.searchParams.set('days', d); fetch(url.toString(), {credentials:'same-origin', headers:{'X-WP-Nonce':ARSHLINE_NONCE}}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(json){ if(!json||!json.totals){ return; } var allZero=(json.totals.sms||0)===0&&(json.totals.submissions||0)===0&&(json.totals.views||0)===0&&(json.totals.group_members||0)===0; if(allZero){ var daysN=parseInt(d)||30; var labels=[]; var sms=[]; var subs=[]; var views=[]; for(var i=daysN-1;i>=0;i--){ var dt=new Date(Date.now()-i*86400000); labels.push(dt.toISOString().slice(0,10)); } labels.forEach(function(_,idx){ sms.push((idx%7)+1); subs.push(Math.round((Math.sin(idx/3)+1)*3+(idx%4))); views.push(subs[idx]*(1+(idx%3))+(idx%5)); }); json.series=json.series||{}; json.series.labels=labels; json.series.sms_per_day=sms; json.series.submissions_per_day=subs; json.series.views_per_day=views; json.totals.sms=sms.reduce((a,b)=>a+b,0); json.totals.submissions=subs.reduce((a,b)=>a+b,0); json.totals.views=views.reduce((a,b)=>a+b,0); json.totals.group_members=25; var host=document.getElementById('arMetricSmsTotalDash'); if(host && !host.dataset.demo){ var tag=document.createElement('span'); tag.textContent='Demo'; tag.style.cssText='font-size:10px;margin-right:4px;color:#f59e0b;'; host.parentNode.insertBefore(tag, host); host.dataset.demo='1'; } }
             var labs=(json.series&&json.series.labels)||[]; function set(id,v){ var el=document.getElementById(id); if(el) el.textContent=String(v); }
             set('arMetricSmsTotalDash', json.totals.sms||0); set('arMetricSubsTotalDash', json.totals.submissions||0); set('arMetricViewsTotalDash', json.totals.views||0); set('arMetricMembersTotalDash', json.totals.group_members||0);
             ensureChart(function(){ if(!window.Chart) return; function mini(id, data, color){ var ctxEl=document.getElementById(id); if(!ctxEl) return; try { new window.Chart(ctxEl,{ type:'bar', data:{ labels:labs, datasets:[{ data:data, backgroundColor:color, borderRadius:4, maxBarThickness:10 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{enabled:true}}, scales:{x:{display:false},y:{display:false}} } }); } catch(_){ } }
               var pal=palette(); mini('arMetricSmsChartDash', (json.series&&json.series.sms_per_day)||[], pal.line); mini('arMetricSubsChartDash', (json.series&&json.series.submissions_per_day)||[], pal.active); mini('arMetricViewsChartDash', (json.series&&json.series.views_per_day)||[], pal.disabled); mini('arMetricMembersChartDash', labs.map(function(){ return json.totals.group_members||0; }), pal.text); });
           }).catch(function(e){ console.warn('[ARSH][DASH] quick metrics failed', e); }); }
-          try { var sd=document.getElementById('arStatsDaysDash'); if(sd) sd.addEventListener('change', loadStats); if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick){ var md=document.getElementById('arMetricsDaysDash'); if(md) md.addEventListener('change', loadQuick); } } catch(_){ }
-          loadStats(); if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick){ loadQuick(); }
+          try { var sd=document.getElementById('arStatsDaysDash'); if(sd) sd.addEventListener('change', loadStats); var md=document.getElementById('arMetricsDaysDash'); if(md) md.addEventListener('change', loadQuick); } catch(_){ }
+          loadStats(); loadQuick();
           // Theme re-render
-          try { var tt=document.getElementById('arThemeToggle'); if(tt){ tt.addEventListener('click', function(){ setTimeout(function(){ loadStats(); if(window.__ARSH_FEATURE_FLAGS__ && window.__ARSH_FEATURE_FLAGS__.dashboardQuick){ loadQuick(); } }, 350); }); } } catch(_){ }
+          try { var tt=document.getElementById('arThemeToggle'); if(tt){ tt.addEventListener('click', function(){ setTimeout(function(){ loadStats(); loadQuick(); }, 350); }); } } catch(_){ }
         })();
         return; // IMPORTANT: prevent fall-through
     } else if (tab === 'messaging') {
@@ -3468,9 +3434,8 @@
         .finally(function(){ try { window._arAddInFlight = false; } catch(_){ } setToolsDisabled(false); });
     }
 
-    function renderFormBuilder(id, opts){
-      dlog('renderFormBuilder:start', id, opts);
-      opts = opts || {};
+    function renderFormBuilder(id){
+      dlog('renderFormBuilder:start', id);
       if (!ARSHLINE_CAN_MANAGE){ notify('دسترسی به ویرایش فرم ندارید', 'error'); arRenderTab('forms'); return; }
       try { setSidebarClosed(true, false); } catch(_){ }
       document.body.classList.remove('preview-only');
@@ -3651,7 +3616,6 @@
             function showPanel(which){ var title = document.getElementById('arSectionTitle'); var panels = { builder: document.getElementById('arFormFieldsList'), design: document.getElementById('arDesignPanel'), settings: document.getElementById('arSettingsPanel'), share: document.getElementById('arSharePanel'), reports: document.getElementById('arReportsPanel'), }; Object.keys(panels).forEach(function(k){ panels[k].style.display = (k===which)?'block':'none'; }); document.getElementById('arBulkToolbar').style.display = (which==='builder')?'flex':'none'; var tools = document.getElementById('arToolsSide'); if (tools) tools.style.display = (which==='builder')?'block':'none'; title.textContent = (which==='builder'?'پیش‌نمایش فرم': which==='design'?'طراحی فرم': which==='settings'?'تنظیمات فرم': which==='share'?'ارسال/اشتراک‌گذاری': 'گزارشات فرم'); }
             function setActive(btn){ tabs.forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected','false'); }); btn.classList.add('active'); btn.setAttribute('aria-selected','true'); }
             tabs.forEach(function(btn, idx){ btn.setAttribute('tabindex', idx===0? '0' : '-1'); btn.addEventListener('click', function(){ setActive(btn); showPanel(btn.getAttribute('data-tab')); }); btn.addEventListener('keydown', function(e){ var i = tabs.indexOf(btn); if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){ e.preventDefault(); var ni = (e.key==='ArrowRight') ? (i+1) % tabs.length : (i-1+tabs.length) % tabs.length; tabs[ni].focus(); } if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); setActive(btn); showPanel(btn.getAttribute('data-tab')); } }); }); var def = content.querySelector('.ar-tabs [data-tab="builder"]'); if (def){ setActive(def); } showPanel('builder');
-            if (opts.tab){ var initBtn = content.querySelector('.ar-tabs [data-tab="'+opts.tab+'"]'); if (initBtn){ setActive(initBtn); showPanel(opts.tab); dlog('renderFormBuilder:init-tab', opts.tab); } }
             var meta = data.meta || {}; var dPrim = document.getElementById('arDesignPrimary'); if (dPrim) dPrim.value = meta.design_primary || '#1e40af'; var dBg = document.getElementById('arDesignBg'); if (dBg) dBg.value = meta.design_bg || '#f5f7fb'; var dTheme = document.getElementById('arDesignTheme'); if (dTheme) dTheme.value = meta.design_theme || 'light';
             // Populate and wire Title editing
             try {
@@ -3762,7 +3726,7 @@
             } catch(_){ }
           } catch(_){ }
           var fields = data.fields || []; var qCounter = 0; var visibleMap = []; var vIdx = 0;
-          list.innerHTML = fields.map(function(f, i){ var p = f.props || f; var type = p.type || f.type || 'short_text'; if (type === 'welcome' || type === 'thank_you'){ var ttl = (type==='welcome') ? 'پیام خوش‌آمد' : 'پیام تشکر'; var head = (p.heading && String(p.heading).trim()) || ''; return '<div class="card" data-oid="'+i+'" data-field-idx="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+          list.innerHTML = fields.map(function(f, i){ var p = f.props || f; var type = p.type || f.type || 'short_text'; if (type === 'welcome' || type === 'thank_you'){ var ttl = (type==='welcome') ? 'پیام خوش‌آمد' : 'پیام تشکر'; var head = (p.heading && String(p.heading).trim()) || ''; return '<div class="card" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
             <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
               <div class="hint" style="display:flex;align-items:center;gap:.4rem;">\
                 <span class="ar-type-ic"><ion-icon name="'+getTypeIcon(type)+'"></ion-icon></span>\
@@ -3775,7 +3739,7 @@
             </div>\
           </div>'; }
             visibleMap[vIdx] = i; vIdx++; var q = (p.question&&p.question.trim()) || ''; var qHtml = q ? sanitizeQuestionHtml(q) : 'پرسش بدون عنوان'; var n = ''; if (p.numbered !== false) { qCounter += 1; n = qCounter + '. '; }
-            return '<div class="card ar-draggable" draggable="true" data-vid="'+(vIdx-1)+'" data-oid="'+i+'" data-field-idx="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
+            return '<div class="card ar-draggable" draggable="true" data-vid="'+(vIdx-1)+'" data-oid="'+i+'" style="padding:.6rem;border:1px solid var(--border);border-radius:10px;background:var(--surface);">\
               <div style="display:flex;justify-content:space-between;align-items:center;gap:.6rem;">\
                 <div style="display:flex;align-items:center;gap:.5rem;">\
                   <span class="ar-dnd-handle" title="جابجایی">≡</span>\
@@ -3789,11 +3753,6 @@
                 </div>\
               </div>\
             </div>'; }).join('');
-          // Highlight requested field index (if provided)
-          if (typeof opts.fieldIndex === 'number' && !isNaN(opts.fieldIndex)){
-            var hi = list.querySelector('[data-field-idx="'+opts.fieldIndex+'"]');
-            if (hi){ try { hi.classList.add('ar-pulse'); setTimeout(function(){ hi.classList.remove('ar-pulse'); }, 2500); } catch(_){ } try { hi.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_){ } dlog('renderFormBuilder:init-field', opts.fieldIndex); }
-          }
           // Minimal delete/edit binding
           list.querySelectorAll('.arEditField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var idx = parseInt(a.getAttribute('data-index')||'0'); renderFormEditor(id, { index: idx }); }); });
           list.querySelectorAll('.arDeleteField').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var card = a.closest('.card'); if (!card) return; var oid = parseInt(card.getAttribute('data-oid')||''); if (isNaN(oid)) return; var p = fields[oid] && (fields[oid].props || fields[oid]); var ty = p && (p.type || fields[oid].type); if (ty === 'welcome' || ty === 'thank_you') return; var ok = window.confirm('از حذف این سؤال مطمئن هستید؟'); if (!ok) return; var newFields = fields.slice(); newFields.splice(oid, 1); fetch(ARSHLINE_REST + 'forms/'+id+'/fields', { method:'PUT', credentials:'same-origin', headers:{'Content-Type':'application/json','X-WP-Nonce': ARSHLINE_NONCE}, body: JSON.stringify({ fields: newFields }) }).then(function(r){ if(!r.ok){ if(r.status===401){ if (typeof handle401 === 'function') handle401(); } throw new Error('HTTP '+r.status); } return r.json(); }).then(function(){ notify('سؤال حذف شد', 'success'); renderFormBuilder(id); }).catch(function(){ notify('حذف سؤال ناموفق بود', 'error'); }); }); });

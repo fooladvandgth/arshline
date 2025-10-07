@@ -1,5 +1,22 @@
 # Changelog
 
+## 7.2.1 - پایداری و بهبود زمان انتظار (Stable Maintenance)
+
+Fixes & Improvements:
+- اصلاح مسیریابی تب «تحلیل‌ها» و جداسازی کامل از «گزارشات» (رفع رندر اشتباه داخل runAgent).
+- افزایش زمان انتظار پیش‌نمایش ویرایش طبیعی (Natural Edit Preview) از 17s → 35s و سپس 70s با افزونه تطبیقی بر اساس طول ورودی (کاهش fallback زودهنگام).
+- همگام‌سازی منطق اجباری بودن «نام» و «نام و نام خانوادگی» بین مرحله پیش‌نمایش و مرحله نهایی (preview + prepare).
+- بهبود fallback محلی: پشتیبانی از ارتقاء پاسخ کوتاه به متن بلند، required toggle، افزودن گزینه «سایر»، و تشخیص نیاز اجباری نام.
+- رفع Fatal Error مربوط به GroupRepository با افزودن use صحیح (Arshline\Modules\UserGroups\GroupRepository, Group) در Api.
+- پاکسازی کد تزریقی اشتباه داخل پیکربندی چارت (syntax error) در اسکریپت داشبورد.
+- ثبت یادداشت‌های تشخیصی (notes) واضح‌تر برای تصمیم‌های heuristics.
+
+Developer Notes:
+- تغییرات بدون شکستن API عمومی؛ ارتقاء ایمن برای تمام نصب‌های 7.2.x.
+- پیشنهاد: اجرای تست‌های واحد hoosha prepare قبل از تگ نهایی.
+
+---
+
 ## 7.3.0 - Enforcement & Test Hardening (Unreleased)
 
 Highlights:
